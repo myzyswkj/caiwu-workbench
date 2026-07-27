@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>财务工作台</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ===== 左侧栏目 ===== -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">财</div>
+        <div class="brand-text">
+          <div class="brand-title">财务工作台</div>
+          <div class="brand-sub" id="brandDate"></div>
+        </div>
+      </div>
+
+      <!-- 模块导航 -->
+      <nav class="nav" id="moduleNav">
+        <button class="nav-item active" data-module="home"><span class="nav-ico">🏠</span>工作台首页</button>
+        <button class="nav-item" data-module="internal"><span class="nav-ico">📒</span>登记内账</button>
+        <button class="nav-item" data-module="tax"><span class="nav-ico">🧾</span>报税记账</button>
+        <button class="nav-item" data-module="contacts"><span class="nav-ico">🤝</span>往来账</button>
+        <button class="nav-item" data-module="memo"><span class="nav-ico">📝</span>备忘录</button>
+        <button class="nav-item" data-module="taxcalc"><span class="nav-ico">💡</span>税负测算</button>
+        <button class="nav-item" data-module="taxkb"><span class="nav-ico">📚</span>财税知识</button>
+        <button class="nav-item" data-module="fnkb"><span class="nav-ico">🧮</span>公式函数知识</button>
+      </nav>
+
+      <!-- 常用网站 -->
+      <div class="sites">
+        <div class="sites-head">
+          <span>常用网站</span>
+          <button class="icon-btn" id="addSiteBtn" title="添加常用网站">＋</button>
+        </div>
+        <ul class="site-list" id="siteList"></ul>
+      </div>
+
+      <div class="sidebar-foot">
+        <button class="ghost-btn" id="exportBtn" title="导出全部数据（含照片凭证）">⬇ 导出数据</button>
+        <button class="ghost-btn" id="importBtn" title="导入数据（含照片凭证）">⬆ 导入数据</button>
+        <button class="ghost-btn" id="cryptoBtn" title="本地加密 / 锁定">🔒 加密</button>
+        <input type="file" id="importFile" accept="application/json" hidden />
+      </div>
+    </aside>
+
+    <!-- ===== 主内容区 ===== -->
+    <main class="main">
+      <header class="topbar">
+        <div class="ledger-switch">
+          <button class="ls-current" id="lsCurrent">📚 默认账本 ▾</button>
+          <div class="ls-menu" id="lsMenu" hidden></div>
+        </div>
+        <div class="topbar-title" id="topTitle">工作台首页</div>
+        <div class="topbar-actions" id="topActions"></div>
+        <div class="auth-area" id="authArea"></div>
+      </header>
+      <section class="content" id="content"></section>
+    </main>
+  </div>
+
+  <!-- 加密解锁覆盖层 -->
+  <div class="lock-overlay" id="lockOverlay" hidden></div>
+
+  <!-- 通用弹窗 -->
+  <div class="modal-mask" id="modalMask" hidden>
+    <div class="modal" id="modal">
+      <div class="modal-head">
+        <span id="modalTitle">标题</span>
+        <button class="icon-btn" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <!-- Supabase SDK（已本地化，避免国内 CDN 被墙导致云同步失效） -->
+  <script src="js/supabase.js"></script>
+
+  <!-- 本地 GBK/UTF-8 解码库（已本地化，所有浏览器含 iPhone Safari 一致可用） -->
+  <script src="js/iconv-lite.js"></script>
+
+  <!-- 本地核心脚本（不依赖外部 CDN，保证离线可用） -->
+  <script src="js/crypto.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/sidebar.js"></script>
+  <script src="js/internal.js"></script>
+  <script src="js/tax.js"></script>
+  <script src="js/memo.js"></script>
+  <script src="js/knowledge.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/contacts.js"></script>
+  <script src="js/taxcalc.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/lock.js"></script>
+  <script src="js/main.js"></script>
+
+  <!-- 说明：Supabase SDK 已本地化为 js/supabase.js（见上方），不再依赖外部 CDN -->
+</body>
+</html>

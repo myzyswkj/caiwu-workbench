@@ -1,0 +1,96 @@
+/* ============================================================
+ * 财税知识 & 公式函数知识（内置参考内容，支持分类与搜索）
+ * ============================================================ */
+(function (global) {
+  'use strict';
+  var FW = global.FW;
+
+  /* ---------------- 财税知识内容 ---------------- */
+  var TAX_KB = [
+    { cat: '税种常识', items: [
+      { t: '增值税', b: '对商品/服务增值额征收的流转税。一般纳税人适用 <b>13%（货物）、9%（建筑/不动产/交通等）、6%（服务）</b> 三档税率；小规模纳税人适用 <b>3%</b> 征收率（2023 起阶段性减按 1%）。应纳税额 = 销项税额 − 进项税额。' },
+      { t: '企业所得税', b: '对企业利润征收，<b>基本税率 25%</b>；符合条件的小型微利企业实际税负可低至 <b>5%</b>（应纳税所得额 ≤300 万部分减按 25% 计入、税率 20%）。按季度预缴、年度汇算清缴。' },
+      { t: '个人所得税（经营所得）', b: '个体工商户、个人独资/合伙企业投资者适用 <b>5%–35%</b> 五级超额累进税率，按年计算、分月/季预缴。工资薪金等综合所得适用 3%–45% 七级累进（由扣缴义务人代扣代缴）。' }
+    ]},
+    { cat: '发票管理', items: [
+      { t: '发票类型', b: '常用：<b>增值税专用发票</b>（可抵扣进项）、<b>增值税普通发票</b>、电子发票（数电票）。数电票已逐步取代纸质票，无需税控盘，通过电子税务局开具。' },
+      { t: '报销与入账要点', b: '①发票抬头、税号须准确；②业务真实、与合同/流水对应；③专用发票需 360 天内勾选认证抵扣；④发票丢失应及时取得存根联复印件并备案。' },
+      { t: '虚开发票风险', b: '无真实交易开票、为他人代开均属违法，情节严重可触犯刑法。内账与外账都应以真实业务为基础。' }
+    ]},
+    { cat: '申报期限', items: [
+      { t: '增值税/附加税', b: '一般纳税人 <b>按月</b> 申报，期限内通常为次月 <b>15 日</b> 前；小规模纳税人可 <b>按季</b> 申报。' },
+      { t: '企业所得税', b: '<b>按季预缴</b>（1/4/7/10 月申报上一季度），<b>年度汇算清缴</b> 在次年 5 月 31 日前完成。' },
+      { t: '个税（代扣代缴）', b: '扣缴义务人每月 15 日前申报缴纳上月工资薪金等个税；经营所得按季申报。' }
+    ]},
+    { cat: '身份与优惠', items: [
+      { t: '小规模 vs 一般纳税人', b: '<b>小规模</b>：年应征销售额 ≤500 万，征收率 3%/1%，不能抵扣进项，但税负简单；<b>一般纳税人</b>：可抵扣进项、可开专票，但核算要求高。可主动申请转一般纳税人，反之一般不可随意转回。' },
+      { t: '小微企业优惠', b: '小规模纳税人月销售额 ≤10 万（季度 ≤30 万）<b>免征增值税</b>；小型微利企业年应纳税所得额 ≤300 万部分实际税负 5%。政策以最新文件为准。' }
+    ]},
+    { cat: '账务基础', items: [
+      { t: '内账与外账', b: '<b>外账</b>：按税法/准则对外报送，强调合规；<b>内账</b>：反映企业真实经营全貌（含未开票收支），供老板内部管理。两者都应真实，内账更细更能看清代收代付、股东往来等。' },
+      { t: '借贷记账法', b: '有借必有贷、借贷必相等。资产/费用增加记借方，减少记贷方；负债/权益/收入相反。本工作台的「记账凭证」即按此规则校验平衡。' }
+    ]}
+  ];
+
+  /* ---------------- 公式函数知识内容 ---------------- */
+  var FN_KB = [
+    { cat: 'Excel 常用函数', items: [
+      { t: 'SUM / SUMIF / SUMIFS', b: '<code>=SUM(A1:A10)</code> 求和；<code>=SUMIF(项目列, "A项目", 金额列)</code> 单条件求和；<code>=SUMIFS(金额列, 项目列, "A", 月份列, "2026-07")</code> 多条件求和（做项目/月度统计常用）。' },
+      { t: 'VLOOKUP / XLOOKUP', b: '<code>=VLOOKUP(查找值, 表区域, 返回列号, 0)</code> 精确匹配；新版本推荐 <code>=XLOOKUP(查找值, 查找列, 返回列)</code>，可向左查找且不易错列。' },
+      { t: 'IF / IFS / ROUND', b: '<code>=IF(利润>0,"盈利","亏损")</code>；<code>=IFS(分>90,"优",分>60,"及格",TRUE,"不及格")</code> 多分支；<code>=ROUND(数值,2)</code> 保留两位小数，避免浮点误差。' },
+      { t: 'DATE / TEXT / EOMONTH', b: '<code>=EOMONTH(日期,0)</code> 取当月最后一天；<code>=TEXT(日期,"yyyy-mm")</code> 提取年月用于月度分组；<code>=DATE(年,月,日)</code> 构造日期。' }
+    ]},
+    { cat: '财务分析公式', items: [
+      { t: '盈利能力', b: '毛利率 =（营业收入 − 营业成本）÷ 营业收入；净利率 = 净利润 ÷ 营业收入；本工作台「利润表」已自动算出营业利润/净利润。' },
+      { t: '偿债能力', b: '流动比率 = 流动资产 ÷ 流动负债（≥2 较安全）；速动比率 =（流动资产 − 存货）÷ 流动负债（≥1 较安全）；资产负债率 = 负债总额 ÷ 资产总额（越低越稳健）。' },
+      { t: '运营效率', b: '存货周转率 = 营业成本 ÷ 平均存货；应收账款周转率 = 营业收入 ÷ 平均应收；周转越快占用资金越少。' }
+    ]},
+    { cat: '税务计算公式', items: [
+      { t: '增值税', b: '一般纳税人：应纳税额 = 销项税额 − 进项税额 = 销售额×税率 − 进项认证额；小规模：应纳税额 = 销售额 × 征收率（1%/3%）。' },
+      { t: '企业所得税', b: '应纳税额 = 应纳税所得额 × 税率 − 减免；应纳税所得额 = 利润总额 ± 纳税调整。小型微利：≤300 万部分 ×25%×20% = 实际 5%。' },
+      { t: '个人所得税（工资）', b: '预扣预缴：应纳税额 =（累计收入 − 累计免税 − 累计减除费用 5000×月数 − 累计专项扣除 − 专项附加扣除）× 预扣率 − 速算扣除数 − 已预缴。' }
+    ]},
+    { cat: '资金时间价值', items: [
+      { t: 'NPV / IRR / PMT', b: '<code>=NPV(折现率, 现金流区间)</code> 净现值；<code>=IRR(现金流区间)</code> 内部收益率；<code>=PMT(利率, 期数, 本金)</code> 每期还款额（房贷/贷款测算）。' },
+      { t: '复利终值', b: 'F = P × (1 + r)^n。例：10 万按年化 5% 投 5 年 ≈ 10×1.05⁵ ≈ 12.76 万。可用 <code>=FV(5%,5,0,-100000)</code> 计算。' }
+    ]},
+    { cat: '实用快捷键', items: [
+      { t: 'Excel 提效', b: '<b>Ctrl+;</b> 输入当天日期；<b>Ctrl+Shift+L</b> 开启筛选；<b>Alt+=</b> 快速求和；<b>F4</b> 切换引用方式（绝对/相对）；<b>Ctrl+T</b> 转为超级表。' }
+    ]}
+  ];
+
+  function buildKB(dataset) {
+    var state = { cat: dataset[0].cat, kw: '' };
+    function render() {
+      var list = [];
+      dataset.forEach(function (g) {
+        if (state.cat && g.cat !== state.cat) return;
+        g.items.forEach(function (it) {
+          if (state.kw && (it.t + it.b).indexOf(state.kw) < 0) return;
+          list.push(it);
+        });
+      });
+      var nav = dataset.map(function (g) {
+        return '<button class="' + (g.cat === state.cat ? 'active' : '') + '" data-cat="' + FW.esc(g.cat) + '">' + FW.esc(g.cat) + '</button>';
+      }).join('');
+      var cards = list.length ? list.map(function (it) {
+        return '<div class="kb-card"><h4>' + FW.esc(it.t) + '</h4><p>' + it.b + '</p></div>';
+      }).join('') : '<div class="empty">没有匹配的内容</div>';
+
+      document.getElementById('content').innerHTML =
+        '<input class="search-box" id="kbSearch" placeholder="搜索关键词…" value="' + FW.esc(state.kw) + '">' +
+        '<div class="kb-grid"><div class="kb-nav" id="kbNav">' + nav + '</div><div class="kb-list">' + cards + '</div></div>';
+
+      document.getElementById('kbSearch').oninput = function () { state.kw = this.value.trim(); render(); };
+      FW.qa('#kbNav button').forEach(function (b) { b.onclick = function () { state.cat = b.dataset.cat; render(); }; });
+    }
+    return render;
+  }
+
+  var renderTax = buildKB(TAX_KB);
+  var renderFn = buildKB(FN_KB);
+
+  FW.modules = FW.modules || {};
+  FW.modules.taxkb = { title: '财税知识', render: function () { document.getElementById('topActions').innerHTML = ''; renderTax(); } };
+  FW.modules.fnkb = { title: '公式函数知识', render: function () { document.getElementById('topActions').innerHTML = ''; renderFn(); } };
+})(window);
