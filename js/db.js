@@ -17,7 +17,7 @@
   // 全局键（跨账本共享，不被命名空间隔离）
   var GLOBAL_KEYS = ['sites', 'memos', 'kb_notes', 'ledgers', 'currentLedger', 'tax_templates'];
   // 按账本隔离的键
-  var PERLEDGER_KEYS = ['internal', 'internal_budget', 'internal_cats', 'tax_vouchers', 'tax_journals', 'tax_statements', 'contacts', 'tax_openings', 'tax_assets'];
+  var PERLEDGER_KEYS = ['internal', 'internal_budget', 'internal_cats', 'tax_vouchers', 'tax_journals', 'tax_statements', 'contacts', 'tax_openings', 'tax_assets', 'invoices'];
 
   // ---------- 加密状态 ----------
   var encMode = false;     // 已启用加密且已解锁
