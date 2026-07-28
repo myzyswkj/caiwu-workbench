@@ -80,11 +80,12 @@
 
     // 顶部操作区
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button>';
+    ta.innerHTML = '<button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button>';
     document.getElementById('budgetBtn').onclick = openBudgetForm;
     document.getElementById('catBtn').onclick = openCatManager;
     document.getElementById('addTxBtn').onclick = openForm;
     document.getElementById('expTxBtn').onclick = exportTable;
+    document.getElementById('impBtn').onclick = openImport;
   }
 
   function drawBody() {
@@ -425,6 +426,234 @@
   }
 
   /* ---------- 新增 / 编辑 表单 ---------- */
+  /* ===================== 批量导入（微信账单 / 表格） ===================== */
+  var impPreviewState = null;
+
+  // 简易 CSV 行解析（处理双引号包裹与转义）
+  function csvSplit(line) {
+    var out = [], cur = '', q = false;
+    for (var i = 0; i < line.length; i++) {
+      var ch = line[i];
+      if (q) {
+        if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+        else cur += ch;
+      } else {
+        if (ch === '"') q = true;
+        else if (ch === ',') { out.push(cur); cur = ''; }
+        else cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  // 文件解码（支持 GBK / UTF-8 / 自动）
+  function decodeFile(file, enc, cb) {
+    var r = new FileReader();
+    r.onload = function () {
+      var buf = new Uint8Array(r.result);
+      var text;
+      try {
+        if (enc === 'utf8') text = (window.iconv ? window.iconv.decode(buf, 'utf-8') : new TextDecoder('utf-8').decode(buf));
+        else if (enc === 'gbk') text = (window.iconv ? window.iconv.decode(buf, 'gbk') : new TextDecoder('gbk').decode(buf));
+        else {
+          var u = (window.iconv ? window.iconv.decode(buf, 'utf-8') : new TextDecoder('utf-8').decode(buf));
+          text = ((u.match(/�/g) || []).length === 0) ? u : (window.iconv ? window.iconv.decode(buf, 'gbk') : new TextDecoder('gbk').decode(buf));
+        }
+      } catch (e) { text = ''; }
+      cb(text.replace(/^﻿/, ''));
+    };
+    r.onerror = function () { cb(''); };
+    r.readAsArrayBuffer(file);
+  }
+
+  // 解析微信支付账单（用于个人对账的 CSV，GBK）
+  function parseWeChatBill(text) {
+    var lines = text.split(/\r?\n/);
+    var headerIdx = -1, header = null;
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].indexOf('交易时间') > -1 && lines[i].indexOf('收/支') > -1) { headerIdx = i; header = csvSplit(lines[i]); break; }
+    }
+    if (headerIdx < 0) return { ok: false, msg: '未识别到微信账单表头，请确认导出的是「用于个人对账」的 CSV 文件。', rows: [], skipped: 0 };
+    function col(name) { for (var k = 0; k < header.length; k++) if (header[k].indexOf(name) > -1) return k; return -1; }
+    var cTime = col('交易时间'), cParty = col('交易对方'), cGoods = col('商品'),
+        cInout = col('收/支'), cAmt = col('金额'), cPay = col('支付方式'), cStatus = col('当前状态'), cNote = col('备注');
+    var rows = [], skipped = 0;
+    for (var j = headerIdx + 1; j < lines.length; j++) {
+      var ln = lines[j].trim();
+      if (!ln) continue;
+      var f = csvSplit(ln);
+      var inout = (f[cInout] || '').trim();
+      var status = (f[cStatus] || '').trim();
+      if (inout === '不计收支') { skipped++; continue; }                 // 零钱提现/充值等
+      if (/退还|退款/.test(status) && !/已收钱|已转账/.test(status)) { skipped++; continue; }
+      if (inout !== '收入' && inout !== '支出') { skipped++; continue; }
+      var amt = parseFloat((f[cAmt] || '').replace(/[￥¥\s,]/g, ''));
+      if (isNaN(amt)) { skipped++; continue; }
+      var dt = (f[cTime] || '').slice(0, 10);
+      var party = (f[cParty] || '').trim();
+      var goods = (f[cGoods] || '').trim();
+      var note = (f[cNote] || '').trim();
+      var remark = goods + (note ? (goods ? ' · ' : '') + note : '');
+      var pay = (f[cPay] || '').trim();
+      var account = /银行卡|信用卡/.test(pay) ? '银行卡' : '微信';
+      rows.push({ date: dt, type: inout === '收入' ? 'income' : 'expense', amount: amt, project: party, remark: remark, account: account, _status: status, _inout: inout });
+    }
+    return { ok: true, rows: rows, skipped: skipped };
+  }
+
+  // 自动猜测表格列映射
+  function guessMap(headers) {
+    function find(words) {
+      for (var i = 0; i < headers.length; i++) {
+        var h = (headers[i] || '').toLowerCase();
+        for (var w = 0; w < words.length; w++) if (h.indexOf(words[w]) > -1) return i;
+      }
+      return -1;
+    }
+    var dateCol = find(['日期', '时间', 'date']);
+    var amountCol = find(['金额', '钱', 'amount', '数额']);
+    var typeCol = find(['收/支', '收支', '类型', '方向', 'type']);
+    var partyCol = find(['对方', '商户', '姓名', '客户', '名称', '付款方', '收款方']);
+    var remarkCol = find(['备注', '摘要', '说明', '用途', '商品']);
+    return { hasHeader: true, dateCol: dateCol < 0 ? 0 : dateCol, amountCol: amountCol < 0 ? 1 : amountCol, typeCol: typeCol, partyCol: partyCol, remarkCol: remarkCol, signMode: typeCol < 0 ? 'neg' : 'col' };
+  }
+
+  // 解析通用表格 CSV
+  function parseGenericCsv(text, map) {
+    var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+    var startRow = map.hasHeader ? 1 : 0;
+    var rows = [], skipped = 0;
+    function normDate(s) {
+      s = (s || '').trim();
+      var m = s.match(/(\d{4})[年\-\/](\d{1,2})[月\-\/](\d{1,2})/);
+      if (m) { var y = m[1], mo = m[2], d = m[3]; return y + '-' + (mo < 10 ? '0' + mo : mo) + '-' + (d < 10 ? '0' + d : d); }
+      return '';
+    }
+    for (var j = startRow; j < lines.length; j++) {
+      var f = csvSplit(lines[j]);
+      var amt = parseFloat((f[map.amountCol] || '').replace(/[￥¥\s,]/g, ''));
+      if (isNaN(amt)) { skipped++; continue; }
+      var type = 'expense';
+      if (map.signMode === 'neg') { type = amt < 0 ? 'expense' : 'income'; if (amt < 0) amt = -amt; }
+      else {
+        var tv = (map.typeCol > -1 ? (f[map.typeCol] || '') : '').trim();
+        if (/收|入|贷/.test(tv) && !/支|出/.test(tv)) type = 'income';
+        else if (/支|出|付|借/.test(tv)) type = 'expense';
+        else type = amt < 0 ? 'expense' : 'income';
+        if (amt < 0) amt = -amt;
+      }
+      var dt = normDate(f[map.dateCol]);
+      if (!dt) { skipped++; continue; }
+      rows.push({ date: dt, type: type, amount: amt, project: (map.partyCol > -1 ? (f[map.partyCol] || '').trim() : ''), remark: (map.remarkCol > -1 ? (f[map.remarkCol] || '').trim() : ''), account: '微信', _raw: f });
+    }
+    return { ok: true, rows: rows, skipped: skipped };
+  }
+
+  // 把解析结果写入内账
+  function doImportRows(rows) {
+    var n = 0;
+    rows.forEach(function (r) {
+      var rec = {
+        id: FW.db.uid('t_'), date: r.date, type: r.type, project: r.project || '',
+        amount: Number(r.amount), remark: r.remark || '', photos: [],
+        category: '', account: r.account || '微信', fromAccount: '', toAccount: '', equityDir: 'in'
+      };
+      FW.db.upsert(KEY, rec); n++;
+    });
+    return n;
+  }
+
+  // 导入预览弹窗（勾选后确认）
+  function openImportPreview(rows, skipped, mode) {
+    impPreviewState = { rows: rows, chosen: rows.map(function () { return true; }) };
+    var s = impPreviewState;
+    function renderPreview() {
+      var trs = s.rows.map(function (r, i) {
+        var cls = r.type === 'income' ? 'income' : 'expense';
+        return '<tr>' +
+          '<td><input type="checkbox" class="pc" data-i="' + i + '" ' + (s.chosen[i] ? 'checked' : '') + '></td>' +
+          '<td>' + FW.esc(r.date) + '</td>' +
+          '<td class="' + cls + '">' + (r.type === 'income' ? '收入' : '支出') + '</td>' +
+          '<td class="num ' + cls + '">' + FW.fmtMoney(r.amount) + '</td>' +
+          '<td>' + FW.esc(r.project || '—') + '</td>' +
+          '<td>' + FW.esc(r.remark || '—') + '</td>' +
+          '<td>' + FW.esc(r.account || '—') + '</td>' +
+        '</tr>';
+      }).join('');
+      var cnt = s.chosen.filter(Boolean).length;
+      var body =
+        '<div class="muted" style="font-size:12px;margin-bottom:8px">共解析 <b>' + s.rows.length + '</b> 笔' + (skipped ? '，跳过 ' + skipped + ' 笔（退款 / 不计收支 / 无法识别）' : '') + '。勾选要导入的，取消的将被忽略。</div>' +
+        '<div style="max-height:46vh;overflow:auto"><table id="impPrevTable"><thead><tr><th><input type="checkbox" id="impAll" checked></th><th>日期</th><th>类型</th><th class="num">金额</th><th>对方/项目</th><th>备注</th><th>账户</th></tr></thead><tbody>' + trs + '</tbody></table></div>' +
+        '<div class="form-actions"><button class="btn ghost" id="impPrevCancel">取消</button><button class="btn" id="impDo">确认导入 <span id="impCnt">' + cnt + '</span> 笔</button></div>';
+      FW.openModal('确认导入', body, function () {
+        FW.qa('#impPrevTable .pc').forEach(function (cb) {
+          cb.onchange = function () { s.chosen[+cb.dataset.i] = cb.checked; document.getElementById('impCnt').textContent = s.chosen.filter(Boolean).length; document.getElementById('impAll').checked = s.chosen.every(Boolean); };
+        });
+        document.getElementById('impAll').onchange = function () { var v = this.checked; FW.qa('#impPrevTable .pc').forEach(function (cb) { cb.checked = v; s.chosen[+cb.dataset.i] = v; }); document.getElementById('impCnt').textContent = s.chosen.filter(Boolean).length; };
+        document.getElementById('impPrevCancel').onclick = FW.closeModal;
+        document.getElementById('impDo').onclick = function () {
+          var sel = s.rows.filter(function (r, i) { return s.chosen[i]; });
+          if (!sel.length) { FW.toast('请至少选择一笔'); return; }
+          var n = doImportRows(sel);
+          FW.closeModal(); render(); FW.toast('已导入 ' + n + ' 笔流水');
+        };
+      });
+    }
+    renderPreview();
+  }
+
+  // 导入入口弹窗
+  function openImport() {
+    var body =
+      '<div class="field"><label>导入方式</label><div class="seg">' +
+        '<button type="button" class="seg-btn active" data-m="wechat">微信账单</button>' +
+        '<button type="button" class="seg-btn" data-m="table">表格导入</button>' +
+      '</div></div>' +
+      '<div class="field"><label>选择文件（CSV）</label><input type="file" id="impFile" accept=".csv,text/csv"></div>' +
+      '<div class="field"><label>编码</label><select id="impEnc"><option value="auto">自动（推荐）</option><option value="gbk">GBK（微信 / 老 Excel）</option><option value="utf8">UTF-8</option></select></div>' +
+      '<div class="muted" style="font-size:12px;margin-top:6px" id="impTip">微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）。表格导入：从 Excel 复制或另存为 CSV。</div>' +
+      '<div class="form-actions"><button class="btn ghost" id="impCancel">取消</button><button class="btn" id="impParse">解析并预览</button></div>';
+    FW.openModal('批量导入流水', body, function () {
+      var mode = 'wechat';
+      var segs = FW.qa('.seg-btn');
+      segs.forEach(function (b) {
+        b.onclick = function () {
+          mode = b.dataset.m;
+          segs.forEach(function (x) { x.classList.toggle('active', x === b); });
+          document.getElementById('impTip').textContent = mode === 'wechat'
+            ? '微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）。'
+            : '表格导入：从 Excel 复制或另存为 CSV，系统会自动识别日期 / 金额 / 收支列。';
+        };
+      });
+      document.getElementById('impCancel').onclick = FW.closeModal;
+      document.getElementById('impParse').onclick = function () {
+        var file = document.getElementById('impFile').files[0];
+        if (!file) { FW.toast('请先选择文件'); return; }
+        var enc = document.getElementById('impEnc').value;
+        decodeFile(file, enc, function (text) {
+          if (!text) { FW.toast('文件读取失败'); return; }
+          var res;
+          if (mode === 'wechat') {
+            res = parseWeChatBill(text);
+          } else {
+            var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+            var headers = lines.length ? csvSplit(lines[0]) : [];
+            var map = guessMap(headers);
+            res = parseGenericCsv(text, map);
+            if (!res.rows.length && lines.length > 1) res = parseGenericCsv(text, Object.assign({}, map, { hasHeader: false }));
+          }
+          if (res.ok === false) { FW.toast(res.msg); return; }
+          if (!res.rows.length) { FW.toast('没有可导入的记录（跳过 ' + res.skipped + ' 行）'); return; }
+          FW.closeModal();
+          openImportPreview(res.rows, res.skipped, mode);
+        });
+      };
+    });
+  }
+
+  FW.internalImport = { parseWeChatBill: parseWeChatBill, parseGenericCsv: parseGenericCsv, csvSplit: csvSplit, guessMap: guessMap };
+
   function openForm(id) {
     var edit = id ? FW.db.getById(KEY, id) : null;
     var projList = projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
