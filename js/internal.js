@@ -519,9 +519,8 @@
     return { hasHeader: true, dateCol: dateCol < 0 ? 0 : dateCol, amountCol: amountCol < 0 ? 1 : amountCol, typeCol: typeCol, partyCol: partyCol, remarkCol: remarkCol, signMode: typeCol < 0 ? 'neg' : 'col' };
   }
 
-  // 解析通用表格 CSV
-  function parseGenericCsv(text, map) {
-    var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+  // 解析通用表格（行数组 → 记录），CSV 与 Excel 共用
+  function parseRowsCore(rowsArr, map) {
     var startRow = map.hasHeader ? 1 : 0;
     var rows = [], skipped = 0;
     function normDate(s) {
@@ -530,8 +529,8 @@
       if (m) { var y = m[1], mo = m[2], d = m[3]; return y + '-' + (mo < 10 ? '0' + mo : mo) + '-' + (d < 10 ? '0' + d : d); }
       return '';
     }
-    for (var j = startRow; j < lines.length; j++) {
-      var f = csvSplit(lines[j]);
+    for (var j = startRow; j < rowsArr.length; j++) {
+      var f = (rowsArr[j] || []).map(function (x) { return x == null ? '' : String(x); });
       var amt = parseFloat((f[map.amountCol] || '').replace(/[￥¥\s,]/g, ''));
       if (isNaN(amt)) { skipped++; continue; }
       var type = 'expense';
@@ -548,6 +547,13 @@
       rows.push({ date: dt, type: type, amount: amt, project: (map.partyCol > -1 ? (f[map.partyCol] || '').trim() : ''), remark: (map.remarkCol > -1 ? (f[map.remarkCol] || '').trim() : ''), account: '微信', _raw: f });
     }
     return { ok: true, rows: rows, skipped: skipped };
+  }
+
+  // 解析通用表格 CSV
+  function parseGenericCsv(text, map) {
+    var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+    var rowsArr = lines.map(function (l) { return csvSplit(l); });
+    return parseRowsCore(rowsArr, map);
   }
 
   // 把解析结果写入内账
@@ -610,9 +616,9 @@
         '<button type="button" class="seg-btn active" data-m="wechat">微信账单</button>' +
         '<button type="button" class="seg-btn" data-m="table">表格导入</button>' +
       '</div></div>' +
-      '<div class="field"><label>选择文件（CSV）</label><input type="file" id="impFile" accept=".csv,text/csv"></div>' +
-      '<div class="field"><label>编码</label><select id="impEnc"><option value="auto">自动（推荐）</option><option value="gbk">GBK（微信 / 老 Excel）</option><option value="utf8">UTF-8</option></select></div>' +
-      '<div class="muted" style="font-size:12px;margin-top:6px" id="impTip">微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）。表格导入：从 Excel 复制或另存为 CSV。</div>' +
+      '<div class="field"><label>选择文件（CSV 或 Excel）</label><input type="file" id="impFile" accept=".csv,.xlsx,.xls,text/csv"></div>' +
+      '<div class="field"><label>编码</label><select id="impEnc"><option value="auto">自动（推荐）</option><option value="gbk">GBK（微信 / 老 Excel）</option><option value="utf8">UTF-8</option></select><span class="muted" style="font-size:12px;margin-left:6px">（仅 CSV 需要，Excel 自动识别）</span></div>' +
+      '<div class="muted" style="font-size:12px;margin-top:6px" id="impTip">微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）。表格导入：支持 Excel（.xlsx/.xls）直接选文件，或 CSV（自动识别日期 / 金额 / 收支列）。</div>' +
       '<div class="form-actions"><button class="btn ghost" id="impCancel">取消</button><button class="btn" id="impParse">解析并预览</button></div>';
     FW.openModal('批量导入流水', body, function () {
       var mode = 'wechat';
@@ -623,13 +629,38 @@
           segs.forEach(function (x) { x.classList.toggle('active', x === b); });
           document.getElementById('impTip').textContent = mode === 'wechat'
             ? '微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）。'
-            : '表格导入：从 Excel 复制或另存为 CSV，系统会自动识别日期 / 金额 / 收支列。';
+            : '表格导入：支持 Excel（.xlsx/.xls）直接选文件，或 CSV；系统自动识别日期 / 金额 / 收支列。';
         };
       });
       document.getElementById('impCancel').onclick = FW.closeModal;
       document.getElementById('impParse').onclick = function () {
         var file = document.getElementById('impFile').files[0];
         if (!file) { FW.toast('请先选择文件'); return; }
+        var fname = (file.name || '').toLowerCase();
+        // Excel（.xlsx / .xls）：表格导入模式直接解析第一个工作表
+        if (mode === 'table' && /\.(xlsx|xls)$/.test(fname)) {
+          if (typeof XLSX === 'undefined') { FW.toast('Excel 解析库未加载，请刷新页面后重试'); return; }
+          var fr = new FileReader();
+          fr.onload = function () {
+            try {
+              var wb = XLSX.read(new Uint8Array(fr.result), { type: 'array' });
+              if (!wb.SheetNames.length) { FW.toast('Excel 中没有工作表'); return; }
+              var ws = wb.Sheets[wb.SheetNames[0]];
+              var rowsArr = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+              while (rowsArr.length && rowsArr[rowsArr.length - 1].every(function (c) { return c === '' || c == null; })) rowsArr.pop();
+              if (!rowsArr.length) { FW.toast('Excel 中没有数据'); return; }
+              var headers = rowsArr[0].map(function (c) { return c == null ? '' : String(c); });
+              var map = guessMap(headers);
+              var res = parseRowsCore(rowsArr, map);
+              if (!res.rows.length) { FW.toast('没有可导入的记录（跳过 ' + res.skipped + ' 行）'); return; }
+              FW.closeModal();
+              openImportPreview(res.rows, res.skipped, mode);
+            } catch (e) { FW.toast('Excel 解析失败：' + (e && e.message ? e.message : e)); }
+          };
+          fr.onerror = function () { FW.toast('文件读取失败'); };
+          fr.readAsArrayBuffer(file);
+          return;
+        }
         var enc = document.getElementById('impEnc').value;
         decodeFile(file, enc, function (text) {
           if (!text) { FW.toast('文件读取失败'); return; }
@@ -652,7 +683,7 @@
     });
   }
 
-  FW.internalImport = { parseWeChatBill: parseWeChatBill, parseGenericCsv: parseGenericCsv, csvSplit: csvSplit, guessMap: guessMap };
+  FW.internalImport = { parseWeChatBill: parseWeChatBill, parseGenericCsv: parseGenericCsv, parseRowsCore: parseRowsCore, csvSplit: csvSplit, guessMap: guessMap };
 
   function openForm(id) {
     var edit = id ? FW.db.getById(KEY, id) : null;
