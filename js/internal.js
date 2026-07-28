@@ -80,12 +80,19 @@
 
     // 顶部操作区
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button>';
+    ta.innerHTML = '<button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
     document.getElementById('budgetBtn').onclick = openBudgetForm;
     document.getElementById('catBtn').onclick = openCatManager;
     document.getElementById('addTxBtn').onclick = openForm;
     document.getElementById('expTxBtn').onclick = exportTable;
     document.getElementById('impBtn').onclick = openImport;
+    document.getElementById('clearBtn').onclick = function () {
+      if (!confirm('确定清空【当前账本】的全部内账流水吗？\n（含手动录入的，凭证照片也会一并删除，不可恢复！）')) return;
+      all().forEach(function (t) { if (t.photos && t.photos.length) { try { FW.db.deletePhotos(t.photos); } catch (e) {} } });
+      FW.db.saveList(KEY, []);
+      render();
+      FW.toast('已清空当前账本内账流水');
+    };
   }
 
   function drawBody() {
