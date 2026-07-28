@@ -9,7 +9,7 @@
 
   // ===== 数据说明 =====
   // salary_employees: { id, name, dept, remark }
-  // salary_records:   { id, empId, year, month, base(底薪), bonus(奖金), remark }
+  // salary_records:   { id, empId, year, month, base(底薪), bonus(奖金/提成), remark }
   // 每笔金额 = 底薪 + 奖金；每人累计 = 各月(底薪+奖金)之和
 
   function getEmps() { return FW.db.getList('salary_employees'); }
@@ -46,6 +46,7 @@
   }
 
   FW.salaryCalc = { computeEmpYear: computeEmpYear, computeYear: computeYear, num: num };
+  FW.salaryImport = { guessSalaryMap: guessSalaryMap, parseSalaryRows: parseSalaryRows, parseYM: parseYM, parseYear: parseYear };
 
   // ===== 渲染 =====
   var state = { year: new Date().getFullYear() };
@@ -64,20 +65,22 @@
     });
 
     // 顶部操作
-    var top = FW.qa('#topActions');
+    var top = document.getElementById('topActions');
     if (top) {
       top.innerHTML =
         '<button class="btn" id="salPrevYear">‹ ' + (state.year - 1) + '</button>' +
         '<span class="yr-label">' + state.year + ' 年</span>' +
         '<button class="btn" id="salNextYear">' + (state.year + 1) + ' ›</button>' +
-        '<button class="btn primary" id="salEmpBtn">👥 员工管理</button>' +
+        '<button class="btn primary" id="salImportBtn">📥 导入工资</button>' +
+        '<button class="btn" id="salEmpBtn">👥 员工管理</button>' +
         '<button class="btn" id="salPrint">🖨 打印</button>' +
         '<button class="btn" id="salExport">⬇ 导出CSV</button>';
-      FW.qa('#salPrevYear').onclick = function () { state.year--; render(); };
-      FW.qa('#salNextYear').onclick = function () { state.year++; render(); };
-      FW.qa('#salEmpBtn').onclick = openEmpManager;
-      FW.qa('#salPrint').onclick = function () { window.print(); };
-      FW.qa('#salExport').onclick = function () { exportCSV(rows); };
+      document.getElementById('salPrevYear').onclick = function () { state.year--; render(); };
+      document.getElementById('salNextYear').onclick = function () { state.year++; render(); };
+      document.getElementById('salImportBtn').onclick = openImport;
+      document.getElementById('salEmpBtn').onclick = openEmpManager;
+      document.getElementById('salPrint').onclick = function () { window.print(); };
+      document.getElementById('salExport').onclick = function () { exportCSV(rows); };
     }
 
     var html = '';
@@ -91,18 +94,18 @@
       statCard('累计金额', FW.fmtMoney(totalAmount)) +
       '</div>';
 
-    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>与<strong>奖金</strong>，每笔金额 = 底薪 + 奖金，右侧自动累计每个人的底薪、奖金与总金额。点击某月格子可录入 / 修改。</p>';
+    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>与<strong>奖金(提成)</strong>，每笔金额 = 底薪 + 奖金，右侧自动累计每个人的底薪、奖金与总金额。点格子可录入 / 修改；也可点「📥 导入工资」直接导入 Excel/CSV，系统会自动识别员工并新建。</p>';
 
     if (emps.length === 0) {
       html += '<div class="empty-state">' +
         '<div class="empty-ico">💰</div>' +
         '<div class="empty-title">还没有员工</div>' +
-        '<div class="empty-sub">先到「👥 员工管理」添加员工，再逐月登记工资底薪与奖金。</div>' +
-        '<button class="btn primary" id="salEmpBtn2">＋ 添加员工</button>' +
+        '<div class="empty-sub">点「📥 导入工资」选一份含 姓名/底薪/奖金(提成) 的 Excel 或 CSV，系统会自动识别并新建员工；也可点「👥 员工管理」手动添加。</div>' +
+        '<button class="btn primary" id="salImportBtn2">📥 导入工资</button>' +
         '</div>';
       html += '</div>';
-      var c = FW.qa('#content'); if (c) c.innerHTML = html;
-      var b2 = FW.qa('#salEmpBtn2'); if (b2) b2.onclick = openEmpManager;
+      var c0 = document.getElementById('content'); if (c0) c0.innerHTML = html;
+      var b0 = document.getElementById('salImportBtn2'); if (b0) b0.onclick = openImport;
       return;
     }
 
@@ -138,7 +141,7 @@
     html += '</tbody></table></div>';
     html += '</div>';
 
-    var c2 = FW.qa('#content'); if (c2) c2.innerHTML = html;
+    var c2 = document.getElementById('content'); if (c2) c2.innerHTML = html;
 
     // 单元格点击录入
     var cells = document.querySelectorAll('.salary-table td[data-emp]');
@@ -167,43 +170,37 @@
     var body = '<div class="form">' +
       '<div class="form-row"><label>员工</label><div class="form-static">' + FW.esc(emp.name) + ' · ' + state.year + '年' + month + '月</div></div>' +
       '<div class="form-row"><label>底薪 *</label><input id="mBase" type="number" step="0.01" value="' + (base === '' ? '' : base) + '" placeholder="如 8000"></div>' +
-      '<div class="form-row"><label>奖金</label><input id="mBonus" type="number" step="0.01" value="' + (bonus === '' ? '' : bonus) + '" placeholder="绩效/提成等，无则留空"></div>' +
+      '<div class="form-row"><label>奖金(提成)</label><input id="mBonus" type="number" step="0.01" value="' + (bonus === '' ? '' : bonus) + '" placeholder="无则留空"></div>' +
       '<div class="form-row"><label>备注</label><input id="mRemark" type="text" value="' + FW.esc(remark) + '" placeholder="如 项目奖金"></div>' +
-      '</div>';
+      '</div>' +
+      '<div class="modal-foot"><button class="btn" id="mDel">删除</button><button class="btn primary" id="mSave">保存</button></div>';
 
-    FW.openModal(state.year + '年' + month + '月 · ' + emp.name, body, {
-      onShow: function (b) {
-        var save = function () {
-          var bs = FW.qa('#mBase').value;
-          if (bs === '' || isNaN(parseFloat(bs))) { FW.toast('请填写底薪'); return; }
-          var recs2 = getRecs();
-          var exist = recs2.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
-          var obj = {
-            empId: empId, year: state.year, month: month,
-            base: parseFloat(bs),
-            bonus: FW.qa('#mBonus').value === '' ? 0 : parseFloat(FW.qa('#mBonus').value),
-            remark: FW.qa('#mRemark').value
-          };
-          if (exist) obj.id = exist.id; else obj.id = recId(empId, state.year, month);
-          FW.db.upsert('salary_records', obj);
-          FW.closeModal();
-          FW.toast('已保存');
-          render();
+    FW.openModal(state.year + '年' + month + '月 · ' + emp.name, body, function () {
+      document.getElementById('mSave').onclick = function () {
+        var bs = document.getElementById('mBase').value;
+        if (bs === '' || isNaN(parseFloat(bs))) { FW.toast('请填写底薪'); return; }
+        var recs2 = getRecs();
+        var exist = recs2.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
+        var obj = {
+          empId: empId, year: state.year, month: month,
+          base: parseFloat(bs),
+          bonus: document.getElementById('mBonus').value === '' ? 0 : parseFloat(document.getElementById('mBonus').value),
+          remark: document.getElementById('mRemark').value
         };
-        var del = function () {
-          var recs2 = getRecs();
-          var exist = recs2.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
-          if (exist) { FW.db.remove('salary_records', exist.id); FW.toast('已删除该月'); FW.closeModal(); render(); }
-          else FW.closeModal();
-        };
-        var foot = document.createElement('div');
-        foot.className = 'modal-foot';
-        foot.innerHTML = '<button class="btn" id="mDel">删除</button><button class="btn primary" id="mSave">保存</button>';
-        b.appendChild(foot);
-        FW.qa('#mSave').onclick = save;
-        FW.qa('#mDel').onclick = del;
-        FW.qa('#mBase').focus();
-      }
+        if (exist) obj.id = exist.id; else obj.id = recId(empId, state.year, month);
+        FW.db.upsert('salary_records', obj);
+        FW.closeModal();
+        FW.toast('已保存');
+        render();
+      };
+      document.getElementById('mDel').onclick = function () {
+        var recs2 = getRecs();
+        var exist = recs2.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
+        if (exist) { FW.db.remove('salary_records', exist.id); FW.toast('已删除该月'); }
+        FW.closeModal();
+        render();
+      };
+      document.getElementById('mBase').focus();
     });
   }
 
@@ -212,7 +209,7 @@
     function draw() {
       var emps = getEmps();
       var body = '<div class="emp-list">';
-      if (emps.length === 0) body += '<p class="sal-tip">还没有员工，点下面「＋ 新增员工」添加。</p>';
+      if (emps.length === 0) body += '<p class="sal-tip">还没有员工，导入工资时会自动新建，也可点下面「＋ 新增员工」手动添加。</p>';
       emps.forEach(function (e) {
         body += '<div class="emp-row">' +
           '<div class="emp-info"><span class="emp-name">' + FW.esc(e.name) + '</span>' +
@@ -224,25 +221,23 @@
       body += '</div>' +
         '<div class="modal-foot"><button class="btn" id="empAdd">＋ 新增员工</button></div>';
 
-      FW.openModal('员工管理', body, {
-        onShow: function (b) {
-          Array.prototype.forEach.call(b.querySelectorAll('[data-edit]'), function (btn) {
-            btn.onclick = function () { openEmpForm(btn.getAttribute('data-edit')); };
-          });
-          Array.prototype.forEach.call(b.querySelectorAll('[data-del]'), function (btn) {
-            btn.onclick = function () {
-              if (!confirm('删除该员工？其所有月份工资记录也会一并删除。')) return;
-              var id = btn.getAttribute('data-del');
-              FW.db.remove('salary_employees', id);
-              var recs = getRecs().filter(function (r) { return r.empId !== id; });
-              FW.db.saveList('salary_records', recs);
-              FW.toast('已删除');
-              draw();
-              render();
-            };
-          });
-          FW.qa('#empAdd').onclick = function () { openEmpForm(null); };
-        }
+      FW.openModal('员工管理', body, function (b) {
+        Array.prototype.forEach.call(b.querySelectorAll('[data-edit]'), function (btn) {
+          btn.onclick = function () { openEmpForm(btn.getAttribute('data-edit')); };
+        });
+        Array.prototype.forEach.call(b.querySelectorAll('[data-del]'), function (btn) {
+          btn.onclick = function () {
+            if (!confirm('删除该员工？其所有月份工资记录也会一并删除。')) return;
+            var id = btn.getAttribute('data-del');
+            FW.db.remove('salary_employees', id);
+            var recs = getRecs().filter(function (r) { return r.empId !== id; });
+            FW.db.saveList('salary_records', recs);
+            FW.toast('已删除');
+            draw();
+            render();
+          };
+        });
+        document.getElementById('empAdd').onclick = function () { openEmpForm(null); };
       });
     }
     draw();
@@ -255,31 +250,248 @@
       '<div class="form-row"><label>姓名 *</label><input id="eName" type="text" value="' + (e ? FW.esc(e.name) : '') + '"></div>' +
       '<div class="form-row"><label>部门</label><input id="eDept" type="text" value="' + (e ? FW.esc(e.dept || '') : '') + '" placeholder="如 研发部"></div>' +
       '<div class="form-row"><label>备注</label><input id="eRemark" type="text" value="' + (e ? FW.esc(e.remark || '') : '') + '" placeholder="如 工号"></div>' +
-      '</div>';
-    FW.openModal(id ? '编辑员工' : '新增员工', body, {
-      onShow: function (b) {
-        var save = function () {
-          var name = FW.qa('#eName').value.trim();
-          if (!name) { FW.toast('请填写姓名'); return; }
-          var obj = {
-            name: name,
-            dept: FW.qa('#eDept').value.trim(),
-            remark: FW.qa('#eRemark').value.trim()
-          };
-          if (id) obj.id = id; else obj.id = 'emp_' + Date.now();
-          FW.db.upsert('salary_employees', obj);
-          FW.closeModal();
-          FW.toast('已保存');
-          openEmpManager();
-          render();
+      '</div>' +
+      '<div class="modal-foot"><button class="btn primary" id="eSave">保存</button></div>';
+    FW.openModal(id ? '编辑员工' : '新增员工', body, function () {
+      document.getElementById('eSave').onclick = function () {
+        var name = document.getElementById('eName').value.trim();
+        if (!name) { FW.toast('请填写姓名'); return; }
+        var obj = {
+          name: name,
+          dept: document.getElementById('eDept').value.trim(),
+          remark: document.getElementById('eRemark').value.trim()
         };
-        var foot = document.createElement('div');
-        foot.className = 'modal-foot';
-        foot.innerHTML = '<button class="btn primary" id="eSave">保存</button>';
-        b.appendChild(foot);
-        FW.qa('#eSave').onclick = save;
-        FW.qa('#eName').focus();
+        if (id) obj.id = id; else obj.id = 'emp_' + Date.now();
+        FW.db.upsert('salary_employees', obj);
+        FW.closeModal();
+        FW.toast('已保存');
+        openEmpManager();
+        render();
+      };
+      document.getElementById('eName').focus();
+    });
+  }
+
+  // ===== 导入：自动识别员工 + 底薪 + 奖金(提成) =====
+  function csvSplit(line) {
+    var out = [], cur = '', q = false;
+    for (var i = 0; i < line.length; i++) {
+      var ch = line[i];
+      if (q) {
+        if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+        else cur += ch;
+      } else {
+        if (ch === '"') q = true;
+        else if (ch === ',') { out.push(cur); cur = ''; }
+        else cur += ch;
       }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function decodeFile(file, enc, cb) {
+    var r = new FileReader();
+    r.onload = function () {
+      var buf = new Uint8Array(r.result);
+      var text = '';
+      try {
+        if (enc === 'utf8') text = (window.iconv ? window.iconv.decode(buf, 'utf-8') : new TextDecoder('utf-8').decode(buf));
+        else if (enc === 'gbk') text = (window.iconv ? window.iconv.decode(buf, 'gbk') : new TextDecoder('gbk').decode(buf));
+        else {
+          var u = (window.iconv ? window.iconv.decode(buf, 'utf-8') : new TextDecoder('utf-8').decode(buf));
+          text = ((u.match(/�/g) || []).length === 0) ? u : (window.iconv ? window.iconv.decode(buf, 'gbk') : new TextDecoder('gbk').decode(buf));
+        }
+      } catch (e) { text = ''; }
+      cb((text || '').replace(/^﻿/, ''));
+    };
+    r.onerror = function () { cb(''); };
+    r.readAsArrayBuffer(file);
+  }
+
+  // 读取文件 → 行数组（array of arrays）
+  function readFileRows(file, enc, cb) {
+    var fname = (file.name || '').toLowerCase();
+    if (/\.(xlsx|xls)$/.test(fname)) {
+      if (typeof XLSX === 'undefined') { FW.toast('Excel 解析库未加载，请刷新页面后重试'); cb(null); return; }
+      var fr = new FileReader();
+      fr.onload = function () {
+        try {
+          var wb = XLSX.read(new Uint8Array(fr.result), { type: 'array' });
+          if (!wb.SheetNames.length) { FW.toast('Excel 中没有工作表'); cb(null); return; }
+          var ws = wb.Sheets[wb.SheetNames[0]];
+          var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+          while (rows.length && rows[rows.length - 1].every(function (c) { return c === '' || c == null; })) rows.pop();
+          cb(rows);
+        } catch (e) { FW.toast('Excel 解析失败：' + (e && e.message ? e.message : e)); cb(null); }
+      };
+      fr.onerror = function () { FW.toast('文件读取失败'); cb(null); };
+      fr.readAsArrayBuffer(file);
+      return;
+    }
+    decodeFile(file, enc, function (text) {
+      if (!text) { FW.toast('文件读取失败'); cb(null); return; }
+      var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+      if (!lines.length) { cb([]); return; }
+      cb(lines.map(function (l) { return csvSplit(l); }));
+    });
+  }
+
+  function guessSalaryMap(headers) {
+    function find(words) {
+      for (var i = 0; i < headers.length; i++) {
+        var h = (headers[i] || '').toLowerCase().replace(/\s+/g, '');
+        for (var w = 0; w < words.length; w++) if (h.indexOf(words[w]) > -1) return i;
+      }
+      return -1;
+    }
+    return {
+      name: find(['姓名', '名字', '员工', '员工姓名', '职员', '名称', 'name']),
+      dept: find(['部门', 'department', 'dept']),
+      month: find(['月份', '月', '期间', 'month']),
+      year: find(['年份', '年', 'year']),
+      base: find(['底薪', '基础工资', '基本工资', '固定工资', '基本', '工资', '应发', '金额', '实发', 'base']),
+      bonus: find(['奖金', '提成', '绩效', '提成奖金', '提成工资', '津贴', '绩效工资', '奖金提成', 'bonus'])
+    };
+  }
+
+  function parseYM(s, defYear) {
+    s = (s == null ? '' : String(s)).trim();
+    if (!s) return { year: defYear, month: 0 };
+    var m = s.match(/(\d{4})[.\-\/年](\d{1,2})(?:[.\-\/月](\d{1,2}))?/);
+    if (m) { var y = +m[1], mo = +m[2]; return { year: y, month: (mo >= 1 && mo <= 12) ? mo : 0 }; }
+    var m2 = s.match(/^(\d{1,2})\s*月?$/);
+    if (m2) { var mo2 = +m2[1]; return { year: defYear, month: (mo2 >= 1 && mo2 <= 12) ? mo2 : 0 }; }
+    var m3 = s.match(/^(\d{4})$/);
+    if (m3) return { year: +m3[1], month: 0 };
+    return { year: defYear, month: 0 };
+  }
+
+  function parseYear(s) {
+    s = (s == null ? '' : String(s)).trim();
+    var m = s.match(/(\d{4})/);
+    return m ? +m[1] : 0;
+  }
+
+  // 把数据行按列映射解析为记录；自动识别新建员工
+  function parseSalaryRows(rows, m, defYear, defMonth) {
+    var nameCol = m.name !== 'ignore' ? +m.name : -1;
+    var deptCol = m.dept !== 'ignore' ? +m.dept : -1;
+    var monthCol = m.month !== 'ignore' ? +m.month : -1;
+    var yearCol = m.year !== 'ignore' ? +m.year : -1;
+    var baseCol = m.base !== 'ignore' ? +m.base : -1;
+    var bonusCol = m.bonus !== 'ignore' ? +m.bonus : -1;
+    if (nameCol < 0) return { rows: [], skipped: rows.length, newEmps: [], deptByEmp: {} };
+
+    var out = [], skipped = 0;
+    var newEmpSet = {}; // lower -> original name
+    var deptByEmp = {};
+    var existing = getEmps().map(function (e) { return (e.name || '').trim().toLowerCase(); });
+
+    rows.forEach(function (r) {
+      var name = (r[nameCol] != null ? String(r[nameCol]) : '').trim();
+      if (!name) { skipped++; return; }
+      var dept = deptCol >= 0 ? (r[deptCol] != null ? String(r[deptCol]) : '').trim() : '';
+      var year = defYear, month = defMonth;
+      if (monthCol >= 0) { var ym = parseYM(r[monthCol], defYear); year = ym.year; month = ym.month; }
+      if (yearCol >= 0) { var y2 = parseYear(r[yearCol]); if (y2) year = y2; }
+      if (!month || month < 1 || month > 12) { skipped++; return; }
+
+      var base = 0, bonus = 0;
+      if (baseCol >= 0) base = num(r[baseCol]);
+      if (bonusCol >= 0) bonus = num(r[bonusCol]);
+      if (baseCol < 0 && bonusCol < 0) { skipped++; return; }
+      var amount = base + bonus;
+      if (amount === 0) { skipped++; return; }
+
+      var key = name.toLowerCase();
+      if (existing.indexOf(key) < 0 && !newEmpSet[key]) {
+        newEmpSet[key] = name;
+        if (dept) deptByEmp[name] = dept;
+      }
+      out.push({ name: name, dept: dept, year: year, month: month, base: base, bonus: bonus, amount: amount });
+    });
+
+    var newEmps = Object.keys(newEmpSet).map(function (k) { return newEmpSet[k]; });
+    return { rows: out, skipped: skipped, newEmps: newEmps, deptByEmp: deptByEmp };
+  }
+
+  function openImport() {
+    var body = '<div class="form">' +
+      '<div class="form-row"><label>选择文件（Excel .xlsx/.xls 或 CSV）</label><input type="file" id="salFile" accept=".csv,.xlsx,.xls,text/csv"></div>' +
+      '<div class="form-row"><label>CSV 编码</label><select id="salEnc"><option value="auto">自动</option><option value="gbk">GBK（老 Excel 导出）</option><option value="utf8">UTF-8</option></select></div>' +
+      '<div class="muted" style="font-size:12px;margin-top:4px">每行 = 某员工某月。系统自动识别 姓名 / 部门 / 月份 / 年份 / 底薪 / 奖金(提成) 列，并<strong>自动新建未存在的员工</strong>，无需手动添加。</div>' +
+      '</div>' +
+      '<div class="modal-foot"><button class="btn" id="salImpCancel">取消</button><button class="btn primary" id="salImpParse">解析</button></div>';
+    FW.openModal('导入工资（自动识别员工）', body, function () {
+      document.getElementById('salImpCancel').onclick = FW.closeModal;
+      document.getElementById('salImpParse').onclick = function () {
+        var file = document.getElementById('salFile').files[0];
+        if (!file) { FW.toast('请先选择文件'); return; }
+        var enc = document.getElementById('salEnc').value;
+        readFileRows(file, enc, function (rows) {
+          if (!rows || rows.length < 2) { FW.toast('文件中没有足够的数据行'); return; }
+          var headers = rows[0].map(function (c) { return c == null ? '' : String(c); });
+          var dataRows = rows.slice(1);
+          FW.closeModal();
+          openImportMap(headers, dataRows);
+        });
+      };
+    });
+  }
+
+  function openImportMap(headers, dataRows) {
+    var guess = guessSalaryMap(headers);
+    var roles = [['ignore', '忽略'], ['name', '姓名'], ['dept', '部门'], ['month', '月份'], ['year', '年份'], ['base', '底薪'], ['bonus', '奖金(提成)']];
+    var map = {};
+    var selHtml = headers.map(function (h, i) {
+      var def = guess.name === i ? 'name' : (guess.dept === i ? 'dept' : (guess.month === i ? 'month' : (guess.year === i ? 'year' : (guess.base === i ? 'base' : (guess.bonus === i ? 'bonus' : 'ignore')))));
+      map[i] = def;
+      var opts = roles.map(function (r) { return '<option value="' + r[0] + '"' + (def === r[0] ? ' selected' : '') + '>' + r[1] + '</option>'; }).join('');
+      return '<div class="form-row"><label>' + FW.esc(h || ('列' + (i + 1))) + '</label><select data-col="' + i + '">' + opts + '</select></div>';
+    }).join('');
+
+    var body = '<div class="form" style="max-height:46vh;overflow:auto">' + selHtml + '</div>' +
+      '<div class="form-row"><label>默认年份（无年份列时）</label><input id="salDefYear" type="number" value="' + state.year + '"></div>' +
+      '<div class="form-row"><label>默认月份（无月份列时，留空则须文件内含月份）</label><input id="salDefMonth" type="number" min="1" max="12" placeholder="如 3"></div>' +
+      '<div id="salPrev" class="muted" style="font-size:12px;margin:8px 0"></div>' +
+      '<div class="modal-foot"><button class="btn" id="salMapCancel">取消</button><button class="btn" id="salMapPrev">预览</button><button class="btn primary" id="salMapOk">确认导入</button></div>';
+
+    FW.openModal('导入工资 · 列映射', body, function () {
+      function build() {
+        var m = {};
+        Array.prototype.forEach.call(document.querySelectorAll('select[data-col]'), function (s) { m[s.getAttribute('data-col')] = s.value; });
+        var defYear = parseInt(document.getElementById('salDefYear').value, 10) || state.year;
+        var defMonth = parseInt(document.getElementById('salDefMonth').value, 10) || 0;
+        return parseSalaryRows(dataRows, m, defYear, defMonth);
+      }
+      document.getElementById('salMapCancel').onclick = FW.closeModal;
+      document.getElementById('salMapPrev').onclick = function () {
+        var r = build();
+        document.getElementById('salPrev').innerHTML = '可导入 <b>' + r.rows.length + '</b> 条，新建员工 <b>' + r.newEmps.length + '</b> 人，跳过 ' + r.skipped + ' 行。' +
+          (r.newEmps.length ? '<br>新建：' + FW.esc(r.newEmps.join('、')) : '');
+      };
+      document.getElementById('salMapOk').onclick = function () {
+        var r = build();
+        if (!r.rows.length) { FW.toast('没有可导入的数据'); return; }
+        var emps = getEmps();
+        var byName = {};
+        emps.forEach(function (e) { byName[(e.name || '').trim().toLowerCase()] = e; });
+        r.newEmps.forEach(function (nm) {
+          var e = { id: 'emp_' + Date.now() + '_' + Math.floor(Math.random() * 1000), name: nm, dept: r.deptByEmp[nm] || '', remark: '' };
+          FW.db.upsert('salary_employees', e);
+          byName[nm.toLowerCase()] = e;
+        });
+        r.rows.forEach(function (rec) {
+          var emp = byName[(rec.name || '').trim().toLowerCase()];
+          if (!emp) return;
+          var id = recId(emp.id, rec.year, rec.month);
+          FW.db.upsert('salary_records', { id: id, empId: emp.id, year: rec.year, month: rec.month, base: rec.base, bonus: rec.bonus, remark: (rec.dept ? '' : '') });
+        });
+        FW.closeModal();
+        FW.toast('已导入 ' + r.rows.length + ' 条，新建 ' + r.newEmps.length + ' 名员工');
+        render();
+      };
     });
   }
 
