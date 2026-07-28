@@ -2,78 +2,42 @@
   'use strict';
   var FW = window.FW || (window.FW = {});
 
-  // ===== 工资薪金累计预扣率表（同个人所得税年度税率表）=====
-  var BRACKETS = [
-    { up: 36000,    rate: 0.03, deduct: 0 },
-    { up: 144000,   rate: 0.10, deduct: 2520 },
-    { up: 300000,   rate: 0.20, deduct: 16920 },
-    { up: 420000,   rate: 0.25, deduct: 31920 },
-    { up: 660000,   rate: 0.30, deduct: 52920 },
-    { up: 960000,   rate: 0.35, deduct: 85920 },
-    { up: Infinity, rate: 0.45, deduct: 181920 }
-  ];
-
   function num(v) {
     var n = parseFloat(v);
     return isNaN(n) ? 0 : n;
   }
 
-  // 累计应纳税所得额 -> 累计应纳税额
-  function calcAnnualTax(taxable) {
-    if (taxable <= 0) return 0;
-    for (var i = 0; i < BRACKETS.length; i++) {
-      if (taxable <= BRACKETS[i].up) {
-        return taxable * BRACKETS[i].rate - BRACKETS[i].deduct;
-      }
+  // ===== 数据说明 =====
+  // salary_employees: { id, name, dept, remark }
+  // salary_records:   { id, empId, year, month, base(底薪), bonus(奖金), remark }
+  // 每笔金额 = 底薪 + 奖金；每人累计 = 各月(底薪+奖金)之和
+
+  function getEmps() { return FW.db.getList('salary_employees'); }
+  function getRecs() { return FW.db.getList('salary_records'); }
+
+  function recId(empId, year, month) { return empId + '-' + year + '-' + month; }
+
+  // 兼容旧数据：旧记录只含 salary 字段 → 记作底薪
+  function normalizeRec(r) {
+    var base = num(r.base);
+    var bonus = num(r.bonus);
+    if (r.base == null && r.bonus == null && r.salary != null) {
+      base = num(r.salary); bonus = 0;
     }
-    return 0;
+    return { empId: r.empId, year: r.year, month: r.month, base: base, bonus: bonus, remark: r.remark || '' };
   }
 
-  // 计算某员工某年工资（累计预扣法）
-  // emp: { startMonth, socialDefault, specialAddDefault }
-  // recs: [{ empId, year, month, salary, social, specialAdd, exemption }]
   function computeEmpYear(emp, recs, year) {
-    var filled = (recs || []).map(function (r) {
-      return {
-        month: r.month,
-        salary: num(r.salary),
-        social: (r.social != null && r.social !== '') ? num(r.social) : num(emp.socialDefault),
-        specialAdd: (r.specialAdd != null && r.specialAdd !== '') ? num(r.specialAdd) : num(emp.specialAddDefault),
-        exemption: (r.exemption != null && r.exemption !== '') ? num(r.exemption) : 0
-      };
-    }).sort(function (a, b) { return a.month - b.month; });
-
-    var cumSalary = 0, cumExem = 0, cumSocial = 0, cumSpecial = 0, cumTax = 0, payCount = 0;
-    var months = [];
-    filled.forEach(function (r) {
-      payCount++;
-      cumSalary += r.salary;
-      cumExem += r.exemption;
-      cumSocial += r.social;
-      cumSpecial += r.specialAdd;
-      var deduct = 5000 * payCount; // 累计减除费用：每月5000，按当年已发薪月累计
-      var taxable = cumSalary - cumExem - deduct - cumSocial - cumSpecial;
-      var annualTax = calcAnnualTax(taxable);
-      var tax = Math.max(0, annualTax - cumTax);
-      cumTax = annualTax;
-      var net = r.salary - r.social - tax;
-      months.push({
-        month: r.month, salary: r.salary, social: r.social, specialAdd: r.specialAdd,
-        exemption: r.exemption, taxable: taxable, cumTax: annualTax,
-        tax: tax, net: net, payCount: payCount
-      });
+    var months = (recs || []).map(normalizeRec).sort(function (a, b) { return a.month - b.month; });
+    var cumBase = 0, cumBonus = 0, cumAmount = 0;
+    var list = months.map(function (r) {
+      var amount = r.base + r.bonus;
+      cumBase += r.base; cumBonus += r.bonus; cumAmount += amount;
+      return { month: r.month, base: r.base, bonus: r.bonus, amount: amount, remark: r.remark };
     });
-
-    var totals = months.reduce(function (a, m) {
-      a.salary += m.salary; a.social += m.social; a.specialAdd += m.specialAdd;
-      a.exemption += m.exemption; a.tax += m.tax; a.net += m.net;
-      return a;
-    }, { salary: 0, social: 0, specialAdd: 0, exemption: 0, tax: 0, net: 0 });
-
-    return { months: months, totals: totals };
+    return { months: list, cumBase: cumBase, cumBonus: cumBonus, cumAmount: cumAmount };
   }
 
-  // 计算某年全体员工
   function computeYear(emps, recs, year) {
     return emps.map(function (emp) {
       var er = recs.filter(function (r) { return r.empId === emp.id; });
@@ -81,31 +45,22 @@
     });
   }
 
-  FW.salaryCalc = {
-    BRACKETS: BRACKETS, calcAnnualTax: calcAnnualTax,
-    computeEmpYear: computeEmpYear, computeYear: computeYear, num: num
-  };
+  FW.salaryCalc = { computeEmpYear: computeEmpYear, computeYear: computeYear, num: num };
 
   // ===== 渲染 =====
   var state = { year: new Date().getFullYear() };
-  var MONTHS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
-
-  function getEmps() { return FW.db.getList('salary_employees'); }
-  function getRecs() { return FW.db.getList('salary_records'); }
-
-  function recId(empId, year, month) { return empId + '-' + year + '-' + month; }
+  var MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
   function render() {
     var emps = getEmps();
     var recs = getRecs();
     var rows = computeYear(emps, recs, state.year);
 
-    var totalSalary = 0, totalSocial = 0, totalTax = 0, totalNet = 0;
+    var totalBase = 0, totalBonus = 0, totalAmount = 0;
     rows.forEach(function (rw) {
-      totalSalary += rw.calc.totals.salary;
-      totalSocial += rw.calc.totals.social;
-      totalTax += rw.calc.totals.tax;
-      totalNet += rw.calc.totals.net;
+      totalBase += rw.calc.cumBase;
+      totalBonus += rw.calc.cumBonus;
+      totalAmount += rw.calc.cumAmount;
     });
 
     // 顶部操作
@@ -131,20 +86,18 @@
     // 汇总卡
     html += '<div class="sal-stats">' +
       statCard('员工人数', emps.length + ' 人') +
-      statCard('全年应发', FW.fmtMoney(totalSalary)) +
-      statCard('三险一金', FW.fmtMoney(totalSocial)) +
-      statCard('全年个税', FW.fmtMoney(totalTax)) +
-      statCard('全年实发', FW.fmtMoney(totalNet)) +
+      statCard('累计底薪', FW.fmtMoney(totalBase)) +
+      statCard('累计奖金', FW.fmtMoney(totalBonus)) +
+      statCard('累计金额', FW.fmtMoney(totalAmount)) +
       '</div>';
 
-    // 说明
-    html += '<p class="sal-tip">💡 采用<strong>累计预扣法</strong>计算工资薪金个税（基本减除费用每月 5000 元，按当年已发薪月累计）。点击某月「应发」格可录入/修改。专项扣除（三险一金）、专项附加扣除取员工默认值，可在格子内覆盖。</p>';
+    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>与<strong>奖金</strong>，每笔金额 = 底薪 + 奖金，右侧自动累计每个人的底薪、奖金与总金额。点击某月格子可录入 / 修改。</p>';
 
     if (emps.length === 0) {
       html += '<div class="empty-state">' +
         '<div class="empty-ico">💰</div>' +
         '<div class="empty-title">还没有员工</div>' +
-        '<div class="empty-sub">先到「👥 员工管理」添加员工，再逐月录入工资即可自动算个税。</div>' +
+        '<div class="empty-sub">先到「👥 员工管理」添加员工，再逐月登记工资底薪与奖金。</div>' +
         '<button class="btn primary" id="salEmpBtn2">＋ 添加员工</button>' +
         '</div>';
       html += '</div>';
@@ -157,7 +110,7 @@
     html += '<div class="salary-table-wrap print-area"><table class="salary-table"><thead><tr>' +
       '<th class="col-emp">员工 / 部门</th>';
     MONTHS.forEach(function (m) { html += '<th>' + m + '</th>'; });
-    html += '<th>全年应发</th><th>全年个税</th><th>全年实发</th></tr></thead><tbody>';
+    html += '<th>累计底薪</th><th>累计奖金</th><th>累计金额</th></tr></thead><tbody>';
 
     rows.forEach(function (rw) {
       var emp = rw.emp;
@@ -169,16 +122,17 @@
         var m = byMonth[mo];
         if (m) {
           html += '<td class="cell-has" data-emp="' + emp.id + '" data-month="' + mo + '" title="点击编辑">' +
-            '<div class="cell-sal">' + FW.fmtMoney(m.salary) + '</div>' +
-            '<div class="cell-tax">税 ' + FW.fmtMoney(m.tax) + '</div></td>';
+            '<div class="cell-base">底 ' + FW.fmtMoney(m.base) + '</div>' +
+            '<div class="cell-bonus">奖 ' + FW.fmtMoney(m.bonus) + '</div>' +
+            '<div class="cell-amt">= ' + FW.fmtMoney(m.amount) + '</div></td>';
         } else {
           html += '<td class="cell-empty" data-emp="' + emp.id + '" data-month="' + mo + '" title="点击录入">' +
             '<span class="plus">＋</span></td>';
         }
       }
-      html += '<td class="col-sum">' + FW.fmtMoney(rw.calc.totals.salary) + '</td>' +
-        '<td class="col-sum tax">' + FW.fmtMoney(rw.calc.totals.tax) + '</td>' +
-        '<td class="col-sum net">' + FW.fmtMoney(rw.calc.totals.net) + '</td></tr>';
+      html += '<td class="col-sum base">' + FW.fmtMoney(rw.calc.cumBase) + '</td>' +
+        '<td class="col-sum bonus">' + FW.fmtMoney(rw.calc.cumBonus) + '</td>' +
+        '<td class="col-sum amount">' + FW.fmtMoney(rw.calc.cumAmount) + '</td></tr>';
     });
 
     html += '</tbody></table></div>';
@@ -206,34 +160,28 @@
     if (!emp) return;
     var recs = getRecs();
     var rec = recs.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
-    var salary = rec ? rec.salary : '';
-    var social = rec ? rec.social : emp.socialDefault;
-    var specialAdd = rec ? rec.specialAdd : emp.specialAddDefault;
-    var exemption = rec ? rec.exemption : '';
+    var base = rec ? num(rec.base) : '';
+    var bonus = rec ? num(rec.bonus) : '';
     var remark = rec ? (rec.remark || '') : '';
 
     var body = '<div class="form">' +
       '<div class="form-row"><label>员工</label><div class="form-static">' + FW.esc(emp.name) + ' · ' + state.year + '年' + month + '月</div></div>' +
-      '<div class="form-row"><label>应发工资 *</label><input id="mSalary" type="number" step="0.01" value="' + (salary === '' ? '' : salary) + '" placeholder="本月应发合计"></div>' +
-      '<div class="form-row"><label>三险一金(个人)</label><input id="mSocial" type="number" step="0.01" value="' + (social === '' ? '' : social) + '" placeholder="默认 ' + (emp.socialDefault || 0) + '"></div>' +
-      '<div class="form-row"><label>专项附加扣除</label><input id="mSpecial" type="number" step="0.01" value="' + (specialAdd === '' ? '' : specialAdd) + '" placeholder="默认 ' + (emp.specialAddDefault || 0) + '"></div>' +
-      '<div class="form-row"><label>免税收入</label><input id="mExem" type="number" step="0.01" value="' + (exemption === '' ? '' : exemption) + '" placeholder="如差旅津贴等"></div>' +
-      '<div class="form-row"><label>备注</label><input id="mRemark" type="text" value="' + FW.esc(remark) + '"></div>' +
+      '<div class="form-row"><label>底薪 *</label><input id="mBase" type="number" step="0.01" value="' + (base === '' ? '' : base) + '" placeholder="如 8000"></div>' +
+      '<div class="form-row"><label>奖金</label><input id="mBonus" type="number" step="0.01" value="' + (bonus === '' ? '' : bonus) + '" placeholder="绩效/提成等，无则留空"></div>' +
+      '<div class="form-row"><label>备注</label><input id="mRemark" type="text" value="' + FW.esc(remark) + '" placeholder="如 项目奖金"></div>' +
       '</div>';
 
     FW.openModal(state.year + '年' + month + '月 · ' + emp.name, body, {
       onShow: function (b) {
         var save = function () {
-          var s = FW.qa('#mSalary').value;
-          if (s === '' || isNaN(parseFloat(s))) { FW.toast('请填写应发工资'); return; }
+          var bs = FW.qa('#mBase').value;
+          if (bs === '' || isNaN(parseFloat(bs))) { FW.toast('请填写底薪'); return; }
           var recs2 = getRecs();
           var exist = recs2.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
           var obj = {
             empId: empId, year: state.year, month: month,
-            salary: parseFloat(s),
-            social: FW.qa('#mSocial').value === '' ? '' : parseFloat(FW.qa('#mSocial').value),
-            specialAdd: FW.qa('#mSpecial').value === '' ? '' : parseFloat(FW.qa('#mSpecial').value),
-            exemption: FW.qa('#mExem').value === '' ? '' : parseFloat(FW.qa('#mExem').value),
+            base: parseFloat(bs),
+            bonus: FW.qa('#mBonus').value === '' ? 0 : parseFloat(FW.qa('#mBonus').value),
             remark: FW.qa('#mRemark').value
           };
           if (exist) obj.id = exist.id; else obj.id = recId(empId, state.year, month);
@@ -254,7 +202,7 @@
         b.appendChild(foot);
         FW.qa('#mSave').onclick = save;
         FW.qa('#mDel').onclick = del;
-        FW.qa('#mSalary').focus();
+        FW.qa('#mBase').focus();
       }
     });
   }
@@ -268,7 +216,7 @@
       emps.forEach(function (e) {
         body += '<div class="emp-row">' +
           '<div class="emp-info"><span class="emp-name">' + FW.esc(e.name) + '</span>' +
-          '<span class="emp-meta">部门：' + FW.esc(e.dept || '—') + ' · 入职：' + (e.startMonth || 1) + '月 · 默认三险一金 ' + FW.fmtMoney(e.socialDefault || 0) + ' · 专项附加 ' + FW.fmtMoney(e.specialAddDefault || 0) + '</span></div>' +
+          '<span class="emp-meta">部门：' + FW.esc(e.dept || '—') + (e.remark ? ' · ' + FW.esc(e.remark) : '') + '</span></div>' +
           '<div class="emp-ops"><button class="btn sm" data-edit="' + e.id + '">编辑</button> ' +
           '<button class="btn sm danger" data-del="' + e.id + '">删除</button></div>' +
           '</div>';
@@ -286,7 +234,6 @@
               if (!confirm('删除该员工？其所有月份工资记录也会一并删除。')) return;
               var id = btn.getAttribute('data-del');
               FW.db.remove('salary_employees', id);
-              // 删除其全部工资记录
               var recs = getRecs().filter(function (r) { return r.empId !== id; });
               FW.db.saveList('salary_records', recs);
               FW.toast('已删除');
@@ -306,13 +253,8 @@
     var e = id ? emps.filter(function (x) { return x.id === id; })[0] : null;
     var body = '<div class="form">' +
       '<div class="form-row"><label>姓名 *</label><input id="eName" type="text" value="' + (e ? FW.esc(e.name) : '') + '"></div>' +
-      '<div class="form-row"><label>部门</label><input id="eDept" type="text" value="' + (e ? FW.esc(e.dept || '') : '') + '"></div>' +
-      '<div class="form-row"><label>入职月份</label><select id="eStart">' +
-      (function () { var s = ''; for (var i = 1; i <= 12; i++) s += '<option value="' + i + '"' + ((e ? (e.startMonth || 1) : 1) === i ? ' selected' : '') + '>' + i + '月</option>'; return s; })() +
-      '</select></div>' +
-      '<div class="form-row"><label>月三险一金默认</label><input id="eSocial" type="number" step="0.01" value="' + (e ? (e.socialDefault || '') : '') + '" placeholder="个人承担部分"></div>' +
-      '<div class="form-row"><label>月专项附加默认</label><input id="eSpecial" type="number" step="0.01" value="' + (e ? (e.specialAddDefault || '') : '') + '" placeholder="子女教育/房贷/赡养等"></div>' +
-      '<div class="form-row"><label>备注</label><input id="eRemark" type="text" value="' + (e ? FW.esc(e.remark || '') : '') + '"></div>' +
+      '<div class="form-row"><label>部门</label><input id="eDept" type="text" value="' + (e ? FW.esc(e.dept || '') : '') + '" placeholder="如 研发部"></div>' +
+      '<div class="form-row"><label>备注</label><input id="eRemark" type="text" value="' + (e ? FW.esc(e.remark || '') : '') + '" placeholder="如 工号"></div>' +
       '</div>';
     FW.openModal(id ? '编辑员工' : '新增员工', body, {
       onShow: function (b) {
@@ -322,9 +264,6 @@
           var obj = {
             name: name,
             dept: FW.qa('#eDept').value.trim(),
-            startMonth: parseInt(FW.qa('#eStart').value, 10) || 1,
-            socialDefault: FW.qa('#eSocial').value === '' ? 0 : parseFloat(FW.qa('#eSocial').value),
-            specialAddDefault: FW.qa('#eSpecial').value === '' ? 0 : parseFloat(FW.qa('#eSpecial').value),
             remark: FW.qa('#eRemark').value.trim()
           };
           if (id) obj.id = id; else obj.id = 'emp_' + Date.now();
@@ -346,17 +285,18 @@
 
   function exportCSV(rows) {
     var header = ['员工', '部门'];
-    MONTHS.forEach(function (m) { header.push(m + '应发'); });
-    header.push('全年应发', '全年个税', '全年实发');
+    MONTHS.forEach(function (m) { header.push(m + '底薪', m + '奖金', m + '金额'); });
+    header.push('累计底薪', '累计奖金', '累计金额');
     var lines = [header.join(',')];
     rows.forEach(function (rw) {
       var byMonth = {};
       rw.calc.months.forEach(function (m) { byMonth[m.month] = m; });
       var line = [rw.emp.name, rw.emp.dept || ''];
       for (var mo = 1; mo <= 12; mo++) {
-        line.push(byMonth[mo] ? byMonth[mo].salary : '');
+        var m = byMonth[mo];
+        line.push(m ? m.base : '', m ? m.bonus : '', m ? m.amount : '');
       }
-      line.push(rw.calc.totals.salary, rw.calc.totals.tax, rw.calc.totals.net);
+      line.push(rw.calc.cumBase, rw.calc.cumBonus, rw.calc.cumAmount);
       lines.push(line.join(','));
     });
     var csv = lines.join('\r\n');
@@ -364,7 +304,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = '工资个税_' + state.year + '.csv';
+    a.download = '工资登记_' + state.year + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     FW.toast('已导出 CSV');
@@ -372,7 +312,7 @@
 
   FW.modules = FW.modules || {};
   FW.modules.salary = {
-    title: '工资个税',
+    title: '工资登记',
     render: render
   };
 })(window);

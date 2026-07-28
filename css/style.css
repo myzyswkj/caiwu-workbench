@@ -541,7 +541,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 #impPrevTable thead th { background: var(--panel); color: var(--muted); font-weight: 600; position: sticky; top: 0; }
 #impPrevTable .num { text-align: right; }
 
-/* ===== 工资个税 ===== */
+/* ===== 工资登记 ===== */
 .yr-label { font-size: 15px; font-weight: 700; color: var(--text); padding: 0 6px; }
 .salary-wrap { padding: 2px; }
 .sal-stats { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
