@@ -506,16 +506,16 @@
   function guessMap(headers) {
     function find(words) {
       for (var i = 0; i < headers.length; i++) {
-        var h = (headers[i] || '').toLowerCase();
+        var h = (headers[i] || '').toLowerCase().replace(/\s+/g, ''); // 去空格，兼容「交易 日期」等
         for (var w = 0; w < words.length; w++) if (h.indexOf(words[w]) > -1) return i;
       }
       return -1;
     }
-    var dateCol = find(['日期', '时间', 'date']);
-    var amountCol = find(['金额', '钱', 'amount', '数额']);
-    var typeCol = find(['收/支', '收支', '类型', '方向', 'type']);
-    var partyCol = find(['对方', '商户', '姓名', '客户', '名称', '付款方', '收款方']);
-    var remarkCol = find(['备注', '摘要', '说明', '用途', '商品']);
+    var dateCol = find(['日期', '时间', 'date', '交易日', '记账日', '凭证日', '交易日期']);
+    var amountCol = find(['金额', '钱', 'amount', '数额', '发生额', '交易金额', '收支金额', '金额元', '金额(元)', 'price']);
+    var typeCol = find(['收/支', '收支', '类型', '方向', 'type', '借贷', '借/贷', '收付款', '收/付', '收付', '进出', 'debit', 'credit']);
+    var partyCol = find(['对方', '商户', '姓名', '客户', '名称', '付款方', '收款方', '交易对手', '对手', '户名', '收款人', '付款人', '往来单位', '对方户名', 'counterparty']);
+    var remarkCol = find(['备注', '摘要', '说明', '用途', '商品', '描述', '附言', '事由', '交易摘要', '备注说明', '摘要信息', 'memo', 'note', 'remark', 'desc', '摘要说明']);
     return { hasHeader: true, dateCol: dateCol < 0 ? 0 : dateCol, amountCol: amountCol < 0 ? 1 : amountCol, typeCol: typeCol, partyCol: partyCol, remarkCol: remarkCol, signMode: typeCol < 0 ? 'neg' : 'col' };
   }
 
@@ -524,15 +524,46 @@
     var startRow = map.hasHeader ? 1 : 0;
     var rows = [], skipped = 0;
     function normDate(s) {
-      s = (s || '').trim();
-      var m = s.match(/(\d{4})[年\-\/](\d{1,2})[月\-\/](\d{1,2})/);
-      if (m) { var y = m[1], mo = m[2], d = m[3]; return y + '-' + (mo < 10 ? '0' + mo : mo) + '-' + (d < 10 ? '0' + d : d); }
+      s = (s == null ? '' : String(s)).trim();
+      if (!s) return '';
+      // Excel 日期序列号（5 位数字）
+      if (/^\d{5}$/.test(s)) {
+        var base = Date.UTC(1899, 11, 30);
+        var dd = new Date(base + (parseInt(s, 10)) * 86400000);
+        var yy = dd.getUTCFullYear(), mm = dd.getUTCMonth() + 1, d3 = dd.getUTCDate();
+        return yy + '-' + (mm < 10 ? '0' + mm : mm) + '-' + (d3 < 10 ? '0' + d3 : d3);
+      }
+      var datePart = s.split(/[ T]/)[0];
+      // 年-月-日 / 年.月.日 / 年/月/日（第一段为 4 位年份）
+      var m1 = datePart.match(/^(\d{4})[年\-\/\.](\d{1,2})[月\-\/\.](\d{1,2})/);
+      if (m1) { var y1 = +m1[1], mo1 = +m1[2], d1 = +m1[3]; return y1 + '-' + (mo1 < 10 ? '0' + mo1 : mo1) + '-' + (d1 < 10 ? '0' + d1 : d1); }
+      // 月/日/年（美式，第一段<=12 且第三段为 4 位）
+      var m2 = datePart.match(/^(\d{1,2})[年\-\/\.](\d{1,2})[年\-\/\.](\d{4})/);
+      if (m2) { var mo2 = +m2[1], d2 = +m2[2], y2 = +m2[3]; if (mo2 >= 1 && mo2 <= 12 && d2 >= 1 && d2 <= 31) return y2 + '-' + (mo2 < 10 ? '0' + mo2 : mo2) + '-' + (d2 < 10 ? '0' + d2 : d2); }
+      // 无分隔 8 位 20260701
+      var m3 = datePart.match(/^(\d{4})(\d{2})(\d{2})$/);
+      if (m3) return m3[1] + '-' + m3[2] + '-' + m3[3];
       return '';
+    }
+    // 全角字符转半角（中文 Excel 偶发全角数字/小数点/逗号/括号）
+    function halfWidth(s) {
+      return (s == null ? '' : String(s)).replace(/[０-９Ａ-Ｚａ-ｚ．，：；！？（）　]/g, function (c) {
+        var code = c.charCodeAt(0);
+        if (code >= 0xFF01 && code <= 0xFF5E) return String.fromCharCode(code - 0xFEE0);
+        if (code === 0x3000) return ' ';
+        return c;
+      });
     }
     for (var j = startRow; j < rowsArr.length; j++) {
       var f = (rowsArr[j] || []).map(function (x) { return x == null ? '' : String(x); });
-      var amt = parseFloat((f[map.amountCol] || '').replace(/[￥¥\s,]/g, ''));
+      // 金额：支持会计括号负数 (1234.00)、货币符号、千分位、全角
+      var rawAmt = halfWidth((f[map.amountCol] || '').toString());
+      var negAmt = false;
+      var rawTrim = rawAmt.replace(/\s/g, '');
+      if (/^[\(].*[\)]$/.test(rawTrim)) { negAmt = true; rawAmt = rawAmt.replace(/[\(\)\s]/g, ''); }
+      var amt = parseFloat(rawAmt.replace(/[￥¥,\s]/g, ''));
       if (isNaN(amt)) { skipped++; continue; }
+      if (negAmt) amt = -amt;
       var type = 'expense';
       if (map.signMode === 'neg') { type = amt < 0 ? 'expense' : 'income'; if (amt < 0) amt = -amt; }
       else {
