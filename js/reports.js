@@ -195,7 +195,7 @@
   function render() {
     if (!state.from && !state.to) setRange('year');
     var c = document.getElementById('content');
-    var hasData = rowsAll().some(function (t) { return t.type === 'income' || t.type === 'expense'; });
+    var hasData = rowsAll().length > 0; // 含收入/支出/账户互转/股本资金任意一种即可生成报表（资金状况表依赖互转与股本余额）
     c.innerHTML =
       '<div class="card" style="margin-bottom:14px"><div class="toolbar">' +
         '<span style="font-size:13px;color:var(--muted);align-self:center">统计期间：</span>' +

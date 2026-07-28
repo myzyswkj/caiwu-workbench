@@ -217,6 +217,25 @@
     return map;
   }
 
+  /* 各账户余额：收入/支出/账户互转/股本资金 全部计入（反映真实资金归属，非收支） */
+  function accountBalances(upto) {
+    var m = {};
+    all().forEach(function (t) {
+      if (upto && t.date > upto) return;
+      var a = Number(t.amount);
+      if (t.type === 'income') m[t.account] = (m[t.account] || 0) + a;
+      else if (t.type === 'expense') m[t.account] = (m[t.account] || 0) - a;
+      else if (t.type === 'transfer') {
+        m[t.fromAccount] = (m[t.fromAccount] || 0) - a;
+        m[t.toAccount] = (m[t.toAccount] || 0) + a;
+      } else if (t.type === 'equity') {
+        if (t.equityDir === 'out') m[t.account] = (m[t.account] || 0) - a;
+        else m[t.account] = (m[t.account] || 0) + a;
+      }
+    });
+    return m;
+  }
+
   function drawStat() {
     var rows = all().filter(function (t) {
       if (state.statFrom && t.date < state.statFrom) return false;
@@ -270,8 +289,19 @@
         (projItems.length ? FW.barChart('各项目净收支', projItems, { color: '#9b5de5' }) : '') +
       '</div>';
 
-    // 明细统计表（四个维度 tab）
+    // 各账户余额（含互转与股本，反映真实资金归属，不影响收支但影响余额）
+    var acctBal = accountBalances(state.statTo);
+    var acctBalKeys = Object.keys(acctBal);
+    var acctBalTotal = acctBalKeys.reduce(function (s, k) { return s + acctBal[k]; }, 0);
+    var balItems = acctBalKeys.map(function (k) {
+      var v = acctBal[k];
+      return '<tr><td>' + FW.esc(k) + '</td><td class="num ' + (v >= 0 ? 'income' : 'expense') + '">' + (v >= 0 ? '+' : '') + FW.fmtMoney(v) + '</td></tr>';
+    }).join('');
     html +=
+      '<div class="card" style="margin-top:18px"><h3>各账户余额 <span class="sub">含收入支出 / 账户互转 / 股本资金' + ((state.statFrom || state.statTo) ? '（截至所选区间末）' : '（累计全部）') + '</span></h3>' +
+        (acctBalKeys.length ? '<table><thead><tr><th>账户</th><th class="num">余额</th></tr></thead><tbody>' + balItems + '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(acctBalTotal) + '</td></tr></tbody></table>' : '<div class="empty">暂无账户余额数据，去「流水明细」登记收入/支出或互转/股本。</div>') +
+      '</div>' +
+      // 明细统计表（四个维度 tab）
       '<div class="card" style="margin-top:18px"><div class="tabs" id="statTabs">' +
         '<button class="tab active" data-s="proj">项目统计</button>' +
         '<button class="tab" data-s="month">每月统计</button>' +
@@ -722,6 +752,7 @@
   }
 
   FW.internalImport = { parseWeChatBill: parseWeChatBill, parseGenericCsv: parseGenericCsv, parseRowsCore: parseRowsCore, csvSplit: csvSplit, guessMap: guessMap };
+  FW.internalCalc = { accountBalances: accountBalances };
 
   function openForm(id) {
     var edit = id ? FW.db.getById(KEY, id) : null;
