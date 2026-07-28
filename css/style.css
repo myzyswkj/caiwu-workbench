@@ -486,3 +486,49 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 /* 危险操作按钮（关闭加密） */
 .btn.danger { color: var(--income); border-color: var(--income); background: #fff; }
 .btn.danger:hover { background: #fff5f5; }
+
+/* ===== 申报日历 ===== */
+.cal-stats { display: flex; gap: 12px; margin-bottom: 14px; }
+.stat-card {
+  flex: 1; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow);
+}
+.stat-val { font-size: 26px; font-weight: 700; line-height: 1.1; color: var(--text); }
+.stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.stat-card.danger .stat-val { color: var(--income); }
+.stat-card.warn .stat-val { color: var(--warn); }
+
+.cal-list { display: flex; flex-direction: column; gap: 10px; }
+.cal-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow);
+}
+.cal-item.done { background: #f3fbf6; border-color: #cdeed8; }
+.cal-main { min-width: 0; }
+.cal-name { font-size: 15px; font-weight: 600; color: var(--text); }
+.cal-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.cal-note { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.cal-side { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.cal-go { font-size: 12px; color: var(--primary); text-decoration: none; white-space: nowrap; }
+.cal-go:hover { text-decoration: underline; }
+
+.tag {
+  display: inline-block; font-size: 11px; line-height: 1; padding: 2px 6px;
+  background: var(--primary-soft); color: var(--primary); border-radius: 6px; margin-left: 4px;
+  vertical-align: middle;
+}
+
+.badge {
+  display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 10px;
+  border-radius: 999px; background: #eef2fb; color: var(--primary); white-space: nowrap;
+}
+.badge.done { background: #e6f7ec; color: #1f9d55; }
+.badge.warn { background: #fef3e0; color: #d98900; }
+.badge.danger { background: #fdeaea; color: var(--income); }
+
+@media (max-width: 760px) {
+  .cal-stats { flex-direction: column; }
+  .cal-item { flex-direction: column; align-items: stretch; }
+  .cal-side { justify-content: space-between; flex-wrap: wrap; }
+}
