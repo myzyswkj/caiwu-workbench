@@ -268,14 +268,22 @@
   }
 
   // 返回 Promise；先还原文本数据，再还原照片凭证（保持 id 不变）
-  function importAll(data) {
+  // merge=true 时：数组按 id 合并（云端优先覆盖同 id，本地独有项保留），用于跨设备同步避免互相覆盖
+  function importAll(data, merge) {
     if (!data || !data.raw) throw new Error('文件格式不正确');
-    if (encMode) {
-      Object.keys(data.raw).forEach(function (k) { mem[k] = data.raw[k]; });
-      schedulePersist();
-    } else {
-      Object.keys(data.raw).forEach(function (k) { lsWrite(k, data.raw[k]); });
+    function apply(k, v) {
+      if (merge && Array.isArray(v) && v.length && typeof v[0] === 'object' && v[0] && ('id' in v[0])) {
+        var localArr = (encMode ? (mem[k] || []) : lsRaw(k, [])) || [];
+        if (!Array.isArray(localArr)) localArr = [];
+        var byId = {}, extra = [];
+        localArr.forEach(function (x) { if (x && x.id != null) byId[x.id] = x; else extra.push(x); });
+        v.forEach(function (x) { if (x && x.id != null) byId[x.id] = x; else extra.push(x); });
+        v = Object.keys(byId).map(function (id) { return byId[id]; }).concat(extra);
+      }
+      if (encMode) { mem[k] = v; } else { lsWrite(k, v); }
     }
+    Object.keys(data.raw).forEach(function (k) { apply(k, data.raw[k]); });
+    if (encMode) schedulePersist();
     var photos = data.photos || [];
     if (!global.indexedDB || !photos.length) return Promise.resolve();
     return Promise.all(photos.map(function (p) { return putPhotoById(p.id, p.data); }));

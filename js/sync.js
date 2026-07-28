@@ -58,23 +58,42 @@
     startAutosave();
   }
 
+  // 只有本端有实际数据才回推，避免用空数据覆盖云端（解决"空快照饿死"）
+  function pushIfHasData() {
+    return FW.db.exportAll().then(function (snap) {
+      var has = snap && snap.raw && Object.keys(snap.raw).length > 0;
+      if (!has) return false;
+      return push(true);
+    });
+  }
+
+  // 完整双向同步：先拉（合并云端数据到本机），再推（把合并后的最新状态回传云端）
+  function syncNow() {
+    if (!user) { FW.toast('请先登录'); return Promise.resolve(); }
+    if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) { FW.toast('请先解锁加密再同步'); return Promise.resolve(); }
+    return pull().then(function () {
+      return pushIfHasData();
+    }).then(function () {
+      markClean();
+      FW.toast('同步完成');
+    }).catch(function (e) {
+      markClean();
+      FW.toast('同步失败：' + (e && e.message ? e.message : '未知错误'));
+    });
+  }
+
   function onLogin() {
     setAuth(user);
     // 已启用加密但尚未解锁：先不拉取，等解锁后由 afterUnlock 触发
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return;
-    pull().then(function (imported) {
-      // 云端尚无数据：把本地现有数据上传，避免首登丢数据
-      if (!imported) return push(true);
-    }).then(function () { markClean(); }).catch(function () { markClean(); });
+    syncNow();
   }
 
   // 解锁完成后由 main.boot 调用：若已登录则拉取/推送
   function afterUnlock() {
     if (!user) return;
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return;
-    pull().then(function (imported) {
-      if (!imported) return push(true);
-    }).then(function () { markClean(); }).catch(function () { markClean(); });
+    syncNow();
   }
 
   /* ---------- 包裹写方法，自动标记 dirty ---------- */
@@ -130,7 +149,7 @@
       }
       return FW.db.decryptSnapshot(payload).then(function (snap) {
         suppress = true;
-        return FW.db.importAll(snap).then(function () {
+        return FW.db.importAll(snap, true).then(function () {
           suppress = false;
           // 重新渲染当前模块
           if (FW.modules.sidebar) FW.modules.sidebar.render();
@@ -169,7 +188,7 @@
         '<span class="auth-state" id="authState">已同步</span>' +
         '<button class="auth-btn ghost" id="authSync">↻ 立即同步</button>' +
         '<button class="auth-btn" id="authOut">退出(' + FW.esc(user.email || '用户') + ')</button>';
-      document.getElementById('authSync').onclick = function () { push(true).then(function (ok) { if (ok) FW.toast('已同步到云端'); }); };
+      document.getElementById('authSync').onclick = syncNow;
       document.getElementById('authOut').onclick = function () {
         if (dirty) push(); // 退出前尽量保存
         sb.auth.signOut().then(function () { user = null; setAuth(null); if (brand) brand.textContent = '本地数据'; FW.toast('已退出'); });
@@ -278,6 +297,7 @@
     isLoggedIn: function () { return !!user; },
     push: push,
     pull: pull,
+    syncNow: syncNow,
     afterUnlock: afterUnlock,
     // 供 ui.js 在登录态变化时刷新顶栏
     _refreshArea: renderAuthArea
