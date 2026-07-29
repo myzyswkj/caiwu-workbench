@@ -14,22 +14,31 @@
     renderSubNav(name);
   }
 
-  /* ---------- 侧栏子导航：折叠自各模块顶部的标签栏目 ---------- */
-  var subNavEl = null;
+  /* ---------- 侧栏子导航：折叠自各模块顶部的标签栏目，内联展开在当前模块下方 ---------- */
+  function clearInlineSubnav() {
+    FW.qa('#moduleNav .subnav').forEach(function (el) { el.remove(); });
+  }
   function renderSubNav(name) {
-    if (!subNavEl) subNavEl = document.getElementById('subNav');
-    if (!subNavEl) return;
+    clearInlineSubnav();
     var mod = FW.modules[name];
     var tabs = mod && mod.tabs;
-    if (!tabs || !tabs.length) { subNavEl.hidden = true; subNavEl.innerHTML = ''; return; }
+    if (!tabs || !tabs.length) return;
+    var item = document.querySelector('#moduleNav .nav-item[data-module="' + FW.esc(name) + '"]');
+    if (!item) return;
     var cur = (mod.getTab && mod.getTab()) || tabs[0].key;
-    subNavEl.hidden = false;
-    subNavEl.innerHTML = tabs.map(function (t) {
+    var wrap = document.createElement('div');
+    wrap.className = 'subnav';
+    wrap.innerHTML = tabs.map(function (t) {
       return '<button class="subnav-item ' + (t.key === cur ? 'active' : '') + '" data-k="' + FW.esc(t.key) + '">' +
         '<span class="sn-dot"></span>' + FW.esc(t.label) + '</button>';
     }).join('');
-    FW.qa('#subNav .subnav-item').forEach(function (b) {
-      b.onclick = function () { if (mod.setTab) mod.setTab(b.dataset.k); };
+    // 内联插入到当前模块的导航项正下方（手风琴式展开）
+    item.insertAdjacentElement('afterend', wrap);
+    FW.qa('.subnav-item', wrap).forEach(function (b) {
+      b.onclick = function () {
+        if (mod.setTab) mod.setTab(b.dataset.k);
+        renderSubNav(name); // 刷新高亮
+      };
     });
   }
   function refreshSubNav() {
