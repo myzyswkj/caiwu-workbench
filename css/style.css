@@ -60,6 +60,23 @@ body {
 .nav-item.active { background: var(--sidebar-active); color: #fff; font-weight: 600; }
 .nav-ico { font-size: 16px; width: 20px; text-align: center; }
 
+/* 导航分组（可折叠） */
+.nav-group { display: flex; flex-direction: column; }
+.nav-group-head {
+  display: flex; align-items: center; gap: 10px;
+  background: transparent; border: none; color: var(--sidebar-fg);
+  padding: 10px 12px; border-radius: 9px; cursor: pointer;
+  font-size: 14px; text-align: left; transition: .15s;
+}
+.nav-group-head:hover { background: rgba(255,255,255,.06); color: #fff; }
+.nav-group-head .nav-arrow { margin-left: auto; font-size: 11px; transition: transform .2s; opacity: .6; }
+.nav-group.open > .nav-group-head .nav-arrow { transform: rotate(90deg); }
+.nav-group-body {
+  display: flex; flex-direction: column; gap: 2px;
+  padding-left: 14px; overflow: hidden;
+}
+.nav-child { padding: 7px 10px; border-radius: 8px; font-size: 13px; }
+
 /* 侧栏子导航：由各模块内顶部标签折叠而来，挂在主导航之下 */
 .subnav { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 8px 14px; padding-left: 12px; border-left: 2px solid rgba(47,107,255,.5); }
 .subnav:empty { display: none; }
@@ -467,6 +484,11 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
   .nav { flex-direction: row; flex-wrap: wrap; gap: 4px; margin: 0; flex: 1 1 auto; }
   .nav-item { padding: 7px 10px; font-size: 12px; }
   .nav-item span:not(.nav-ico) { display: inline; }
+  .nav-group { flex-direction: row; align-items: center; gap: 4px; }
+  .nav-group-head { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+  .nav-group-body { display: none; } /* 移动端默认收起，点击展开 */
+  .nav-group.open > .nav-group-body { display: flex; flex-direction: row; flex-wrap: wrap; width: 100%; gap: 4px; margin-top: 2px; padding-left: 0; }
+  .nav-child { font-size: 12px; padding: 6px 10px; }
   .sites { display: none; }
   .subnav { flex-direction: row; flex-wrap: wrap; margin: 6px 0 0; padding-left: 0; border-left: none; width: 100%; gap: 6px; }
   .subnav-item { width: auto; }

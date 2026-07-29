@@ -9,6 +9,12 @@
     var mod = FW.modules[name];
     if (!mod) return;
     FW.qa('#moduleNav .nav-item').forEach(function (b) { b.classList.toggle('active', b.dataset.module === name); });
+    // 自动展开该模块所在的分组
+    var item = document.querySelector('#moduleNav .nav-item[data-module="' + name + '"]');
+    if (item && item.classList.contains('nav-child')) {
+      var group = item.closest('.nav-group');
+      if (group) { group.classList.add('open'); var body = group.querySelector('.nav-group-body'); if (body) body.hidden = false; }
+    }
     document.getElementById('topTitle').textContent = mod.title || name;
     mod.render();
     renderSubNav(name);
@@ -162,9 +168,22 @@
     };
     document.addEventListener('click', function () { document.getElementById('lsMenu').hidden = true; });
 
-    // 模块导航
+    // 模块导航（含分组折叠）
     FW.qa('#moduleNav .nav-item').forEach(function (b) {
       b.onclick = function () { setModule(b.dataset.module); };
+    });
+    FW.qa('#moduleNav .nav-group-head').forEach(function (h) {
+      h.onclick = function () {
+        var group = h.parentElement;
+        var body = group.querySelector('.nav-group-body');
+        var isOpen = !group.classList.contains('open');
+        // 关闭其他组
+        FW.qa('#moduleNav .nav-group.open').forEach(function (g) {
+          if (g !== group) { g.classList.remove('open'); g.querySelector('.nav-group-body').hidden = true; }
+        });
+        group.classList.toggle('open', isOpen);
+        body.hidden = !isOpen;
+      };
     });
 
     // 加密设置入口
