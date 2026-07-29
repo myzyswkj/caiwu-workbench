@@ -808,7 +808,7 @@
       '</div></div>' +
       '<div class="field"><label>选择文件（CSV 或 Excel）</label><input type="file" id="impFile" accept=".csv,.xlsx,.xls,text/csv"></div>' +
       '<div class="field"><label>编码</label><select id="impEnc"><option value="auto">自动（推荐）</option><option value="gbk">GBK（微信 / 老 Excel）</option><option value="utf8">UTF-8</option></select><span class="muted" style="font-size:12px;margin-left:6px">（仅 CSV 需要，Excel 自动识别）</span></div>' +
-      '<div class="muted" style="font-size:12px;margin-top:6px" id="impTip">微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）。表格导入：支持 Excel（.xlsx/.xls）直接选文件，或 CSV（自动识别日期 / 金额 / 收支列）。</div>' +
+      '<div class="muted" style="font-size:12px;margin-top:6px" id="impTip">微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）或 Excel（.xlsx）。表格导入：支持 Excel（.xlsx/.xls）直接选文件，或 CSV（自动识别日期 / 金额 / 收支列）。</div>' +
       '<div class="form-actions"><button class="btn ghost" id="impCancel">取消</button><button class="btn" id="impParse">解析并预览</button></div>';
     FW.openModal('批量导入流水', body, function () {
       var mode = 'wechat';
@@ -818,7 +818,7 @@
           mode = b.dataset.m;
           segs.forEach(function (x) { x.classList.toggle('active', x === b); });
           document.getElementById('impTip').textContent = mode === 'wechat'
-            ? '微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）。'
+            ? '微信账单：在微信「服务通知 / 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账」导出 CSV（GBK）或 Excel（.xlsx）。'
             : '表格导入：支持 Excel（.xlsx/.xls）直接选文件，或 CSV；系统自动识别日期 / 金额 / 收支列。';
         };
       });
@@ -827,7 +827,10 @@
         var file = document.getElementById('impFile').files[0];
         if (!file) { FW.toast('请先选择文件'); return; }
         var fname = (file.name || '').toLowerCase();
-        if (mode === 'table' && /\.(xlsx|xls)$/.test(fname)) {
+        var isExcel = /\.(xlsx|xls)$/.test(fname);
+
+        // ---- Excel 文件：统一走 XLSX 解析（两种模式都支持） ----
+        if (isExcel) {
           if (typeof XLSX === 'undefined') { FW.toast('Excel 解析库未加载，请刷新页面后重试'); return; }
           var fr = new FileReader();
           fr.onload = function () {
@@ -838,9 +841,28 @@
               var rowsArr = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
               while (rowsArr.length && rowsArr[rowsArr.length - 1].every(function (c) { return c === '' || c == null; })) rowsArr.pop();
               if (!rowsArr.length) { FW.toast('Excel 中没有数据'); return; }
-              var headers = rowsArr[0].map(function (c) { return c == null ? '' : String(c); });
-              var map = guessMap(headers);
-              var res = parseRowsCore(rowsArr, map);
+
+              var res;
+              if (mode === 'wechat') {
+                // 微信账单模式：将 Excel 行转为 CSV 文本，复用 parseWeChatBill
+                var csvText = rowsArr.map(function (row) {
+                  return row.map(function (cell) {
+                    var s = (cell == null ? '' : String(cell));
+                    if (s.indexOf(',') > -1 || s.indexOf('"') > -1 || s.indexOf('\n') > -1) {
+                      return '"' + s.replace(/"/g, '""') + '"';
+                    }
+                    return s;
+                  }).join(',');
+                }).join('\r\n');
+                res = parseWeChatBill(csvText);
+              } else {
+                // 表格导入模式：列猜测 + 通用解析
+                var headers = rowsArr[0].map(function (c) { return c == null ? '' : String(c); });
+                var map = guessMap(headers);
+                res = parseRowsCore(rowsArr, map);
+              }
+
+              if (res.ok === false) { FW.toast(res.msg); return; }
               if (!res.rows.length) { FW.toast('没有可导入的记录（跳过 ' + res.skipped + ' 行）'); return; }
               FW.closeModal();
               openImportPreview(res.rows, res.skipped, mode);
@@ -850,6 +872,8 @@
           fr.readAsArrayBuffer(file);
           return;
         }
+
+        // ---- CSV / 文本文件 ----
         var enc = document.getElementById('impEnc').value;
         decodeFile(file, enc, function (text) {
           if (!text) { FW.toast('文件读取失败'); return; }
