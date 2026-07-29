@@ -11,21 +11,35 @@
   var FW = global.FW;
   var KEY = 'invoices';
   var CONTRACT_KEY = 'contracts';
+  var STOCK_KEY = 'stock';
   var DEDUCT_OPTS = ['未勾选', '已勾选', '已认证', '不抵扣'];
   var KIND_OPTS = ['专票', '普票', '数电票', '机动车', '其他'];
   var STATUS_OPTS = ['待签订', '履行中', '已完成', '已终止'];
   var CTYPE_OPTS = ['采购合同', '销售合同', '服务合同', '工程合同', '其他'];
   var PAY_OPTS = ['一次性付款', '分期付款', '月结', '货到付款', '其他'];
+  // 库存台账：出入库 / 退货类型（dir: in 入库方向 / out 出库方向）
+  var STOCK_TYPES = [
+    { label: '采购入库', dir: 'in' },
+    { label: '其他入库', dir: 'in' },
+    { label: '销售退货', dir: 'in' },
+    { label: '销售出库', dir: 'out' },
+    { label: '其他出库', dir: 'out' },
+    { label: '采购退货', dir: 'out' }
+  ];
+  function stockDir(label) { var t = STOCK_TYPES.filter(function (x) { return x.label === label; })[0]; return t ? t.dir : 'in'; }
 
   var state = {
-    tab: 'all',          // all / in / out / contract
+    tab: 'all',          // all / in / out / contract / stock
     deduction: '',       // 进项抵扣筛选
     kw: '',
     from: '', to: '',
     photos: [],
     // 合同台账筛选
     ctKw: '', ctFrom: '', ctTo: '', ctStatus: '',
-    ctPhotos: []
+    ctPhotos: [],
+    // 库存台账筛选
+    stKw: '', stFrom: '', stTo: '', stType: '',
+    stPhotos: []
   };
 
   /* ---------- 数据读写 ---------- */
@@ -82,6 +96,7 @@
   /* ---------- 主渲染（按 tab 分发） ---------- */
   function render() {
     if (state.tab === 'contract') return renderContractView();
+    if (state.tab === 'stock') return renderStockView();
     return renderInvoiceView();
   }
 
@@ -590,6 +605,263 @@
 
   FW.contractCalc = { contractSummary: contractSummary };
 
+  /* ============================================================
+   * 库存台账（采购 / 入库 / 出库 / 退货）
+   *   - 记录商品/物料的出入库与退货流水：日期/单号/名称/规格/单位/类型/数量/单价/金额/往来单位/仓库
+   *   - 类型含方向：入库方向(in) 采购入库·其他入库·销售退货；出库方向(out) 销售出库·其他出库·采购退货
+   *   - 自动汇总：入库合计(数量/金额)、出库合计、退货合计(采购+销售退货)、库存结存(数量=入-出)
+   *   - 支持期间筛选、类型筛选、关键词搜索、CSV 导出、单据照片
+   * 数据键：stock（按账本隔离，见 db.js）
+   * ============================================================ */
+  function stockAll() { return FW.db.getList(STOCK_KEY).sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); }); }
+  function stockFiltered(kw, from, to, type) {
+    var rows = stockAll();
+    if (type) rows = rows.filter(function (t) { return t.type === type; });
+    if (from) rows = rows.filter(function (t) { return t.date >= from; });
+    if (to) rows = rows.filter(function (t) { return t.date <= to; });
+    if (kw) {
+      var k = kw.toLowerCase();
+      rows = rows.filter(function (t) {
+        return [t.no, t.item, t.spec, t.unit, t.type, t.party, t.warehouse, t.remark].some(function (f) { return (f || '').toLowerCase().indexOf(k) >= 0; });
+      });
+    }
+    return rows;
+  }
+  function stockSummary(rows) {
+    var inQ = 0, inA = 0, outQ = 0, outA = 0, retQ = 0, retA = 0;
+    rows.forEach(function (t) {
+      var q = num(t.qty), a = num(t.amount);
+      if (t.type === '采购退货' || t.type === '销售退货') { retQ += q; retA += a; }
+      if (stockDir(t.type) === 'in') { inQ += q; inA += a; } else { outQ += q; outA += a; }
+    });
+    return { inQ: inQ, inA: inA, outQ: outQ, outA: outA, retQ: retQ, retA: retA, balance: inQ - outQ };
+  }
+
+  function renderStockView() {
+    var c = document.getElementById('content');
+    var kw = state.stKw || '', from = state.stFrom || '', to = state.stTo || '', type = state.stType || '';
+    var rows = stockFiltered(kw, from, to, type);
+    var s = stockSummary(stockAll());
+    var typeOpts = '<option value="">全部类型</option>' + STOCK_TYPES.map(function (t) { return '<option' + (type === t.label ? ' selected' : '') + '>' + t.label + '</option>'; }).join('');
+
+    c.innerHTML =
+      '<div class="card" style="margin-bottom:14px"><div class="toolbar">' +
+        '<span style="font-size:13px;color:var(--muted);align-self:center">业务期间：</span>' +
+        '<button class="btn ghost sm" data-r="smonth">本月</button>' +
+        '<button class="btn ghost sm" data-r="syear">本年</button>' +
+        '<button class="btn ghost sm" data-r="sall">全部</button>' +
+        '<div class="field"><input id="stFrom" type="date" value="' + FW.esc(from) + '" title="开始日期"></div>' +
+        '<div class="field"><input id="stTo" type="date" value="' + FW.esc(to) + '" title="结束日期"></div>' +
+      '</div></div>' +
+      '<div class="stat-row" id="stSummary"></div>' +
+      '<div class="card">' +
+        '<div class="toolbar">' +
+          '<div class="field"><input id="stKw" placeholder="搜索名称/单号/往来单位" value="' + FW.esc(kw) + '"></div>' +
+          '<div class="field"><select id="stType">' + typeOpts + '</select></div>' +
+          '<button class="btn ghost sm" id="stReset">重置</button>' +
+        '</div>' +
+        '<div id="stWrap"></div>' +
+      '</div>';
+
+    var ta = document.getElementById('topActions');
+    ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn" id="addStBtn">＋ 新增单据</button>';
+    document.getElementById('stPrint').onclick = function () { window.print(); };
+    document.getElementById('stCsv').onclick = exportStockCsv;
+    document.getElementById('addStBtn').onclick = function () { openStockForm(null); };
+
+    drawStockSummary(s);
+    drawStockTable(rows);
+
+    FW.qa('#content [data-r]').forEach(function (b) { b.onclick = function () { setStockRange(b.dataset.r); }; });
+    var sf = document.getElementById('stFrom'), st = document.getElementById('stTo');
+    if (sf) sf.onchange = function () { state.stFrom = this.value; renderStockView(); };
+    if (st) st.onchange = function () { state.stTo = this.value; renderStockView(); };
+    var sk = document.getElementById('stKw'); if (sk) sk.oninput = function () { state.stKw = this.value.trim(); drawStockTable(stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType)); };
+    var sp = document.getElementById('stType'); if (sp) sp.onchange = function () { state.stType = this.value; drawStockTable(stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType)); };
+    var sr = document.getElementById('stReset'); if (sr) sr.onclick = function () { state.stKw = ''; state.stType = ''; state.stFrom = ''; state.stTo = ''; renderStockView(); };
+  }
+
+  function drawStockSummary(s) {
+    var el = document.getElementById('stSummary');
+    if (!el) return;
+    el.innerHTML =
+      '<div class="stat"><div class="label">入库合计</div><div class="value income">' + s.inQ + ' 件</div><div class="sub">金额 ' + money(s.inA) + '</div></div>' +
+      '<div class="stat"><div class="label">出库合计</div><div class="value expense">' + s.outQ + ' 件</div><div class="sub">金额 ' + money(s.outA) + '</div></div>' +
+      '<div class="stat"><div class="label">退货合计</div><div class="value">' + s.retQ + ' 件</div><div class="sub">金额 ' + money(s.retA) + '</div></div>' +
+      '<div class="stat"><div class="label">库存结存（数量）</div><div class="value">' + s.balance + ' 件</div><div class="sub">入 − 出</div></div>';
+  }
+
+  function drawStockTable(rows) {
+    var el = document.getElementById('stWrap');
+    if (!el) return;
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty">没有符合条件的单据。点右上角「＋ 新增单据」登记第一笔，或调整筛选条件。</div>';
+      return;
+    }
+    var trs = rows.map(function (t) {
+      var dir = stockDir(t.type);
+      var dirTag = dir === 'in' ? '<span class="tag ok">入</span>' : '<span class="tag warn">出</span>';
+      var qtyCls = dir === 'in' ? 'income' : 'expense';
+      return '<tr>' +
+        '<td class="nowrap">' + FW.esc(t.date || '') + '</td>' +
+        '<td>' + FW.esc(t.no || '') + '</td>' +
+        '<td>' + FW.esc(t.item || '—') + (t.spec ? '<div class="muted" style="font-size:11px">' + FW.esc(t.spec) + '</div>' : '') + '</td>' +
+        '<td>' + (t.unit ? FW.esc(t.unit) : '<span class="muted">—</span>') + '</td>' +
+        '<td><span class="tag">' + FW.esc(t.type || '—') + '</span> ' + dirTag + '</td>' +
+        '<td class="num ' + qtyCls + '">' + (dir === 'in' ? '' : '−') + num(t.qty) + '</td>' +
+        '<td class="num">' + money(t.price) + '</td>' +
+        '<td class="num">' + money(t.amount) + '</td>' +
+        '<td>' + (t.party ? FW.esc(t.party) : '<span class="muted">—</span>') + '</td>' +
+        '<td>' + (t.warehouse ? FW.esc(t.warehouse) : '<span class="muted">—</span>') + '</td>' +
+        '<td>' + FW.esc(t.remark || '') + '</td>' +
+        '<td class="row-actions nowrap"><button class="btn ghost sm row-edit" data-id="' + t.id + '">编辑</button><button class="btn danger sm row-del" data-id="' + t.id + '">删</button></td>' +
+        '</tr>';
+    }).join('');
+    el.innerHTML = '<table><thead><tr>' +
+      '<th>日期</th><th>单号</th><th>商品/物料</th><th>单位</th><th>类型</th><th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th>往来单位</th><th>仓库</th><th>备注</th><th>操作</th>' +
+      '</tr></thead><tbody>' + trs + '</tbody></table>';
+    FW.qa('#stWrap .row-edit').forEach(function (b) { b.onclick = function () { openStockForm(b.dataset.id); }; });
+    FW.qa('#stWrap .row-del').forEach(function (b) { b.onclick = function () { delStock(b.dataset.id); }; });
+  }
+
+  function openStockForm(id) {
+    var edit = id ? FW.db.getById(STOCK_KEY, id) : null;
+    var v = {
+      date: FW.today(), no: '', item: '', spec: '', unit: '个',
+      type: '采购入库', qty: '', price: '', amount: '',
+      party: '', warehouse: '', remark: '', photos: []
+    };
+    if (edit) {
+      v = {
+        date: edit.date || FW.today(), no: edit.no || '', item: edit.item || '', spec: edit.spec || '', unit: edit.unit || '个',
+        type: edit.type || '采购入库', qty: edit.qty, price: edit.price, amount: edit.amount,
+        party: edit.party || '', warehouse: edit.warehouse || '', remark: edit.remark || '', photos: edit.photos || []
+      };
+    }
+    state.stPhotos = v.photos.slice();
+
+    var body =
+      '<div class="form-grid">' +
+        '<div class="field"><label>日期</label><input id="s_date" type="date" value="' + FW.esc(v.date) + '"></div>' +
+        '<div class="field"><label>单号</label><input id="s_no" value="' + FW.esc(v.no) + '" placeholder="出入库单号（选填）"></div>' +
+        '<div class="field full"><label>商品/物料名称</label><input id="s_item" value="' + FW.esc(v.item) + '" placeholder="名称（必填）"></div>' +
+        '<div class="field"><label>规格</label><input id="s_spec" value="' + FW.esc(v.spec) + '" placeholder="选填"></div>' +
+        '<div class="field"><label>单位</label><input id="s_unit" value="' + FW.esc(v.unit) + '" placeholder="个/件/箱"></div>' +
+        '<div class="field"><label>业务类型</label><select id="s_type">' + STOCK_TYPES.map(function (t) { return '<option ' + (t.label === v.type ? 'selected' : '') + '>' + t.label + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><label>数量</label><input id="s_qty" type="number" step="0.01" min="0" value="' + FW.esc(v.qty) + '"></div>' +
+        '<div class="field"><label>单价（元）</label><input id="s_price" type="number" step="0.01" min="0" value="' + FW.esc(v.price) + '"></div>' +
+        '<div class="field"><label>金额（元）</label><input id="s_amount" type="number" step="0.01" min="0" value="' + FW.esc(v.amount) + '" placeholder="留空自动算"></div>' +
+        '<div class="field"><label>往来单位</label><input id="s_party" value="' + FW.esc(v.party) + '" placeholder="供应商/客户"></div>' +
+        '<div class="field"><label>仓库</label><input id="s_wh" value="' + FW.esc(v.warehouse) + '" placeholder="选填"></div>' +
+        '<div class="field full"><label>备注</label><textarea id="s_remark" rows="2" placeholder="用途 / 关联单据">' + FW.esc(v.remark) + '</textarea></div>' +
+        '<div class="field full"><label>单据照片</label><div class="photo-grid" id="stPhotoGrid"></div></div>' +
+      '</div>' +
+      '<div class="form-actions"><button class="btn ghost" id="stCancel">取消</button><button class="btn" id="stSave">保存</button></div>';
+
+    FW.openModal(edit ? '编辑单据' : '新增单据', body, function () {
+      renderStockPhotoGrid(state.stPhotos);
+      // 自动计算金额
+      function autoAmount() {
+        var q = num(document.getElementById('s_qty').value);
+        var p = num(document.getElementById('s_price').value);
+        var am = document.getElementById('s_amount');
+        if (q > 0 && p > 0 && !am.value) am.value = (q * p).toFixed(2);
+      }
+      document.getElementById('s_qty').oninput = autoAmount;
+      document.getElementById('s_price').oninput = autoAmount;
+      document.getElementById('stCancel').onclick = FW.closeModal;
+      document.getElementById('stSave').onclick = function () {
+        var item = document.getElementById('s_item').value.trim();
+        if (!item) { FW.toast('请填写商品/物料名称'); return; }
+        var qty = num(document.getElementById('s_qty').value);
+        if (!(qty > 0)) { FW.toast('数量必须大于 0'); return; }
+        var price = num(document.getElementById('s_price').value);
+        var amountRaw = document.getElementById('s_amount').value;
+        var amount = amountRaw ? num(amountRaw) : (qty * price);
+        var rec = {
+          id: edit ? edit.id : FW.db.uid('st_'),
+          date: document.getElementById('s_date').value || FW.today(),
+          no: document.getElementById('s_no').value.trim(),
+          item: item,
+          spec: document.getElementById('s_spec').value.trim(),
+          unit: document.getElementById('s_unit').value.trim() || '个',
+          type: document.getElementById('s_type').value,
+          qty: qty, price: price, amount: amount,
+          party: document.getElementById('s_party').value.trim(),
+          warehouse: document.getElementById('s_wh').value.trim(),
+          remark: document.getElementById('s_remark').value.trim(),
+          photos: state.stPhotos
+        };
+        FW.db.upsert(STOCK_KEY, rec);
+        FW.closeModal(); renderStockView(); FW.toast('已保存');
+      };
+    });
+  }
+
+  function delStock(id) {
+    var rec = FW.db.getById(STOCK_KEY, id);
+    if (!rec) return;
+    if (!confirm('确定删除该单据？' + (rec.photos && rec.photos.length ? '（将同时删除 ' + rec.photos.length + ' 张单据照片）' : ''))) return;
+    FW.db.remove(STOCK_KEY, id);
+    if (rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
+    renderStockView(); FW.toast('已删除');
+  }
+
+  function renderStockPhotoGrid(photos) {
+    var grid = document.getElementById('stPhotoGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    (photos || []).forEach(function (pid) {
+      var wrap = document.createElement('div'); wrap.style.position = 'relative';
+      var img = document.createElement('img'); img.className = 'photo-thumb';
+      FW.db.getPhoto(pid).then(function (d) { if (d) img.src = d; }).catch(function () {});
+      var del = document.createElement('span');
+      del.textContent = '✕'; del.style.cssText = 'position:absolute;top:-6px;right:-6px;background:#d33;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;line-height:16px;text-align:center;cursor:pointer';
+      del.onclick = function () { photos.splice(photos.indexOf(pid), 1); FW.db.deletePhoto(pid); renderStockPhotoGrid(photos); };
+      img.style.cursor = 'pointer';
+      wrap.appendChild(img); wrap.appendChild(del); grid.appendChild(wrap);
+    });
+    var add = document.createElement('div'); add.className = 'photo-add'; add.textContent = '＋'; add.title = '上传单据照片';
+    add.onclick = function () {
+      var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+      inp.onchange = function () {
+        var files = Array.prototype.slice.call(inp.files);
+        var pending = files.map(function (f) { return new Promise(function (res) { var r = new FileReader(); r.onload = function () { FW.db.savePhoto(r.result).then(res); }; r.readAsDataURL(f); }); });
+        Promise.all(pending).then(function (ids) { ids.forEach(function (i) { photos.push(i); }); renderStockPhotoGrid(photos); });
+      };
+      inp.click();
+    };
+    grid.appendChild(add);
+  }
+
+  function setStockRange(kind) {
+    var now = new Date(), y = now.getFullYear(), m = now.getMonth(), p = function (n) { return n < 10 ? '0' + n : '' + n; };
+    if (kind === 'smonth') { state.stFrom = y + '-' + p(m + 1) + '-01'; state.stTo = y + '-' + p(m + 1) + '-' + new Date(y, m + 1, 0).getDate(); }
+    else if (kind === 'syear') { state.stFrom = y + '-01-01'; state.stTo = y + '-12-31'; }
+    else { state.stFrom = ''; state.stTo = ''; }
+    renderStockView();
+  }
+
+  function exportStockCsv() {
+    var rows = stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType);
+    if (!rows.length) { FW.toast('没有可导出的单据'); return; }
+    var head = ['日期', '单号', '商品/物料', '规格', '单位', '业务类型', '方向', '数量', '单价', '金额', '往来单位', '仓库', '备注'];
+    var data = rows.map(function (t) {
+      return [t.date, t.no || '', t.item || '', t.spec || '', t.unit || '', t.type || '', (stockDir(t.type) === 'in' ? '入' : '出'), t.qty, t.price, t.amount, t.party || '', t.warehouse || '', t.remark || ''];
+    });
+    var csv = '﻿' + [head].concat(data).map(function (r) {
+      return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(',');
+    }).join('\r\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '库存台账_' + FW.today() + '.csv';
+    a.click();
+    FW.toast('已导出 ' + rows.length + ' 条单据（CSV）');
+  }
+
+  FW.stockCalc = { stockSummary: stockSummary };
+
   FW.modules = FW.modules || {};
   FW.modules.invoices = {
     title: '发票台账',
@@ -598,7 +870,8 @@
       { key: 'all', label: '全部' },
       { key: 'in', label: '进项发票' },
       { key: 'out', label: '销项发票' },
-      { key: 'contract', label: '合同台账' }
+      { key: 'contract', label: '合同台账' },
+      { key: 'stock', label: '库存台账' }
     ],
     getTab: function () { return state.tab; },
     setTab: function (k) { state.tab = k; state.deduction = ''; render(); if (window.FW.nav) FW.nav.refreshSubNav(); }
