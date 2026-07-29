@@ -27,8 +27,10 @@
     return 'fee';
   }
 
-  /* 按账户汇总余额（截至某日，累计全部历史） */
+  /* 按账户汇总余额（截至某日）。优先复用内账的统一计算（含期初余额），保证两处逻辑一致 */
   function accountBalances(upto) {
+    if (FW.internalCalc && FW.internalCalc.accountBalances) return FW.internalCalc.accountBalances(upto);
+    // 兜底：内账未加载时，用旧逻辑（不含期初）
     var m = {};
     rowsAll().forEach(function (t) {
       if (upto && t.date > upto) return;
@@ -43,7 +45,6 @@
         else m[t.account] = (m[t.account] || 0) + a;
       }
     });
-    // 按固定顺序 + 仅显示有余额的（含极小额）
     var seen = {}, ordered = [];
     ACCT_ORDER.forEach(function (k) { if (m[k] !== undefined) { ordered.push(k); seen[k] = 1; } });
     Object.keys(m).forEach(function (k) { if (!seen[k]) ordered.push(k); });
@@ -127,7 +128,8 @@
     var cashTotal = accts.reduce(function (s, x) { return s + x.bal; }, 0);
     var paidIn = d.equityNet;            // 实收资本 = 股本净注入（累计）
     var retained = d.netProfit;          // 未分配利润 = 累计净利润（累计到期末）
-    var liabEq = paidIn + retained;      // 负债+权益（内账无明确负债）
+    var openingsTotal = (FW.internalCalc && FW.internalCalc.getOpeningsTotal) ? FW.internalCalc.getOpeningsTotal() : 0;
+    var liabEq = paidIn + retained + openingsTotal;   // 负债+权益（含期初余额）
     var balanced = Math.abs(cashTotal - liabEq) < 0.005;
 
     var acctRows = accts.length ? accts.map(function (x) {
@@ -141,6 +143,7 @@
       acctRows +
       boldRow('　货币资金合计', cashTotal) +
       '<tr class="sec"><td>负债及所有者权益</td><td class="num"></td></tr>' +
+      '<tr><td>　期初余额（资金）</td><td class="num">' + money(openingsTotal) + '</td></tr>' +
       '<tr><td>　实收资本（股本净注入）</td><td class="num">' + money(paidIn) + '</td></tr>' +
       '<tr><td>　未分配利润（累计净利润）</td><td class="num">' + money(retained) + '</td></tr>' +
       boldRow('　负债及所有者权益合计', liabEq) +
@@ -268,14 +271,16 @@
     } else if (state.tab === 'fund') {
       var df = agg('', state.to);
       var accts = accountBalances(state.to);
+      var openT = (FW.internalCalc && FW.internalCalc.getOpeningsTotal) ? FW.internalCalc.getOpeningsTotal() : 0;
       rows.push(['项目', '金额']);
       rows.push(['资产：货币资金', '']);
       accts.forEach(function (x) { rows.push([x.name, x.bal]); });
       rows.push(['货币资金合计', accts.reduce(function (s, x) { return s + x.bal; }, 0)]);
       rows.push(['负债及所有者权益', '']);
+      rows.push(['期初余额（资金）', openT]);
       rows.push(['实收资本（股本净注入）', df.equityNet]);
       rows.push(['未分配利润（累计净利润）', df.netProfit]);
-      rows.push(['负债及所有者权益合计', df.equityNet + df.netProfit]);
+      rows.push(['负债及所有者权益合计', df.equityNet + df.netProfit + openT]);
     } else {
       var dc = agg(state.from, state.to);
       rows.push(['项目', '金额']);

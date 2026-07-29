@@ -1,21 +1,35 @@
 /* ============================================================
- * 登记内账模块
- * 流水账：项目 / 每月 / 每日 / 分类账户 统计 + 照片凭证
+ * 登记内账模块（重做版：逻辑自洽）
+ * 核心恒等式：
+ *   账户余额 = 期初余额 + 本期收支(收入-支出) + 本期往来(互转净额+股本净)
+ *   资金总计 = Σ账户余额 = 期初总计 + 区间结余(收入-支出) + 股本净变动
+ *   —— 互转净额恒为 0，故不影响「结余 / 利润」，只改变资金在各账户的归属。
+ * 两层概念：
+ *   利润层：收入 / 支出（影响结余，不影响资金归属）
+ *   资金层：各账户余额（含期初 + 收支 + 互转 + 股本）
  * ============================================================ */
 (function (global) {
   'use strict';
   var FW = global.FW;
   var KEY = 'internal';
+  var OPEN_KEY = 'internal_openings';      // 期初余额（按账户）
+  var BKEY = 'internal_budget';
+  var CATKEY = 'internal_cats';
   var DEFAULT_CATS = ['办公用品', '差旅费', '餐饮招待', '工资薪酬', '房租物业', '交通出行', '广告宣传', '材料采购', '设备购置', '税费', '利息收入', '其他收入', '其他支出'];
   var ACCTS = ['现金', '银行卡', '支付宝', '微信', '对公账户', '其他'];
-  // 用途分类（一级/二级，可自定义，按账本隔离）
-  var CATKEY = 'internal_cats';
-  function cats() { return FW.db.getList(CATKEY); }
-  function ensureCats() { if (!cats().length) FW.db.saveList(CATKEY, DEFAULT_CATS.map(function (n) { return { name: n, children: [] }; })); }
+  var ACCT_ORDER = ACCTS;   // 账户余额展示顺序
+
+  var CATKEY_ = CATKEY;
+  function cats() { return FW.db.getList(CATKEY_); }
+  function ensureCats() { if (!cats().length) FW.db.saveList(CATKEY_, DEFAULT_CATS.map(function (n) { return { name: n, children: [] }; })); }
   function cat1Name(t) { return (t.category || '').split(' / ')[0]; }
 
+  /* ---------- 期初余额 ---------- */
+  function getOpenings() { return FW.db.getList(OPEN_KEY); }
+  function openingsTotal() { return getOpenings().reduce(function (s, o) { return s + (Number(o.amount) || 0); }, 0); }
+  function saveOpenings(arr) { FW.db.saveList(OPEN_KEY, arr); }
+
   /* ---------- 预算辅助 ---------- */
-  var BKEY = 'internal_budget';
   function getBudget(month) { return FW.db.getList(BKEY).filter(function (b) { return b.month === month; })[0] || null; }
   function monthExpense(month) {
     return all().filter(function (t) { return t.date.slice(0, 7) === month && t.type === 'expense'; })
@@ -23,7 +37,7 @@
   }
   function monthSum(m) {
     var inc = 0, exp = 0;
-    all().forEach(function (t) { if (t.date && t.date.slice(0, 7) === m) { if (t.type === 'income') inc += +t.amount; else exp += +t.amount; } });
+    all().forEach(function (t) { if (t.date && t.date.slice(0, 7) === m) { if (t.type === 'income') inc += +t.amount; else if (t.type === 'expense') exp += +t.amount; } });
     return { inc: inc, exp: exp, net: inc - exp };
   }
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
@@ -47,18 +61,76 @@
     if (kind === 'year') return { from: y + '-01-01', to: y + '-12-31' };
     return { from: '', to: '' };
   }
+  function inRange(t, from, to) { return (!from || t.date >= from) && (!to || t.date <= to); }
+
   function filteredRows() {
     var f = state.filter;
     return all().filter(function (t) {
       if (f.project && t.project !== f.project) return false;
       if (f.category && cat1Name(t) !== f.category) return false;
-      if (f.account && t.account !== f.account) return false;
+      if (f.account && accountOf(t) !== f.account) return false;
       if (f.type && t.type !== f.type) return false;
       if (f.from && t.date < f.from) return false;
       if (f.to && t.date > f.to) return false;
-      if (f.kw && (t.remark + t.project + t.category).indexOf(f.kw) < 0) return false;
+      if (f.kw && ((t.remark || '') + (t.project || '') + (t.category || '')).indexOf(f.kw) < 0) return false;
       return true;
     });
+  }
+  // 取一笔记录的“主账户”（用于筛选/账户维度统计）
+  function accountOf(t) {
+    if (t.type === 'transfer') return (t.fromAccount || '') + '→' + (t.toAccount || '');
+    return t.account || '';
+  }
+
+  /* ============================================================
+   * 核心计算（逻辑通的关键）
+   * ============================================================ */
+  // 账户余额分解：期初 / 本期收支 / 本期往来 / 余额
+  function accountBreakdown(upto) {
+    var open = {}, flow = {}, move = {};
+    getOpenings().forEach(function (o) { if (o.account) open[o.account] = (open[o.account] || 0) + (Number(o.amount) || 0); });
+    all().forEach(function (t) {
+      if (upto && t.date > upto) return;
+      var a = Number(t.amount) || 0;
+      if (t.type === 'income') { flow[t.account] = (flow[t.account] || 0) + a; }
+      else if (t.type === 'expense') { flow[t.account] = (flow[t.account] || 0) - a; }
+      else if (t.type === 'transfer') {
+        if (t.fromAccount) move[t.fromAccount] = (move[t.fromAccount] || 0) - a;
+        if (t.toAccount) move[t.toAccount] = (move[t.toAccount] || 0) + a;
+      } else if (t.type === 'equity') {
+        var s = t.equityDir === 'out' ? -1 : 1;
+        if (t.account) move[t.account] = (move[t.account] || 0) + s * a;
+      }
+    });
+    var keys = {};
+    [open, flow, move].forEach(function (mm) { Object.keys(mm).forEach(function (k) { if (k) keys[k] = 1; }); });
+    var ordered = [], seen = {};
+    ACCT_ORDER.forEach(function (k) { if (keys[k]) { ordered.push(k); seen[k] = 1; } });
+    Object.keys(keys).forEach(function (k) { if (!seen[k]) ordered.push(k); });
+    return ordered.map(function (k) {
+      var o = open[k] || 0, f = flow[k] || 0, mv = move[k] || 0;
+      return { name: k, opening: o, flow: f, move: mv, bal: o + f + mv };
+    });
+  }
+  // 账户余额（供报表中心复用，含期初，有序数组）
+  function accountBalances(upto) {
+    return accountBreakdown(upto).map(function (x) { return { name: x.name, bal: x.bal }; });
+  }
+  // 区间经营结余（仅收入-支出）
+  function netProfit(from, to) {
+    return all().reduce(function (s, t) {
+      if (!inRange(t, from, to)) return s;
+      if (t.type === 'income') return s + (Number(t.amount) || 0);
+      if (t.type === 'expense') return s - (Number(t.amount) || 0);
+      return s;
+    }, 0);
+  }
+  // 区间股本净变动
+  function equityNet(from, to) {
+    return all().reduce(function (s, t) {
+      if (t.type !== 'equity' || !inRange(t, from, to)) return s;
+      return s + (Number(t.amount) || 0) * (t.equityDir === 'out' ? -1 : 1);
+    }, 0);
   }
 
   /* ---------- 渲染主框架 ---------- */
@@ -78,16 +150,16 @@
     });
     drawBody();
 
-    // 顶部操作区
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+    ta.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+    document.getElementById('openBtn').onclick = openOpenings;
     document.getElementById('budgetBtn').onclick = openBudgetForm;
     document.getElementById('catBtn').onclick = openCatManager;
     document.getElementById('addTxBtn').onclick = openForm;
     document.getElementById('expTxBtn').onclick = exportTable;
     document.getElementById('impBtn').onclick = openImport;
     document.getElementById('clearBtn').onclick = function () {
-      if (!confirm('确定清空【当前账本】的全部内账流水吗？\n（含手动录入的，凭证照片也会一并删除，不可恢复！）')) return;
+      if (!confirm('确定清空【当前账本】的全部内账流水吗？\n（含手动录入的，凭证照片也会一并删除，不可恢复！)\n注意：期初余额不会被清空。')) return;
       all().forEach(function (t) { if (t.photos && t.photos.length) { try { FW.db.deletePhotos(t.photos); } catch (e) {} } });
       FW.db.saveList(KEY, []);
       render();
@@ -178,13 +250,14 @@
         return '<img class="photo-thumb" data-pid="' + pid + '" src="" data-load="' + pid + '" alt="凭证">';
       }).join('');
       var m = typeMeta(t);
-      var amtCls = (t.type === 'income' || t.type === 'expense') ? m.cls : 'neutral';
-      var acctTxt = t.type === 'transfer' ? (t.account || '—') : (t.type === 'equity' ? (t.account || '—') : (t.account || '—'));
+      var affects = (t.type === 'income' || t.type === 'expense');
+      var amtCls = affects ? m.cls : 'neutral';
+      var acctTxt = accountOf(t);
       return '<tr>' +
         '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
-        '<td>' + (t.type === 'transfer' || t.type === 'equity' ? '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span>') + '</td>' +
+        '<td>' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
         '<td>' + FW.esc(t.project || '—') + '</td>' +
-        '<td>' + FW.esc(t.category || (t.type === 'income' || t.type === 'expense' ? '—' : '—')) + '</td>' +
+        '<td>' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td>' + FW.esc(acctTxt) + '</td>' +
         '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + '</td>' +
         '<td>' + FW.esc(t.remark || '') + '</td>' +
@@ -197,7 +270,6 @@
       '</tr></thead><tbody>' + trs + '</tbody></table>';
   }
 
-  // 懒加载照片缩略图
   function loadThumbs() {
     FW.qa('#txTable img[data-load]').forEach(function (img) {
       var pid = img.dataset.load;
@@ -205,7 +277,7 @@
     });
   }
 
-  /* ---------- 统计 ---------- */
+  /* ---------- 统计分析（逻辑分层 + 对账校验） ---------- */
   function groupSum(rows, keyFn) {
     var map = {};
     rows.forEach(function (t) {
@@ -217,90 +289,100 @@
     return map;
   }
 
-  /* 各账户余额：收入/支出/账户互转/股本资金 全部计入（反映真实资金归属，非收支） */
-  function accountBalances(upto) {
-    var m = {};
-    all().forEach(function (t) {
-      if (upto && t.date > upto) return;
-      var a = Number(t.amount);
-      if (t.type === 'income') m[t.account] = (m[t.account] || 0) + a;
-      else if (t.type === 'expense') m[t.account] = (m[t.account] || 0) - a;
-      else if (t.type === 'transfer') {
-        m[t.fromAccount] = (m[t.fromAccount] || 0) - a;
-        m[t.toAccount] = (m[t.toAccount] || 0) + a;
-      } else if (t.type === 'equity') {
-        if (t.equityDir === 'out') m[t.account] = (m[t.account] || 0) - a;
-        else m[t.account] = (m[t.account] || 0) + a;
-      }
-    });
-    return m;
-  }
-
   function drawStat() {
-    var rows = all().filter(function (t) {
-      if (state.statFrom && t.date < state.statFrom) return false;
-      if (state.statTo && t.date > state.statTo) return false;
-      return true;
-    });
-    var byProj = groupSum(rows, function (t) { return t.project || '未分类项目'; });
-    var byMonth = groupSum(rows, function (t) { return t.date.slice(0, 7); });
-    var byDay = groupSum(rows, function (t) { return t.date; });
-    var byCat = groupSum(rows, function (t) { return t.category || '其他'; });
-    var byAcc = groupSum(rows, function (t) { return t.account || '其他'; });
+    var from = state.statFrom, to = state.statTo;
+    var rowsIn = all().filter(function (t) { return inRange(t, from, to); });
+    var byProj = groupSum(rowsIn, function (t) { return t.project || '未分类项目'; });
+    var byMonth = groupSum(rowsIn, function (t) { return t.date.slice(0, 7); });
+    var byDay = groupSum(rowsIn, function (t) { return t.date; });
+    var byCat = groupSum(rowsIn, function (t) { return t.category || '其他'; });
+    var byAcc = groupSum(rowsIn, function (t) { return t.account || '其他'; });
 
-    var totalIncome = rows.reduce(function (a, t) { return a + (t.type === 'income' ? +t.amount : 0); }, 0);
-    var totalExpense = rows.reduce(function (a, t) { return a + (t.type === 'expense' ? +t.amount : 0); }, 0);
+    var totalIncome = rowsIn.reduce(function (a, t) { return a + (t.type === 'income' ? +t.amount : 0); }, 0);
+    var totalExpense = rowsIn.reduce(function (a, t) { return a + (t.type === 'expense' ? +t.amount : 0); }, 0);
     var curMonth = FW.today().slice(0, 7);
     var prev = monthSum(prevMonth(curMonth));
     function mom(cur, pv) { if (!(pv > 0)) return null; return (cur - pv) / pv * 100; }
     var incMom = mom(totalIncome, prev.inc);
     var expMom = mom(totalExpense, prev.exp);
 
-    // 月度柱状图（收入 vs 支出）
+    // 资金层
+    var breakdown = accountBreakdown(to);                 // 截至所选期末的账户分解
+    var cashTotal = breakdown.reduce(function (s, x) { return s + x.bal; }, 0);
+    var openTotal = openingsTotal();
+    var profit = netProfit(from, to);
+    var eqNet = equityNet(from, to);
+    var balanced = Math.abs(cashTotal - (openTotal + profit + eqNet)) < 0.005;
+
+    // 月度柱状图
     var months = Object.keys(byMonth).sort();
     var monthItems = months.map(function (m) { return { label: m.slice(5) + '月', value: byMonth[m].income - byMonth[m].expense }; });
     var catItems = Object.keys(byCat).map(function (k) { return { label: k, value: byCat[k].expense }; }).filter(function (x) { return x.value > 0; });
     var accItems = Object.keys(byAcc).map(function (k) { return { label: k, value: byAcc[k].income + byAcc[k].expense }; }).filter(function (x) { return x.value > 0; });
     var projItems = Object.keys(byProj).map(function (k) { return { label: k, value: byProj[k].income - byProj[k].expense }; });
 
-    var rangeTxt = (state.statFrom || state.statTo) ? ('（' + (state.statFrom || '最早') + ' 至 ' + (state.statTo || '最新') + '）') : '（全部期间）';
+    var rangeTxt = (from || to) ? ('（' + (from || '最早') + ' 至 ' + (to || '最新') + '）') : '（全部期间）';
     var html =
       '<div class="card" style="margin-bottom:14px"><div class="toolbar">' +
         '<span style="font-size:13px;color:var(--muted);align-self:center">统计时间区间：</span>' +
-        '<div class="field"><input id="statFrom" type="date" value="' + FW.esc(state.statFrom) + '" title="开始日期"></div>' +
-        '<div class="field"><input id="statTo" type="date" value="' + FW.esc(state.statTo) + '" title="结束日期"></div>' +
+        '<div class="field"><input id="statFrom" type="date" value="' + FW.esc(from) + '" title="开始日期"></div>' +
+        '<div class="field"><input id="statTo" type="date" value="' + FW.esc(to) + '" title="结束日期"></div>' +
         '<button class="btn ghost sm" data-range="month">本月</button>' +
         '<button class="btn ghost sm" data-range="quarter">本季</button>' +
         '<button class="btn ghost sm" data-range="year">本年</button>' +
         '<button class="btn ghost sm" id="statReset">全部</button>' +
       '</div></div>' +
+
+      // —— 利润层 ——
       '<div class="stat-row">' +
         '<div class="stat"><div class="label">区间收入 ' + rangeTxt + '</div><div class="value income">' + FW.fmtMoney(totalIncome) + '</div></div>' +
         '<div class="stat"><div class="label">区间支出</div><div class="value expense">' + FW.fmtMoney(totalExpense) + '</div></div>' +
-        '<div class="stat"><div class="label">区间结余</div><div class="value">' + FW.fmtMoney(totalIncome - totalExpense) + '</div></div>' +
+        '<div class="stat"><div class="label">区间结余（利润）</div><div class="value">' + FW.fmtMoney(totalIncome - totalExpense) + '</div></div>' +
         '<div class="stat"><div class="label">收入环比（上月）</div><div class="value ' + (incMom == null ? '' : (incMom >= 0 ? 'income' : 'expense')) + '">' + (incMom == null ? '—' : (incMom >= 0 ? '▲' : '▼') + Math.abs(incMom).toFixed(1) + '%') + '</div></div>' +
         '<div class="stat"><div class="label">支出环比（上月）</div><div class="value ' + (expMom == null ? '' : (expMom >= 0 ? 'income' : 'expense')) + '">' + (expMom == null ? '—' : (expMom >= 0 ? '▲' : '▼') + Math.abs(expMom).toFixed(1) + '%') + '</div></div>' +
       '</div>' +
+
+      // —— 资金层 ——
+      '<div class="stat-row">' +
+        '<div class="stat"><div class="label">资金总计（各账户余额和）</div><div class="value">' + FW.fmtMoney(cashTotal) + '</div></div>' +
+        '<div class="stat"><div class="label">期初余额</div><div class="value">' + FW.fmtMoney(openTotal) + '</div></div>' +
+        '<div class="stat"><div class="label">区间股本净变动</div><div class="value ' + (eqNet >= 0 ? 'income' : 'expense') + '">' + FW.fmtMoney(eqNet) + '</div></div>' +
+        '<div class="stat"><div class="label">区间互转净额</div><div class="value muted">0.00</div></div>' +
+      '</div>' +
+
+      // —— 对账校验 ——
+      '<div class="card" style="margin-bottom:18px;' + (balanced ? 'border-color:#bfe6cd' : 'border-color:#f4d79a') + '">' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+          '<span class="badge ' + (balanced ? 'done' : 'warn') + '">' + (balanced ? '✅ 对账平衡' : '⚠️ 对账不平') + '</span>' +
+          '<span class="muted" style="font-size:13px">资金总计 ' + FW.fmtMoney(cashTotal) + ' ＝ 期初 ' + FW.fmtMoney(openTotal) + ' ＋ 区间结余 ' + FW.fmtMoney(profit) + ' ＋ 股本净 ' + FW.fmtMoney(eqNet) + '</span>' +
+        '</div>' +
+        '<div class="muted" style="font-size:12px;margin-top:8px">说明：账户互转只改变资金在各账户间的归属，不改变「资金总计」与「结余」；股本注入/抽回影响资金但不影响经营利润。</div>' +
+      '</div>' +
+
       '<div class="chart-wrap">' +
         (months.length ? FW.lineChart('月度收支趋势（收入/支出）', [{ name: '收入', color: '#e63946', points: months.map(function (m) { return { label: m.slice(5) + '月', value: byMonth[m].income }; }) }, { name: '支出', color: '#1f9d55', points: months.map(function (m) { return { label: m.slice(5) + '月', value: byMonth[m].expense }; }) }]) : '') +
         (months.length ? FW.barChart('每月净收支（收入-支出）', monthItems, { color: '#2f6bff' }) : '') +
         (catItems.length ? FW.pieChart('支出分类占比', catItems) : '') +
-        (accItems.length ? FW.pieChart('账户收支分布', accItems) : '') +
         (projItems.length ? FW.barChart('各项目净收支', projItems, { color: '#9b5de5' }) : '') +
       '</div>';
 
-    // 各账户余额（含互转与股本，反映真实资金归属，不影响收支但影响余额）
-    var acctBal = accountBalances(state.statTo);
-    var acctBalKeys = Object.keys(acctBal);
-    var acctBalTotal = acctBalKeys.reduce(function (s, k) { return s + acctBal[k]; }, 0);
-    var balItems = acctBalKeys.map(function (k) {
-      var v = acctBal[k];
-      return '<tr><td>' + FW.esc(k) + '</td><td class="num ' + (v >= 0 ? 'income' : 'expense') + '">' + (v >= 0 ? '+' : '') + FW.fmtMoney(v) + '</td></tr>';
+    // —— 各账户余额分解表（资金层核心） ——
+    var balRows = breakdown.map(function (x) {
+      return '<tr>' +
+        '<td>' + FW.esc(x.name) + '</td>' +
+        '<td class="num">' + FW.fmtMoney(x.opening) + '</td>' +
+        '<td class="num ' + (x.flow >= 0 ? 'income' : 'expense') + '">' + (x.flow >= 0 ? '+' : '') + FW.fmtMoney(x.flow) + '</td>' +
+        '<td class="num ' + (x.move >= 0 ? 'income' : 'expense') + '">' + (x.move >= 0 ? '+' : '') + FW.fmtMoney(x.move) + '</td>' +
+        '<td class="num"><b>' + (x.bal >= 0 ? '+' : '') + FW.fmtMoney(x.bal) + '</b></td>' +
+        '</tr>';
     }).join('');
     html +=
-      '<div class="card" style="margin-top:18px"><h3>各账户余额 <span class="sub">含收入支出 / 账户互转 / 股本资金' + ((state.statFrom || state.statTo) ? '（截至所选区间末）' : '（累计全部）') + '</span></h3>' +
-        (acctBalKeys.length ? '<table><thead><tr><th>账户</th><th class="num">余额</th></tr></thead><tbody>' + balItems + '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(acctBalTotal) + '</td></tr></tbody></table>' : '<div class="empty">暂无账户余额数据，去「流水明细」登记收入/支出或互转/股本。</div>') +
+      '<div class="card" style="margin-top:18px"><h3>各账户余额 <span class="sub">期初＋收支＋往来' + ((from || to) ? '（截至所选区间末）' : '（累计全部）') + '</span></h3>' +
+        (breakdown.length ? '<table><thead><tr><th>账户</th><th class="num">期初</th><th class="num">本期收支</th><th class="num">本期往来</th><th class="num">余额</th></tr></thead><tbody>' + balRows +
+          '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(openTotal) + '</td><td class="num">' + FW.fmtMoney(profit) + '</td><td class="num">' + FW.fmtMoney(eqNet) + '</td><td class="num">' + FW.fmtMoney(cashTotal) + '</td></tr>' +
+          '</tbody></table>' : '<div class="empty">暂无账户余额数据，去「流水明细」登记收入/支出/互转/股本，或在「设置期初」录入开户金额。</div>') +
       '</div>' +
+
       // 明细统计表（四个维度 tab）
       '<div class="card" style="margin-top:18px"><div class="tabs" id="statTabs">' +
         '<button class="tab active" data-s="proj">项目统计</button>' +
@@ -312,7 +394,6 @@
     document.getElementById('inBody').innerHTML = html;
     drawStatTable('proj', byProj, byMonth, byDay, byCat, byAcc);
 
-    // 时间区间事件
     var g = function (id) { return document.getElementById(id); };
     g('statFrom').onchange = function () { state.statFrom = this.value; drawStat(); };
     g('statTo').onchange = function () { state.statTo = this.value; drawStat(); };
@@ -320,13 +401,32 @@
     FW.qa('#inBody [data-range]').forEach(function (b) {
       b.onclick = function () { var r = rangeDates(b.dataset.range); state.statFrom = r.from; state.statTo = r.to; drawStat(); };
     });
-
     FW.qa('#statTabs .tab').forEach(function (b) {
       b.onclick = function () {
         FW.qa('#statTabs .tab').forEach(function (x) { x.classList.toggle('active', x === b); });
         drawStatTable(b.dataset.s, byProj, byMonth, byDay, byCat, byAcc);
       };
     });
+  }
+
+  function statTableRows(map, fmtKey) {
+    var keys = Object.keys(map).sort(function (a, b) { return (map[b].income + map[b].expense) - (map[a].income + map[a].expense); });
+    if (!keys.length) return '<div class="empty">暂无数据</div>';
+    var trs = keys.map(function (k) {
+      var v = map[k];
+      return '<tr><td>' + FW.esc(k) + '</td><td class="num income">' + FW.fmtMoney(v.income) + '</td><td class="num expense">' + FW.fmtMoney(v.expense) + '</td><td class="num"><b>' + FW.fmtMoney(v.income - v.expense) + '</b></td></tr>';
+    }).join('');
+    return '<table><thead><tr><th>' + fmtKey + '</th><th class="num">收入</th><th class="num">支出</th><th class="num">净额</th></tr></thead><tbody>' + trs + '</tbody></table>';
+  }
+  function drawStatTable(s, byProj, byMonth, byDay, byCat, byAcc) {
+    var el = document.getElementById('statTable');
+    if (s === 'proj') el.innerHTML = statTableRows(byProj, '项目');
+    else if (s === 'month') el.innerHTML = statTableRows(byMonth, '月份');
+    else if (s === 'day') el.innerHTML = statTableRows(byDay, '日期');
+    else if (s === 'catacc') {
+      el.innerHTML = '<h4 style="margin:4px 0 8px">按分类</h4>' + statTableRows(byCat, '分类') +
+        '<h4 style="margin:18px 0 8px">按账户（收支维度）</h4>' + statTableRows(byAcc, '账户');
+    }
   }
 
   /* ---------- 资金变动明细（账户互转 / 股本，不影响收支） ---------- */
@@ -342,16 +442,15 @@
     var eqIn = equities.filter(function (t) { return t.equityDir !== 'out'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var eqOut = equities.filter(function (t) { return t.equityDir === 'out'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
 
-    // 各账户资金净变动（仅统计互转与股本，不含收支）
     var acctMap = {};
     all().forEach(function (t) {
       var amt = Number(t.amount);
       if (t.type === 'transfer') {
-        acctMap[t.fromAccount] = (acctMap[t.fromAccount] || 0) - amt;
-        acctMap[t.toAccount] = (acctMap[t.toAccount] || 0) + amt;
+        if (t.fromAccount) acctMap[t.fromAccount] = (acctMap[t.fromAccount] || 0) - amt;
+        if (t.toAccount) acctMap[t.toAccount] = (acctMap[t.toAccount] || 0) + amt;
       } else if (t.type === 'equity') {
-        if (t.equityDir === 'out') acctMap[t.account] = (acctMap[t.account] || 0) - amt;
-        else acctMap[t.account] = (acctMap[t.account] || 0) + amt;
+        var s = t.equityDir === 'out' ? -1 : 1;
+        if (t.account) acctMap[t.account] = (acctMap[t.account] || 0) + s * amt;
       }
     });
     var acctKeys = Object.keys(acctMap).filter(function (k) { return acctMap[k] !== 0; });
@@ -404,25 +503,40 @@
     FW.qa('#inBody .fund-del').forEach(function (b) { b.onclick = function () { delTx(b.dataset.id); }; });
   }
 
-  function statTableRows(map, fmtKey) {
-    var keys = Object.keys(map).sort(function (a, b) { return (map[b].income + map[b].expense) - (map[a].income + map[a].expense); });
-    if (!keys.length) return '<div class="empty">暂无数据</div>';
-    var trs = keys.map(function (k) {
-      var v = map[k];
-      return '<tr><td>' + FW.esc(k) + '</td><td class="num income">' + FW.fmtMoney(v.income) + '</td><td class="num expense">' + FW.fmtMoney(v.expense) + '</td><td class="num"><b>' + FW.fmtMoney(v.income - v.expense) + '</b></td></tr>';
+  /* ---------- 期初余额录入 ---------- */
+  function openOpenings() {
+    var cur = getOpenings();
+    function find(acc) { for (var i = 0; i < cur.length; i++) if (cur[i].account === acc) return cur[i]; return null; }
+    var rows = ACCTS.map(function (acc) {
+      var o = find(acc);
+      return '<div class="open-row"><span class="open-name">' + FW.esc(acc) + '</span>' +
+        '<input class="open-amt" type="number" step="0.01" data-acc="' + FW.esc(acc) + '" value="' + (o ? o.amount : '') + '" placeholder="0"></div>';
     }).join('');
-    return '<table><thead><tr><th>' + fmtKey + '</th><th class="num">收入</th><th class="num">支出</th><th class="num">净额</th></tr></thead><tbody>' + trs + '</tbody></table>';
-  }
-
-  function drawStatTable(s, byProj, byMonth, byDay, byCat, byAcc) {
-    var el = document.getElementById('statTable');
-    if (s === 'proj') el.innerHTML = statTableRows(byProj, '项目');
-    else if (s === 'month') el.innerHTML = statTableRows(byMonth, '月份');
-    else if (s === 'day') el.innerHTML = statTableRows(byDay, '日期');
-    else if (s === 'catacc') {
-      el.innerHTML = '<h4 style="margin:4px 0 8px">按分类</h4>' + statTableRows(byCat, '分类') +
-        '<h4 style="margin:18px 0 8px">按账户</h4>' + statTableRows(byAcc, '账户');
-    }
+    var total = cur.reduce(function (s, o) { return s + (Number(o.amount) || 0); }, 0);
+    var body =
+      '<div class="muted" style="font-size:12px;margin-bottom:8px">录入每个账户在「记账开始前」已有的金额（如开户时银行卡里的钱）。这将作为账户余额的起点，使余额与银行实际一致。留空表示 0。可填负数表示透支/欠款。</div>' +
+      '<div class="open-list">' + rows + '</div>' +
+      '<div class="muted" style="font-size:12px;margin:10px 0 6px">期初余额合计：<b id="openSum">' + FW.fmtMoney(total) + '</b></div>' +
+      '<div class="form-actions"><button class="btn ghost" id="openCancel">取消</button><button class="btn" id="openSave">保存期初</button></div>';
+    FW.openModal('设置期初余额', body, function () {
+      var inputs = FW.qa('#modalBody .open-amt');
+      function recalc() {
+        var s = 0;
+        inputs.forEach(function (inp) { var v = parseFloat(inp.value); if (!isNaN(v)) s += v; });
+        var el = document.getElementById('openSum'); if (el) el.textContent = FW.fmtMoney(s);
+      }
+      inputs.forEach(function (inp) { inp.oninput = recalc; });
+      document.getElementById('openCancel').onclick = FW.closeModal;
+      document.getElementById('openSave').onclick = function () {
+        var arr = [];
+        inputs.forEach(function (inp) {
+          var v = parseFloat(inp.value);
+          if (!isNaN(v) && v !== 0) arr.push({ account: inp.dataset.acc, amount: v });
+        });
+        saveOpenings(arr);
+        FW.closeModal(); render(); FW.toast('期初余额已保存（合计 ' + FW.fmtMoney(arr.reduce(function (s, o) { return s + o.amount; }, 0)) + '）');
+      };
+    });
   }
 
   /* ---------- 分类 / 账户 辅助 ---------- */
@@ -437,8 +551,6 @@
     var kids = c ? (c.children || []) : [];
     return '<option value="">（无二级）</option>' + kids.map(function (k) { return '<option ' + (k === sel ? 'selected' : '') + '>' + FW.esc(k) + '</option>'; }).join('');
   }
-
-  // 依据类型动态渲染分类/账户区域
   function renderDyn(type, v) {
     var el = document.getElementById('dynArea');
     if (type === 'transfer') {
@@ -462,11 +574,8 @@
     }
   }
 
-  /* ---------- 新增 / 编辑 表单 ---------- */
   /* ===================== 批量导入（微信账单 / 表格） ===================== */
   var impPreviewState = null;
-
-  // 简易 CSV 行解析（处理双引号包裹与转义）
   function csvSplit(line) {
     var out = [], cur = '', q = false;
     for (var i = 0; i < line.length; i++) {
@@ -483,8 +592,6 @@
     out.push(cur);
     return out;
   }
-
-  // 文件解码（支持 GBK / UTF-8 / 自动）
   function decodeFile(file, enc, cb) {
     var r = new FileReader();
     r.onload = function () {
@@ -503,8 +610,6 @@
     r.onerror = function () { cb(''); };
     r.readAsArrayBuffer(file);
   }
-
-  // 解析微信支付账单（用于个人对账的 CSV，GBK）
   function parseWeChatBill(text) {
     var lines = text.split(/\r?\n/);
     var headerIdx = -1, header = null;
@@ -522,7 +627,7 @@
       var f = csvSplit(ln);
       var inout = (f[cInout] || '').trim();
       var status = (f[cStatus] || '').trim();
-      if (inout === '不计收支') { skipped++; continue; }                 // 零钱提现/充值等
+      if (inout === '不计收支') { skipped++; continue; }
       if (/退还|退款/.test(status) && !/已收钱|已转账/.test(status)) { skipped++; continue; }
       if (inout !== '收入' && inout !== '支出') { skipped++; continue; }
       var amt = parseFloat((f[cAmt] || '').replace(/[￥¥\s,]/g, ''));
@@ -538,12 +643,10 @@
     }
     return { ok: true, rows: rows, skipped: skipped };
   }
-
-  // 自动猜测表格列映射
   function guessMap(headers) {
     function find(words) {
       for (var i = 0; i < headers.length; i++) {
-        var h = (headers[i] || '').toLowerCase().replace(/\s+/g, ''); // 去空格，兼容「交易 日期」等
+        var h = (headers[i] || '').toLowerCase().replace(/\s+/g, '');
         for (var w = 0; w < words.length; w++) if (h.indexOf(words[w]) > -1) return i;
       }
       return -1;
@@ -555,15 +658,12 @@
     var remarkCol = find(['备注', '摘要', '说明', '用途', '商品', '描述', '附言', '事由', '交易摘要', '备注说明', '摘要信息', 'memo', 'note', 'remark', 'desc', '摘要说明']);
     return { hasHeader: true, dateCol: dateCol < 0 ? 0 : dateCol, amountCol: amountCol < 0 ? 1 : amountCol, typeCol: typeCol, partyCol: partyCol, remarkCol: remarkCol, signMode: typeCol < 0 ? 'neg' : 'col' };
   }
-
-  // 解析通用表格（行数组 → 记录），CSV 与 Excel 共用
   function parseRowsCore(rowsArr, map) {
     var startRow = map.hasHeader ? 1 : 0;
     var rows = [], skipped = 0;
     function normDate(s) {
       s = (s == null ? '' : String(s)).trim();
       if (!s) return '';
-      // Excel 日期序列号（5 位数字）
       if (/^\d{5}$/.test(s)) {
         var base = Date.UTC(1899, 11, 30);
         var dd = new Date(base + (parseInt(s, 10)) * 86400000);
@@ -571,18 +671,14 @@
         return yy + '-' + (mm < 10 ? '0' + mm : mm) + '-' + (d3 < 10 ? '0' + d3 : d3);
       }
       var datePart = s.split(/[ T]/)[0];
-      // 年-月-日 / 年.月.日 / 年/月/日（第一段为 4 位年份）
       var m1 = datePart.match(/^(\d{4})[年\-\/\.](\d{1,2})[月\-\/\.](\d{1,2})/);
       if (m1) { var y1 = +m1[1], mo1 = +m1[2], d1 = +m1[3]; return y1 + '-' + (mo1 < 10 ? '0' + mo1 : mo1) + '-' + (d1 < 10 ? '0' + d1 : d1); }
-      // 月/日/年（美式，第一段<=12 且第三段为 4 位）
       var m2 = datePart.match(/^(\d{1,2})[年\-\/\.](\d{1,2})[年\-\/\.](\d{4})/);
       if (m2) { var mo2 = +m2[1], d2 = +m2[2], y2 = +m2[3]; if (mo2 >= 1 && mo2 <= 12 && d2 >= 1 && d2 <= 31) return y2 + '-' + (mo2 < 10 ? '0' + mo2 : mo2) + '-' + (d2 < 10 ? '0' + d2 : d2); }
-      // 无分隔 8 位 20260701
       var m3 = datePart.match(/^(\d{4})(\d{2})(\d{2})$/);
       if (m3) return m3[1] + '-' + m3[2] + '-' + m3[3];
       return '';
     }
-    // 全角字符转半角（中文 Excel 偶发全角数字/小数点/逗号/括号）
     function halfWidth(s) {
       return (s == null ? '' : String(s)).replace(/[０-９Ａ-Ｚａ-ｚ．，：；！？（）　]/g, function (c) {
         var code = c.charCodeAt(0);
@@ -593,7 +689,6 @@
     }
     for (var j = startRow; j < rowsArr.length; j++) {
       var f = (rowsArr[j] || []).map(function (x) { return x == null ? '' : String(x); });
-      // 金额：支持会计括号负数 (1234.00)、货币符号、千分位、全角
       var rawAmt = halfWidth((f[map.amountCol] || '').toString());
       var negAmt = false;
       var rawTrim = rawAmt.replace(/\s/g, '');
@@ -616,15 +711,11 @@
     }
     return { ok: true, rows: rows, skipped: skipped };
   }
-
-  // 解析通用表格 CSV
   function parseGenericCsv(text, map) {
     var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
     var rowsArr = lines.map(function (l) { return csvSplit(l); });
     return parseRowsCore(rowsArr, map);
   }
-
-  // 把解析结果写入内账
   function doImportRows(rows) {
     var n = 0;
     rows.forEach(function (r) {
@@ -637,8 +728,6 @@
     });
     return n;
   }
-
-  // 导入预览弹窗（勾选后确认）
   function openImportPreview(rows, skipped, mode) {
     impPreviewState = { rows: rows, chosen: rows.map(function () { return true; }) };
     var s = impPreviewState;
@@ -676,8 +765,6 @@
     }
     renderPreview();
   }
-
-  // 导入入口弹窗
   function openImport() {
     var body =
       '<div class="field"><label>导入方式</label><div class="seg">' +
@@ -705,7 +792,6 @@
         var file = document.getElementById('impFile').files[0];
         if (!file) { FW.toast('请先选择文件'); return; }
         var fname = (file.name || '').toLowerCase();
-        // Excel（.xlsx / .xls）：表格导入模式直接解析第一个工作表
         if (mode === 'table' && /\.(xlsx|xls)$/.test(fname)) {
           if (typeof XLSX === 'undefined') { FW.toast('Excel 解析库未加载，请刷新页面后重试'); return; }
           var fr = new FileReader();
@@ -752,8 +838,8 @@
   }
 
   FW.internalImport = { parseWeChatBill: parseWeChatBill, parseGenericCsv: parseGenericCsv, parseRowsCore: parseRowsCore, csvSplit: csvSplit, guessMap: guessMap };
-  FW.internalCalc = { accountBalances: accountBalances };
 
+  /* ---------- 新增 / 编辑 表单 ---------- */
   function openForm(id) {
     var edit = id ? FW.db.getById(KEY, id) : null;
     var projList = projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
@@ -826,7 +912,6 @@
     });
   }
 
-  // 粘贴剪贴板图片（Ctrl+V）
   function bindPaste(photos) {
     var mask = document.getElementById('modalMask');
     if (!mask) return function () {};
@@ -850,7 +935,6 @@
     mask.addEventListener('paste', onPaste);
     return function () { mask.removeEventListener('paste', onPaste); };
   }
-
   function renderPhotoGrid(photos) {
     var grid = document.getElementById('photoGrid');
     if (!grid) return;
@@ -880,7 +964,6 @@
       inp.click();
     };
     grid.appendChild(add);
-    // 拖拽图片
     grid.ondragover = function (e) { e.preventDefault(); grid.classList.add('drag'); };
     grid.ondragleave = function () { grid.classList.remove('drag'); };
     grid.ondrop = function (e) {
@@ -889,7 +972,6 @@
       if (files && files.length) addFiles(files, photos);
     };
   }
-
   function addFiles(fileList, photos) {
     var files = Array.prototype.slice.call(fileList).filter(function (f) { return f.type.indexOf('image') === 0; });
     if (!files.length) return;
@@ -905,21 +987,21 @@
     return true;
   }
   function openCatManager() {
-    var dragState = null; // { type:'l1'|'l2', pi, from }
+    var dragState = null;
     function delCat1(i) {
       var l = cats(); var name = l[i].name;
       var used = FW.db.getList(KEY).some(function (t) { return cat1Name(t) === name; });
       if (used && !confirm('「' + name + '」下已有流水记录，删除后该分类将显示为空白，仍要删除？')) return;
-      l.splice(i, 1); FW.db.saveList(CATKEY, l); render();
+      l.splice(i, 1); FW.db.saveList(CATKEY_, l); render();
     }
     function addCat2(i) {
       var n = prompt('输入二级分类名称：'); if (!n) return; n = n.trim();
       var l = cats(); var c = l[i];
       if ((c.children || []).indexOf(n) >= 0) { FW.toast('已存在该二级分类'); return; }
-      c.children = c.children || []; c.children.push(n); FW.db.saveList(CATKEY, l); render();
+      c.children = c.children || []; c.children.push(n); FW.db.saveList(CATKEY_, l); render();
     }
     function delCat2(i, j) {
-      var l = cats(); l[i].children.splice(j, 1); FW.db.saveList(CATKEY, l); render();
+      var l = cats(); l[i].children.splice(j, 1); FW.db.saveList(CATKEY_, l); render();
     }
     function render() {
       var list = cats();
@@ -947,11 +1029,9 @@
           if (!n) { FW.toast('请输入名称'); return; }
           var l = cats();
           if (l.some(function (x) { return x.name === n; })) { FW.toast('已存在该一级分类'); return; }
-          l.push({ name: n, children: [] }); FW.db.saveList(CATKEY, l); render();
+          l.push({ name: n, children: [] }); FW.db.saveList(CATKEY_, l); render();
         };
         document.getElementById('cmClose').onclick = FW.closeModal;
-
-        // 一级分类拖拽
         FW.qa('#modalBody .cat-l1').forEach(function (el) {
           var i = parseInt(el.dataset.i, 10);
           el.ondragstart = function (e) { dragState = { type: 'l1', from: i }; e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); };
@@ -962,12 +1042,11 @@
             e.preventDefault(); el.classList.remove('drop-over');
             if (dragState && dragState.type === 'l1') {
               var l = cats();
-              if (moveInArray(l, dragState.from, i)) { FW.db.saveList(CATKEY, l); render(); }
+              if (moveInArray(l, dragState.from, i)) { FW.db.saveList(CATKEY_, l); render(); }
               dragState = null;
             }
           };
         });
-        // 二级分类拖拽（支持跨一级移动）
         FW.qa('#modalBody .cat-l2').forEach(function (el) {
           var i = parseInt(el.dataset.i, 10), j = parseInt(el.dataset.j, 10);
           el.ondragstart = function (e) { e.stopPropagation(); dragState = { type: 'l2', pi: i, from: j }; el.classList.add('dragging'); };
@@ -981,7 +1060,7 @@
               var item = l[dragState.pi].children.splice(dragState.from, 1)[0];
               l[i].children = l[i].children || [];
               l[i].children.splice(j, 0, item);
-              FW.db.saveList(CATKEY, l); render();
+              FW.db.saveList(CATKEY_, l); render();
               dragState = null;
             }
           };
@@ -997,7 +1076,6 @@
       FW.openModal('凭证照片', '<div style="text-align:center"><img src="' + d + '" style="max-width:100%;border-radius:8px"></div>');
     }).catch(function () { FW.toast('照片读取失败'); });
   }
-
   function delTx(id) {
     var rec = FW.db.getById(KEY, id);
     if (!rec) return;
@@ -1006,7 +1084,6 @@
     if (rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
     render(); FW.toast('已删除');
   }
-
   function exportTable() {
     var rows = filteredRows();
     if (!rows.length) { FW.toast('没有可导出的流水'); return; }
@@ -1019,7 +1096,7 @@
     }
     var head = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证数', '是否影响收支'];
     var data = rows.map(function (t) {
-      return [t.date, typeLabel(t), t.project || '', t.category || '', t.account || '', t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), (t.type === 'income' || t.type === 'expense') ? '是' : '否'];
+      return [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), (t.type === 'income' || t.type === 'expense') ? '是' : '否'];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
@@ -1052,8 +1129,6 @@
       '<div class="budget-bar"><div class="budget-fill" style="width:' + Math.min(pct, 100).toFixed(0) + '%;background:' + barColor + '"></div></div>' +
     '</div>';
   }
-
-  /* ---------- 设置预算 ---------- */
   function openBudgetForm() {
     var month = FW.today().slice(0, 7);
     var cur = getBudget(month) || { month: month, total: '', cats: {} };
@@ -1115,7 +1190,7 @@
         '</div>';
     }
     grid += '</div>';
-    document.getElementById('inBody').innerHTML = head + week + grid + '<div class="cal-legend muted">点击某天 → 查看当天流水明细</div>';
+    document.getElementById('inBody').innerHTML = head + week + grid + '<div class="cal-legend muted">点击某天 → 查看当天流水明细（仅显示收入/支出）</div>';
     document.getElementById('calPrev').onclick = function () { state.calMonth = shiftMonth(ym, -1); state.calSel = ''; drawCalendar(); };
     document.getElementById('calNext').onclick = function () { state.calMonth = shiftMonth(ym, 1); state.calSel = ''; drawCalendar(); };
     document.getElementById('calToday').onclick = function () { state.calMonth = now.getFullYear() + '-' + pad(now.getMonth() + 1); state.calSel = ''; drawCalendar(); };
@@ -1129,18 +1204,27 @@
     });
   }
 
+  /* ---------- 暴露计算接口（供报表中心复用，保证逻辑一致） ---------- */
+  FW.internalCalc = {
+    accountBalances: accountBalances,        // (upto) -> [{name,bal}] 含期初
+    accountBreakdown: accountBreakdown,      // (upto) -> [{name,opening,flow,move,bal}]
+    openingsTotal: openingsTotal,            // () -> 期初合计
+    getOpeningsTotal: openingsTotal,         // 别名（报表用）
+    netProfit: netProfit,                    // (from,to) -> 区间经营结余
+    equityNet: equityNet                     // (from,to) -> 区间股本净
+  };
+
   FW.modules = FW.modules || {};
   FW.modules.internal = {
     title: '登记内账',
     render: function () { render(); loadThumbs(); },
     onShow: function () { render(); loadThumbs(); },
-    // 供测试 / 编程调用：分类拖拽排序的核心逻辑
-    reorderCat: function (from, to) { var l = cats(); if (moveInArray(l, from, to)) { FW.db.saveList(CATKEY, l); return true; } return false; },
+    reorderCat: function (from, to) { var l = cats(); if (moveInArray(l, from, to)) { FW.db.saveList(CATKEY_, l); return true; } return false; },
     reorderSubCat: function (pi, from, j) {
       var l = cats(); if (!l[pi]) return false;
       var item = (l[pi].children || []).splice(from, 1)[0]; if (item == null) return false;
       l[pi].children = l[pi].children || []; l[pi].children.splice(j, 0, item);
-      FW.db.saveList(CATKEY, l); return true;
+      FW.db.saveList(CATKEY_, l); return true;
     },
     cats: cats
   };
