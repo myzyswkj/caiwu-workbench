@@ -667,6 +667,9 @@
       if (inout !== '收入' && inout !== '支出') { skipped++; continue; }
       var amt = parseFloat((f[cAmt] || '').replace(/[￥¥\s,]/g, ''));
       if (isNaN(amt)) { skipped++; continue; }
+      // 微信 Excel 账单中支出金额可能以负数存储（金额反映资金流向），统一取绝对值，
+      // 方向完全由「收/支」列决定，避免负数导致汇总时支出被抵消 / 收入支出颠倒。
+      amt = Math.abs(amt);
       var dt = (f[cTime] || '').slice(0, 10);
       var party = (f[cParty] || '').trim();
       var goods = (f[cGoods] || '').trim();
