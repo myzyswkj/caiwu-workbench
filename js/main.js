@@ -11,7 +11,32 @@
     FW.qa('#moduleNav .nav-item').forEach(function (b) { b.classList.toggle('active', b.dataset.module === name); });
     document.getElementById('topTitle').textContent = mod.title || name;
     mod.render();
+    renderSubNav(name);
   }
+
+  /* ---------- 侧栏子导航：折叠自各模块顶部的标签栏目 ---------- */
+  var subNavEl = null;
+  function renderSubNav(name) {
+    if (!subNavEl) subNavEl = document.getElementById('subNav');
+    if (!subNavEl) return;
+    var mod = FW.modules[name];
+    var tabs = mod && mod.tabs;
+    if (!tabs || !tabs.length) { subNavEl.hidden = true; subNavEl.innerHTML = ''; return; }
+    var cur = (mod.getTab && mod.getTab()) || tabs[0].key;
+    subNavEl.hidden = false;
+    subNavEl.innerHTML = tabs.map(function (t) {
+      return '<button class="subnav-item ' + (t.key === cur ? 'active' : '') + '" data-k="' + FW.esc(t.key) + '">' +
+        '<span class="sn-dot"></span>' + FW.esc(t.label) + '</button>';
+    }).join('');
+    FW.qa('#subNav .subnav-item').forEach(function (b) {
+      b.onclick = function () { if (mod.setTab) mod.setTab(b.dataset.k); };
+    });
+  }
+  function refreshSubNav() {
+    var active = document.querySelector('#moduleNav .nav-item.active');
+    if (active) renderSubNav(active.dataset.module);
+  }
+  FW.nav = { renderSubNav: renderSubNav, refreshSubNav: refreshSubNav };
 
   /* ---------- 账本切换 ---------- */
   function renderLedgerSwitch() {

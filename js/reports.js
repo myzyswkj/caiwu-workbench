@@ -209,11 +209,6 @@
         '<div class="field"><input id="repFrom" type="date" value="' + FW.esc(state.from) + '" title="开始日期"></div>' +
         '<div class="field"><input id="repTo" type="date" value="' + FW.esc(state.to) + '" title="结束日期"></div>' +
       '</div></div>' +
-      '<div class="tabs" id="repTabs">' +
-        '<button class="tab ' + (state.tab === 'pl' ? 'active' : '') + '" data-t="pl">利润表</button>' +
-        '<button class="tab ' + (state.tab === 'fund' ? 'active' : '') + '" data-t="fund">资金状况</button>' +
-        '<button class="tab ' + (state.tab === 'cash' ? 'active' : '') + '" data-t="cash">现金流量表</button>' +
-      '</div>' +
       (hasData ? '<div id="repBody" class="print-area"></div>'
         : '<div class="empty" style="padding:40px">还没有内账流水，先去「登记内账」记几笔收入支出，报表会自动生成。</div>');
 
@@ -228,9 +223,6 @@
     var gf = document.getElementById('repFrom'), gt = document.getElementById('repTo');
     if (gf) gf.onchange = function () { state.from = this.value; drawBody(); };
     if (gt) gt.onchange = function () { state.to = this.value; drawBody(); };
-    FW.qa('#repTabs .tab').forEach(function (b) {
-      b.onclick = function () { state.tab = b.dataset.t; FW.qa('#repTabs .tab').forEach(function (x) { x.classList.toggle('active', x === b); }); drawBody(); };
-    });
 
     if (hasData) drawBody();
   }
@@ -320,6 +312,13 @@
   FW.modules = FW.modules || {};
   FW.modules.reports = {
     title: '报表中心',
-    render: render
+    render: render,
+    tabs: [
+      { key: 'pl', label: '利润表' },
+      { key: 'fund', label: '资金状况' },
+      { key: 'cash', label: '现金流量表' }
+    ],
+    getTab: function () { return state.tab; },
+    setTab: function (k) { state.tab = k; if (document.getElementById('repBody')) drawBody(); if (window.FW.nav) FW.nav.refreshSubNav(); }
   };
 })(window);

@@ -139,16 +139,7 @@
     var c = document.getElementById('content');
     c.innerHTML =
       '<div id="inOverview"></div>' +
-      '<div class="tabs" id="inTabs">' +
-        '<button class="tab ' + (state.tab === 'list' ? 'active' : '') + '" data-t="list">流水明细</button>' +
-        '<button class="tab ' + (state.tab === 'calendar' ? 'active' : '') + '" data-t="calendar">收支日历</button>' +
-        '<button class="tab ' + (state.tab === 'stat' ? 'active' : '') + '" data-t="stat">统计分析</button>' +
-        '<button class="tab ' + (state.tab === 'fund' ? 'active' : '') + '" data-t="fund">资金变动明细</button>' +
-      '</div>' +
       '<div id="inBody"></div>';
-    FW.qa('#inTabs .tab').forEach(function (b) {
-      b.onclick = function () { state.tab = b.dataset.t; FW.qa('#inTabs .tab').forEach(function (x) { x.classList.toggle('active', x === b); }); drawBody(); };
-    });
     drawBody();
 
     var ov = document.getElementById('inOverview');
@@ -1263,6 +1254,14 @@
     title: '登记内账',
     render: function () { render(); loadThumbs(); },
     onShow: function () { render(); loadThumbs(); },
+    tabs: [
+      { key: 'list', label: '流水明细' },
+      { key: 'calendar', label: '收支日历' },
+      { key: 'stat', label: '统计分析' },
+      { key: 'fund', label: '资金变动明细' }
+    ],
+    getTab: function () { return state.tab; },
+    setTab: function (k) { state.tab = k; drawBody(); if (window.FW.nav) FW.nav.refreshSubNav(); },
     reorderCat: function (from, to) { var l = cats(); if (moveInArray(l, from, to)) { FW.db.saveList(CATKEY_, l); return true; } return false; },
     reorderSubCat: function (pi, from, j) {
       var l = cats(); if (!l[pi]) return false;

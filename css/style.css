@@ -60,6 +60,19 @@ body {
 .nav-item.active { background: var(--sidebar-active); color: #fff; font-weight: 600; }
 .nav-ico { font-size: 16px; width: 20px; text-align: center; }
 
+/* 侧栏子导航：由各模块内顶部标签折叠而来，挂在主导航之下 */
+.subnav { display: flex; flex-direction: column; gap: 2px; margin: 0 0 16px 12px; padding-left: 12px; border-left: 2px solid rgba(47,107,255,.5); }
+.subnav:empty { display: none; }
+.subnav-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: none; color: var(--sidebar-fg);
+  padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  font-size: 13px; text-align: left; transition: .15s; line-height: 1.2;
+}
+.subnav-item:hover { background: rgba(255,255,255,.07); color: #fff; }
+.subnav-item.active { background: rgba(47,107,255,.22); color: #fff; font-weight: 600; }
+.subnav-item .sn-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .55; flex: 0 0 auto; }
+
 .sites { flex: 1; min-height: 60px; }
 .sites-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -455,6 +468,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
   .nav-item { padding: 7px 10px; font-size: 12px; }
   .nav-item span:not(.nav-ico) { display: inline; }
   .sites { display: none; }
+  .subnav { flex-direction: row; flex-wrap: wrap; margin: 6px 0 0; padding-left: 0; border-left: none; width: 100%; gap: 6px; }
+  .subnav-item { width: auto; }
   /* 底部操作（导出/导入/加密）在移动端作为可点击行保留，避免丢失入口 */
   .sidebar-foot { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; width: 100%; margin-top: 6px; }
   .sidebar-foot .ghost-btn { font-size: 12px; padding: 9px 12px; }

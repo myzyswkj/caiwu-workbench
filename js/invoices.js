@@ -91,11 +91,6 @@
         '<div class="field"><input id="invTo" type="date" value="' + FW.esc(state.to) + '" title="结束日期"></div>' +
       '</div></div>' +
       '<div class="stat-row" id="invSummary"></div>' +
-      '<div class="tabs" id="invTabs">' +
-        '<button class="tab ' + (state.tab === 'all' ? 'active' : '') + '" data-t="all">全部</button>' +
-        '<button class="tab ' + (state.tab === 'in' ? 'active' : '') + '" data-t="in">进项发票</button>' +
-        '<button class="tab ' + (state.tab === 'out' ? 'active' : '') + '" data-t="out">销项发票</button>' +
-      '</div>' +
       '<div class="card">' +
         '<div class="toolbar">' +
           '<div class="field"><input id="invKw" placeholder="搜索发票号码/单位/备注" value="' + FW.esc(state.kw) + '"></div>' +
@@ -123,9 +118,6 @@
     var gk = document.getElementById('invKw'); if (gk) gk.oninput = function () { state.kw = this.value.trim(); drawTable(filtered()); };
     var gd = document.getElementById('invDed'); if (gd) gd.onchange = function () { state.deduction = this.value; drawTable(filtered()); };
     var gr = document.getElementById('invReset'); if (gr) gr.onclick = function () { state.kw = ''; state.deduction = ''; state.from = ''; state.to = ''; render(); };
-    FW.qa('#invTabs .tab').forEach(function (b) {
-      b.onclick = function () { state.tab = b.dataset.t; state.deduction = ''; FW.qa('#invTabs .tab').forEach(function (x) { x.classList.toggle('active', x === b); }); render(); };
-    });
   }
 
   function drawSummary(s) {
@@ -339,6 +331,13 @@
   FW.modules = FW.modules || {};
   FW.modules.invoices = {
     title: '发票台账',
-    render: render
+    render: render,
+    tabs: [
+      { key: 'all', label: '全部' },
+      { key: 'in', label: '进项发票' },
+      { key: 'out', label: '销项发票' }
+    ],
+    getTab: function () { return state.tab; },
+    setTab: function (k) { state.tab = k; state.deduction = ''; render(); if (window.FW.nav) FW.nav.refreshSubNav(); }
   };
 })(window);
