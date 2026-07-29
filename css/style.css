@@ -1,18 +1,20 @@
 :root {
-  --bg: #f4f6fb;
+  --bg: #FBF6EC;            /* 暖米白，似钞纸 */
   --panel: #ffffff;
-  --sidebar-bg: #1f2a44;
-  --sidebar-fg: #c7d0e0;
-  --sidebar-active: #2f6bff;
-  --text: #1f2733;
-  --muted: #7a869a;
-  --border: #e6e9f0;
-  --primary: #2f6bff;
-  --primary-soft: #eaf0ff;
-  --income: #e63946;   /* 收入=红 */
-  --expense: #1f9d55;  /* 支出=绿 */
-  --warn: #f0a020;
-  --shadow: 0 2px 10px rgba(20,30,60,.06);
+  --sidebar-bg: #3A0F14;    /* 深酒红，百元钞暗调 */
+  --sidebar-fg: #EBD9BC;    /* 暖金米文字 */
+  --sidebar-active: #C9A227;/* 金色激活 */
+  --text: #2B1D1A;          /* 暖褐近黑 */
+  --muted: #947C68;         /* 暖灰 */
+  --border: #ECDCC6;        /* 暖边线 */
+  --primary: #C8102E;       /* 中国红 */
+  --primary-soft: #FBEAE2;  /* 红浅底 */
+  --gold: #C9A227;          /* 百元钞金 */
+  --gold-soft: #F7ECCF;     /* 金浅底 */
+  --income: #C8102E;        /* 收入=红 */
+  --expense: #1F9D55;       /* 支出=绿 */
+  --warn: #C9A227;          /* 金 */
+  --shadow: 0 2px 12px rgba(120,30,20,.07);
   --radius: 12px;
 }
 
@@ -42,12 +44,13 @@ body {
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; }
 .brand-logo {
   width: 38px; height: 38px; border-radius: 10px;
-  background: linear-gradient(135deg, #2f6bff, #6aa0ff);
+  background: linear-gradient(135deg, #C8102E, #C9A227);
   color: #fff; display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 18px;
+  box-shadow: 0 2px 8px rgba(200,16,46,.35);
 }
 .brand-title { color: #fff; font-weight: 700; font-size: 16px; }
-.brand-sub { font-size: 11px; color: #8a96ad; margin-top: 2px; }
+.brand-sub { font-size: 11px; color: #C9B79B; margin-top: 2px; }
 
 .nav { display: flex; flex-direction: column; gap: 4px; margin-bottom: 18px; }
 .nav-item {
@@ -57,7 +60,7 @@ body {
   font-size: 14px; text-align: left; transition: .15s;
 }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
-.nav-item.active { background: var(--sidebar-active); color: #fff; font-weight: 600; }
+.nav-item.active { background: var(--sidebar-active); color: #3A0F14; font-weight: 700; box-shadow: 0 2px 8px rgba(201,162,39,.35); }
 .nav-ico { font-size: 16px; width: 20px; text-align: center; }
 
 /* 导航分组（可折叠） */
@@ -87,13 +90,13 @@ body {
   font-size: 13px; text-align: left; transition: .15s; line-height: 1.2;
 }
 .subnav-item:hover { background: rgba(255,255,255,.07); color: #fff; }
-.subnav-item.active { background: rgba(47,107,255,.22); color: #fff; font-weight: 600; }
+.subnav-item.active { background: rgba(201,162,39,.28); color: #FFE9B8; font-weight: 600; }
 .subnav-item .sn-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .55; flex: 0 0 auto; }
 
 .sites { flex: 1; min-height: 60px; }
 .sites-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 4px 8px; font-size: 12px; color: #8a96ad;
+  padding: 4px 8px; font-size: 12px; color: #C9B79B;
   text-transform: none; letter-spacing: .5px;
 }
 .icon-btn {
@@ -125,7 +128,7 @@ body {
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .topbar {
   height: 56px; flex: 0 0 56px; background: var(--panel);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--gold);
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 22px; box-shadow: var(--shadow); z-index: 5;
 }
@@ -151,7 +154,7 @@ body {
 
 /* 卡片 */
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; margin-bottom: 18px; }
-.card h3 { margin: 0 0 14px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.card h3 { margin: 0 0 14px; font-size: 15px; display: flex; align-items: center; gap: 8px; padding-left: 10px; border-left: 3px solid var(--primary); }
 .card h3 .sub { font-weight: 400; font-size: 12px; color: var(--muted); }
 
 /* 统计块 */
@@ -253,7 +256,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .modal-body { padding: 20px; }
 
 /* toast */
-.toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: #1f2a44; color: #fff; padding: 11px 20px; border-radius: 10px; font-size: 13px; z-index: 200; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+.toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: #4A1218; color: #fff; padding: 11px 20px; border-radius: 10px; font-size: 13px; z-index: 200; box-shadow: 0 8px 30px rgba(74,18,24,.45); border: 1px solid rgba(201,162,39,.4); }
 
 .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 13px; }
 
@@ -325,7 +328,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .aging-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .aging-label { width: 72px; color: var(--muted); flex: 0 0 72px; }
 .aging-bar { flex: 1; height: 12px; background: #eef1f7; border-radius: 6px; overflow: hidden; }
-.aging-fill { display: block; height: 100%; background: linear-gradient(90deg, #2f6bff, #6aa0ff); border-radius: 6px; }
+.aging-fill { display: block; height: 100%; background: linear-gradient(90deg, #C8102E, #C9A227); border-radius: 6px; }
 .aging-val { width: 110px; text-align: right; font-variant-numeric: tabular-nums; flex: 0 0 110px; }
 
 /* 预算设置 */
@@ -354,7 +357,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .tcout { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
 .tcout-ok { background: #eafaf0; color: #1f7a3d; border: 1px solid #bfe6cd; }
 .tcout-warn { background: #fff6e6; color: #a8650b; border: 1px solid #f4d79a; }
-.tcout-info { background: #eef4ff; color: #2f5bbf; border: 1px solid #c9dcff; }
+.tcout-info { background: #F7ECCF; color: #9A7B12; border: 1px solid #E4CE8E; }
 
 /* ===== 凭证模板库 ===== */
 .tpl-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; }
@@ -366,7 +369,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .tpl-ops { display: flex; gap: 6px; flex: 0 0 auto; }
 
 /* ===== 内账：转账/股本类型标签 & 中性金额 ===== */
-.tag.transfer { background: #eef4ff; color: #2f5bbf; border: 1px solid #c9dcff; }
+.tag.transfer { background: #F7ECCF; color: #9A7B12; border: 1px solid #E4CE8E; }
 .tag.equity { background: #f3ecff; color: #7b3fd1; border: 1px solid #dcc9ff; }
 .num.neutral { color: var(--muted); font-variant-numeric: tabular-nums; }
 
@@ -405,29 +408,29 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 
 /* ===== 柠檬云风格记账凭证（凭证纸） ===== */
 .modal.modal-wide { width: 880px; }
-.voucher-paper { border: 2px solid #2f3a52; border-radius: 4px; background: #fff; overflow: hidden; }
-.vp-head { padding: 14px 18px 12px; border-bottom: 2px solid #2f3a52; }
-.vp-title { text-align: center; font-size: 20px; font-weight: 800; letter-spacing: 10px; color: #2f3a52; padding-left: 10px; }
+.voucher-paper { border: 2px solid #7A1E22; border-radius: 4px; background: #fff; overflow: hidden; box-shadow: 0 4px 18px rgba(122,30,34,.12); }
+.vp-head { padding: 14px 18px 12px; border-bottom: 2px solid #7A1E22; background: #FBF1E6; }
+.vp-title { text-align: center; font-size: 20px; font-weight: 800; letter-spacing: 10px; color: #7A1E22; padding-left: 10px; }
 .vp-meta { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 18px; margin-top: 12px; }
 .vp-field { display: inline-flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .vp-field label { font-weight: 600; }
 .vp-field input, .vp-field select { width: auto; min-width: 96px; padding: 6px 9px; border-radius: 7px; }
 .vp-table { width: 100%; border-collapse: collapse; }
 .vp-table th, .vp-table td { border: 1px solid #c9d2e3; padding: 0; }
-.vp-table th { background: #eef2f9; color: #2f3a52; font-weight: 600; font-size: 13px; padding: 9px 12px; text-align: center; }
+.vp-table th { background: #F7ECCF; color: #7A1E22; font-weight: 600; font-size: 13px; padding: 9px 12px; text-align: center; }
 .vp-table td { vertical-align: middle; }
 .vp-table .num { text-align: right; }
 .vp-table input { border: none; border-radius: 0; background: transparent; width: 100%; padding: 9px 11px; font-size: 13px; font-family: inherit; color: var(--text); }
 .vp-table .e_sum, .vp-table .e_acc { text-align: left; }
-.vp-table input:focus { background: #f4f8ff; outline: none; box-shadow: inset 0 0 0 2px var(--primary); }
+.vp-table input:focus { background: #FBEAE2; outline: none; box-shadow: inset 0 0 0 2px var(--primary); }
 .vp-table .acc-tip { display: block; padding: 0 11px 6px; }
 .vp-table .acc-fill { font-size: 11px; padding: 2px 8px; }
-.vp-table tfoot td { padding: 9px 11px; font-weight: 700; background: #f7f9fc; color: #2f3a52; }
+.vp-table tfoot td { padding: 9px 11px; font-weight: 700; background: #FBEAE2; color: #7A1E22; }
 .vp-total-label { text-align: left; }
 .vp-c-op, .vp-op { width: 40px; text-align: center; }
 .vp-table .e_del { margin: 0 auto; }
-.vp-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 22px; padding: 12px 18px; border-top: 2px solid #2f3a52; font-size: 13px; color: #2f3a52; }
-.vp-foot i { display: inline-block; width: 64px; border-bottom: 1px solid #2f3a52; margin: 0 3px; height: 13px; vertical-align: middle; }
+.vp-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 22px; padding: 12px 18px; border-top: 2px solid #7A1E22; font-size: 13px; color: #7A1E22; background: #FBF1E6; }
+.vp-foot i { display: inline-block; width: 64px; border-bottom: 1px solid #7A1E22; margin: 0 3px; height: 13px; vertical-align: middle; }
 .vp-bal { margin-left: auto; font-weight: 700; padding: 4px 14px; border-radius: 20px; font-size: 12px; }
 .vp-bal.ok { background: #e7f6ee; color: var(--expense); }
 .vp-bal.bad { background: #fdeaec; color: var(--income); }
@@ -523,7 +526,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .lock-overlay {
   position: fixed; inset: 0; z-index: 9999;
   display: none;
-  background: linear-gradient(160deg, #1f2a44 0%, #2f3b5c 100%);
+  background: linear-gradient(160deg, #3A0F14 0%, #5A1620 100%);
 }
 .lock-overlay:not([hidden]) {
   display: flex; align-items: center; justify-content: center;
