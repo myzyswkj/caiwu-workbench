@@ -138,6 +138,7 @@
     ensureCats();
     var c = document.getElementById('content');
     c.innerHTML =
+      '<div id="inOverview"></div>' +
       '<div class="tabs" id="inTabs">' +
         '<button class="tab ' + (state.tab === 'list' ? 'active' : '') + '" data-t="list">流水明细</button>' +
         '<button class="tab ' + (state.tab === 'calendar' ? 'active' : '') + '" data-t="calendar">收支日历</button>' +
@@ -149,6 +150,9 @@
       b.onclick = function () { state.tab = b.dataset.t; FW.qa('#inTabs .tab').forEach(function (x) { x.classList.toggle('active', x === b); }); drawBody(); };
     });
     drawBody();
+
+    var ov = document.getElementById('inOverview');
+    if (ov) ov.innerHTML = overviewHtml();
 
     var ta = document.getElementById('topActions');
     ta.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
@@ -165,6 +169,46 @@
       render();
       FW.toast('已清空当前账本内账流水');
     };
+  }
+
+  /* ---------- 概览面板（一眼可见，常驻顶部，全期累计） ---------- */
+  function kpiCell(label, val, signed, neutral) {
+    var cls = neutral ? 'muted' : (val >= 0 ? 'income' : 'expense');
+    var txt = neutral ? FW.fmtMoney(val) : ((signed && val > 0 ? '+' : '') + FW.fmtMoney(val));
+    return '<div class="ov-kpi"><div class="ov-kpi-label">' + label + '</div><div class="ov-kpi-val ' + cls + '">' + txt + '</div></div>';
+  }
+  function overviewHtml() {
+    var bd = accountBreakdown();                 // 全期累计（当前资金状况）
+    var cashTotal = bd.reduce(function (s, x) { return s + x.bal; }, 0);
+    var openTotal = openingsTotal();
+    var profit = netProfit('', '');
+    var eqNet = equityNet('', '');
+    var balanced = Math.abs(cashTotal - (openTotal + profit + eqNet)) < 0.005;
+    var ACCENTS = ['#2f6bff', '#1f9d55', '#f0a020', '#e63946', '#9b5de5', '#00bbf9'];
+    var maxAbs = Math.max.apply(null, bd.map(function (x) { return Math.abs(x.bal); }).concat([1]));
+    var bars = bd.length ? bd.map(function (x, i) {
+      var w = Math.max(3, Math.abs(x.bal) / maxAbs * 100);
+      return '<div class="ov-acc-row">' +
+        '<span class="ov-acc-name">' + FW.esc(x.name) + '</span>' +
+        '<div class="ov-acc-track"><div class="ov-acc-fill" style="width:' + w.toFixed(1) + '%;background:' + ACCENTS[i % ACCENTS.length] + '"></div></div>' +
+        '<span class="ov-acc-amt ' + (x.bal >= 0 ? 'income' : 'expense') + '">' + FW.fmtMoney(x.bal) + '</span>' +
+      '</div>';
+    }).join('') : '<div class="empty">还没有账户余额数据，去「设置期初」或登记流水。</div>';
+    return '<div class="ov-panel">' +
+      '<div class="ov-head">' +
+        '<div class="ov-total"><div class="ov-total-label">资金总计（各账户余额合计）</div><div class="ov-total-val">' + FW.fmtMoney(cashTotal) + '</div></div>' +
+        '<span class="badge ' + (balanced ? 'done' : 'warn') + '">' + (balanced ? '✅ 对账平衡' : '⚠️ 对账不平') + '</span>' +
+      '</div>' +
+      '<div class="ov-kpis">' +
+        kpiCell('累计结余（收入−支出）', profit, true, false) +
+        kpiCell('期初余额', openTotal, false, false) +
+        kpiCell('股本净变动', eqNet, true, false) +
+        kpiCell('账户互转净额', 0, false, true) +
+      '</div>' +
+      '<div class="ov-accs"><div class="ov-accs-title">各账户余额（横向条形越长代表余额越多）</div>' + bars +
+        '<div class="ov-hint">说明：账户互转只改变资金在各账户的归属，不改变「资金总计」与「结余」；股本注入 / 抽回影响资金但不影响经营利润。</div>' +
+      '</div>' +
+    '</div>';
   }
 
   function drawBody() {

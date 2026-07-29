@@ -135,6 +135,28 @@ body {
 .stat .value.income { color: var(--income); }
 .stat .value.expense { color: var(--expense); }
 
+/* 内账概览面板（一眼可见，常驻顶部） */
+.ov-panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
+.ov-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.ov-total-label { font-size: 12px; color: var(--muted); }
+.ov-total-val { font-size: 30px; font-weight: 800; color: var(--text); line-height: 1.15; letter-spacing: .5px; }
+.ov-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.ov-kpi { background: #fafbff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.ov-kpi-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.ov-kpi-val { font-size: 18px; font-weight: 700; }
+.ov-kpi-val.income { color: var(--income); }
+.ov-kpi-val.expense { color: var(--expense); }
+.ov-kpi-val.muted { color: var(--muted); }
+.ov-accs-title { font-size: 12px; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+.ov-acc-row { display: grid; grid-template-columns: 84px 1fr 110px; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ov-acc-name { font-size: 13px; color: var(--text); }
+.ov-acc-track { background: #eef1f7; border-radius: 6px; height: 14px; overflow: hidden; }
+.ov-acc-fill { height: 100%; border-radius: 6px; }
+.ov-acc-amt { font-size: 13px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.ov-acc-amt.income { color: var(--income); }
+.ov-acc-amt.expense { color: var(--expense); }
+.ov-hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
 /* 表格 */
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
