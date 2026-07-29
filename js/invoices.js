@@ -10,15 +10,22 @@
   'use strict';
   var FW = global.FW;
   var KEY = 'invoices';
+  var CONTRACT_KEY = 'contracts';
   var DEDUCT_OPTS = ['未勾选', '已勾选', '已认证', '不抵扣'];
   var KIND_OPTS = ['专票', '普票', '数电票', '机动车', '其他'];
+  var STATUS_OPTS = ['待签订', '履行中', '已完成', '已终止'];
+  var CTYPE_OPTS = ['采购合同', '销售合同', '服务合同', '工程合同', '其他'];
+  var PAY_OPTS = ['一次性付款', '分期付款', '月结', '货到付款', '其他'];
 
   var state = {
-    tab: 'all',          // all / in / out
+    tab: 'all',          // all / in / out / contract
     deduction: '',       // 进项抵扣筛选
     kw: '',
     from: '', to: '',
-    photos: []
+    photos: [],
+    // 合同台账筛选
+    ctKw: '', ctFrom: '', ctTo: '', ctStatus: '',
+    ctPhotos: []
   };
 
   /* ---------- 数据读写 ---------- */
@@ -72,8 +79,13 @@
     return 'warn';
   }
 
-  /* ---------- 主渲染 ---------- */
+  /* ---------- 主渲染（按 tab 分发） ---------- */
   function render() {
+    if (state.tab === 'contract') return renderContractView();
+    return renderInvoiceView();
+  }
+
+  function renderInvoiceView() {
     var c = document.getElementById('content');
     var list = filtered();
     var s = computeSummary(all(), state.from, state.to);
@@ -328,6 +340,256 @@
   // 暴露核心计算（便于自动化验证与未来复用）
   FW.invoiceCalc = { computeSummary: computeSummary };
 
+  /* ============================================================
+   * 合同台账（与发票台账共用模块，作为第 4 个 tab）
+   *   - 记录合同编号 / 名称 / 对方单位 / 类型 / 签订·到期日 / 金额 / 付款方式 / 履行状态
+   *   - 自动汇总：合同总数、合同总金额、各状态金额（履行中/已完成/已终止）
+   *   - 到期提醒（履行中且到期日早于今天标红）
+   *   - 支持期间筛选、状态筛选、关键词搜索、CSV 导出、合同照片附件
+   * 数据键：contracts（按账本隔离，见 db.js）
+   * ============================================================ */
+  function contractsAll() { return FW.db.getList(CONTRACT_KEY).sort(function (a, b) { return (a.signDate < b.signDate ? 1 : a.signDate > b.signDate ? -1 : 0); }); }
+  function isOverdue(t) {
+    if (!t.dueDate) return false;
+    if (t.status === '已完成' || t.status === '已终止') return false;
+    return t.dueDate < FW.today();
+  }
+  function contractsFiltered(kw, from, to, status) {
+    var rows = contractsAll();
+    if (status) rows = rows.filter(function (t) { return (t.status || '待签订') === status; });
+    if (from) rows = rows.filter(function (t) { return t.signDate >= from; });
+    if (to) rows = rows.filter(function (t) { return t.signDate <= to; });
+    if (kw) {
+      var k = kw.toLowerCase();
+      rows = rows.filter(function (t) {
+        return [t.no, t.name, t.party, t.type, t.owner, t.remark].some(function (f) { return (f || '').toLowerCase().indexOf(k) >= 0; });
+      });
+    }
+    return rows;
+  }
+  function contractSummary(rows) {
+    var byStatus = {};
+    STATUS_OPTS.forEach(function (st) { byStatus[st] = 0; });
+    rows.forEach(function (t) { byStatus[t.status || '待签订'] = (byStatus[t.status || '待签订'] || 0) + num(t.amount); });
+    var total = rows.reduce(function (a, t) { return a + num(t.amount); }, 0);
+    return { count: rows.length, total: total, byStatus: byStatus };
+  }
+
+  function renderContractView() {
+    var c = document.getElementById('content');
+    var kw = state.ctKw || '', from = state.ctFrom || '', to = state.ctTo || '', status = state.ctStatus || '';
+    var rows = contractsFiltered(kw, from, to, status);
+    var s = contractSummary(contractsAll());
+    var statusOpts = '<option value="">全部状态</option>' + STATUS_OPTS.map(function (d) { return '<option' + (status === d ? ' selected' : '') + '>' + d + '</option>'; }).join('');
+
+    c.innerHTML =
+      '<div class="card" style="margin-bottom:14px"><div class="toolbar">' +
+        '<span style="font-size:13px;color:var(--muted);align-self:center">签订期间：</span>' +
+        '<button class="btn ghost sm" data-r="cmonth">本月</button>' +
+        '<button class="btn ghost sm" data-r="cyear">本年</button>' +
+        '<button class="btn ghost sm" data-r="call">全部</button>' +
+        '<div class="field"><input id="ctFrom" type="date" value="' + FW.esc(from) + '" title="开始日期"></div>' +
+        '<div class="field"><input id="ctTo" type="date" value="' + FW.esc(to) + '" title="结束日期"></div>' +
+      '</div></div>' +
+      '<div class="stat-row" id="ctSummary"></div>' +
+      '<div class="card">' +
+        '<div class="toolbar">' +
+          '<div class="field"><input id="ctKw" placeholder="搜索合同编号/名称/对方单位" value="' + FW.esc(kw) + '"></div>' +
+          '<div class="field"><select id="ctStatus">' + statusOpts + '</select></div>' +
+          '<button class="btn ghost sm" id="ctReset">重置</button>' +
+        '</div>' +
+        '<div id="ctWrap"></div>' +
+      '</div>';
+
+    var ta = document.getElementById('topActions');
+    ta.innerHTML = '<button class="btn ghost" id="ctPrint">🖨 打印</button><button class="btn ghost" id="ctCsv">⬇ 导出CSV</button><button class="btn" id="addCtBtn">＋ 新增合同</button>';
+    document.getElementById('ctPrint').onclick = function () { window.print(); };
+    document.getElementById('ctCsv').onclick = exportContractCsv;
+    document.getElementById('addCtBtn').onclick = function () { openContractForm(null); };
+
+    drawContractSummary(s);
+    drawContractTable(rows);
+
+    FW.qa('#content [data-r]').forEach(function (b) { b.onclick = function () { setContractRange(b.dataset.r); }; });
+    var cf = document.getElementById('ctFrom'), ct = document.getElementById('ctTo');
+    if (cf) cf.onchange = function () { state.ctFrom = this.value; renderContractView(); };
+    if (ct) ct.onchange = function () { state.ctTo = this.value; renderContractView(); };
+    var ck = document.getElementById('ctKw'); if (ck) ck.oninput = function () { state.ctKw = this.value.trim(); drawContractTable(contractsFiltered(state.ctKw, state.ctFrom, state.ctTo, state.ctStatus)); };
+    var cs = document.getElementById('ctStatus'); if (cs) cs.onchange = function () { state.ctStatus = this.value; drawContractTable(contractsFiltered(state.ctKw, state.ctFrom, state.ctTo, state.ctStatus)); };
+    var cr = document.getElementById('ctReset'); if (cr) cr.onclick = function () { state.ctKw = ''; state.ctStatus = ''; state.ctFrom = ''; state.ctTo = ''; renderContractView(); };
+  }
+
+  function drawContractSummary(s) {
+    var el = document.getElementById('ctSummary');
+    if (!el) return;
+    el.innerHTML =
+      '<div class="stat"><div class="label">合同总数</div><div class="value">' + s.count + '</div><div class="sub">份</div></div>' +
+      '<div class="stat"><div class="label">合同总金额</div><div class="value income">' + money(s.total) + '</div><div class="sub">所有状态合计</div></div>' +
+      '<div class="stat"><div class="label">履行中金额</div><div class="value">' + money(s.byStatus['履行中'] || 0) + '</div><div class="sub">进行中</div></div>' +
+      '<div class="stat"><div class="label">已完成金额</div><div class="value">' + money(s.byStatus['已完成'] || 0) + '</div><div class="sub">已结</div></div>' +
+      '<div class="stat"><div class="label">已终止金额</div><div class="value expense">' + money(s.byStatus['已终止'] || 0) + '</div><div class="sub">中止/取消</div></div>';
+  }
+
+  function drawContractTable(rows) {
+    var el = document.getElementById('ctWrap');
+    if (!el) return;
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty">没有符合条件的合同。点右上角「＋ 新增合同」登记第一份，或调整筛选条件。</div>';
+      return;
+    }
+    var trs = rows.map(function (t) {
+      var st = t.status || '待签订';
+      var stCls = st === '已完成' ? 'ok' : (st === '已终止' ? 'neutral' : 'warn');
+      var due = t.dueDate ? '<span class="' + (isOverdue(t) ? 'expense' : 'muted') + '">' + FW.esc(t.dueDate) + '</span>' : '<span class="muted">—</span>';
+      var amt = '<span class="' + (num(t.amount) < 0 ? 'expense' : '') + '">' + money(t.amount) + '</span>';
+      return '<tr>' +
+        '<td class="nowrap">' + FW.esc(t.no || '') + '</td>' +
+        '<td>' + FW.esc(t.name || '—') + (t.type ? '<div class="muted" style="font-size:11px">' + FW.esc(t.type) + '</div>' : '') + '</td>' +
+        '<td>' + FW.esc(t.party || '—') + '</td>' +
+        '<td class="nowrap">' + FW.esc(t.signDate || '—') + '</td>' +
+        '<td class="num">' + amt + '</td>' +
+        '<td>' + (t.payMethod ? FW.esc(t.payMethod) : '<span class="muted">—</span>') + '</td>' +
+        '<td><span class="tag ' + stCls + '">' + FW.esc(st) + '</span></td>' +
+        '<td class="nowrap">' + due + '</td>' +
+        '<td>' + FW.esc(t.remark || '') + '</td>' +
+        '<td class="row-actions nowrap"><button class="btn ghost sm row-edit" data-id="' + t.id + '">编辑</button><button class="btn danger sm row-del" data-id="' + t.id + '">删</button></td>' +
+        '</tr>';
+    }).join('');
+    el.innerHTML = '<table><thead><tr>' +
+      '<th>合同编号</th><th>合同名称</th><th>对方单位</th><th>签订日期</th><th class="num">合同金额</th><th>付款方式</th><th>履行状态</th><th>到期日</th><th>备注</th><th>操作</th>' +
+      '</tr></thead><tbody>' + trs + '</tbody></table>';
+    FW.qa('#ctWrap .row-edit').forEach(function (b) { b.onclick = function () { openContractForm(b.dataset.id); }; });
+    FW.qa('#ctWrap .row-del').forEach(function (b) { b.onclick = function () { delContract(b.dataset.id); }; });
+  }
+
+  function openContractForm(id) {
+    var edit = id ? FW.db.getById(CONTRACT_KEY, id) : null;
+    var v = {
+      no: '', name: '', party: '', type: '采购合同',
+      signDate: FW.today(), dueDate: '', amount: '',
+      payMethod: '一次性付款', status: '履行中',
+      owner: '', remark: '', photos: []
+    };
+    if (edit) {
+      v = {
+        no: edit.no || '', name: edit.name || '', party: edit.party || '', type: edit.type || '采购合同',
+        signDate: edit.signDate || FW.today(), dueDate: edit.dueDate || '', amount: edit.amount,
+        payMethod: edit.payMethod || '一次性付款', status: edit.status || '履行中',
+        owner: edit.owner || '', remark: edit.remark || '', photos: edit.photos || []
+      };
+    }
+    state.ctPhotos = v.photos.slice();
+
+    var body =
+      '<div class="form-grid">' +
+        '<div class="field"><label>合同编号</label><input id="c_no" value="' + FW.esc(v.no) + '" placeholder="合同编号（必填）"></div>' +
+        '<div class="field"><label>合同名称</label><input id="c_name" value="' + FW.esc(v.name) + '" placeholder="如：XX采购合同"></div>' +
+        '<div class="field full"><label>对方单位名称</label><input id="c_party" value="' + FW.esc(v.party) + '" placeholder="甲方 / 乙方单位"></div>' +
+        '<div class="field"><label>合同类型</label><select id="c_type">' + CTYPE_OPTS.map(function (k) { return '<option ' + (k === v.type ? 'selected' : '') + '>' + k + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><label>签订日期</label><input id="c_sign" type="date" value="' + FW.esc(v.signDate) + '"></div>' +
+        '<div class="field"><label>到期日</label><input id="c_due" type="date" value="' + FW.esc(v.dueDate) + '"></div>' +
+        '<div class="field"><label>合同金额（元）</label><input id="c_amt" type="number" step="0.01" min="0" value="' + FW.esc(v.amount) + '"></div>' +
+        '<div class="field"><label>付款方式</label><select id="c_pay">' + PAY_OPTS.map(function (k) { return '<option ' + (k === v.payMethod ? 'selected' : '') + '>' + k + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><label>履行状态</label><select id="c_status">' + STATUS_OPTS.map(function (k) { return '<option ' + (k === v.status ? 'selected' : '') + '>' + k + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><label>负责人</label><input id="c_owner" value="' + FW.esc(v.owner) + '" placeholder="选填"></div>' +
+        '<div class="field full"><label>备注</label><textarea id="c_remark" rows="2" placeholder="主要条款 / 关联单据">' + FW.esc(v.remark) + '</textarea></div>' +
+        '<div class="field full"><label>合同 / 附件照片</label><div class="photo-grid" id="ctPhotoGrid"></div></div>' +
+      '</div>' +
+      '<div class="form-actions"><button class="btn ghost" id="ctCancel">取消</button><button class="btn" id="ctSave">保存</button></div>';
+
+    FW.openModal(edit ? '编辑合同' : '新增合同', body, function () {
+      renderContractPhotoGrid(state.ctPhotos);
+      document.getElementById('ctCancel').onclick = FW.closeModal;
+      document.getElementById('ctSave').onclick = function () {
+        var no = document.getElementById('c_no').value.trim();
+        if (!no) { FW.toast('请填写合同编号'); return; }
+        var amount = num(document.getElementById('c_amt').value);
+        if (!(amount >= 0)) { FW.toast('合同金额不能为负'); return; }
+        var rec = {
+          id: edit ? edit.id : FW.db.uid('ct_'),
+          no: no,
+          name: document.getElementById('c_name').value.trim(),
+          party: document.getElementById('c_party').value.trim(),
+          type: document.getElementById('c_type').value,
+          signDate: document.getElementById('c_sign').value || FW.today(),
+          dueDate: document.getElementById('c_due').value || '',
+          amount: amount,
+          payMethod: document.getElementById('c_pay').value,
+          status: document.getElementById('c_status').value,
+          owner: document.getElementById('c_owner').value.trim(),
+          remark: document.getElementById('c_remark').value.trim(),
+          photos: state.ctPhotos
+        };
+        FW.db.upsert(CONTRACT_KEY, rec);
+        FW.closeModal(); renderContractView(); FW.toast('已保存');
+      };
+    });
+  }
+
+  function delContract(id) {
+    var rec = FW.db.getById(CONTRACT_KEY, id);
+    if (!rec) return;
+    if (!confirm('确定删除该合同？' + (rec.photos && rec.photos.length ? '（将同时删除 ' + rec.photos.length + ' 张合同照片）' : ''))) return;
+    FW.db.remove(CONTRACT_KEY, id);
+    if (rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
+    renderContractView(); FW.toast('已删除');
+  }
+
+  function renderContractPhotoGrid(photos) {
+    var grid = document.getElementById('ctPhotoGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    (photos || []).forEach(function (pid) {
+      var wrap = document.createElement('div'); wrap.style.position = 'relative';
+      var img = document.createElement('img'); img.className = 'photo-thumb';
+      FW.db.getPhoto(pid).then(function (d) { if (d) img.src = d; }).catch(function () {});
+      var del = document.createElement('span');
+      del.textContent = '✕'; del.style.cssText = 'position:absolute;top:-6px;right:-6px;background:#d33;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;line-height:16px;text-align:center;cursor:pointer';
+      del.onclick = function () { photos.splice(photos.indexOf(pid), 1); FW.db.deletePhoto(pid); renderContractPhotoGrid(photos); };
+      img.style.cursor = 'pointer';
+      wrap.appendChild(img); wrap.appendChild(del); grid.appendChild(wrap);
+    });
+    var add = document.createElement('div'); add.className = 'photo-add'; add.textContent = '＋'; add.title = '上传合同照片/附件';
+    add.onclick = function () {
+      var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+      inp.onchange = function () {
+        var files = Array.prototype.slice.call(inp.files);
+        var pending = files.map(function (f) { return new Promise(function (res) { var r = new FileReader(); r.onload = function () { FW.db.savePhoto(r.result).then(res); }; r.readAsDataURL(f); }); });
+        Promise.all(pending).then(function (ids) { ids.forEach(function (i) { photos.push(i); }); renderContractPhotoGrid(photos); });
+      };
+      inp.click();
+    };
+    grid.appendChild(add);
+  }
+
+  function setContractRange(kind) {
+    var now = new Date(), y = now.getFullYear(), m = now.getMonth(), p = function (n) { return n < 10 ? '0' + n : '' + n; };
+    if (kind === 'cmonth') { state.ctFrom = y + '-' + p(m + 1) + '-01'; state.ctTo = y + '-' + p(m + 1) + '-' + new Date(y, m + 1, 0).getDate(); }
+    else if (kind === 'cyear') { state.ctFrom = y + '-01-01'; state.ctTo = y + '-12-31'; }
+    else { state.ctFrom = ''; state.ctTo = ''; }
+    renderContractView();
+  }
+
+  function exportContractCsv() {
+    var rows = contractsFiltered(state.ctKw, state.ctFrom, state.ctTo, state.ctStatus);
+    if (!rows.length) { FW.toast('没有可导出的合同'); return; }
+    var head = ['合同编号', '合同名称', '对方单位', '合同类型', '签订日期', '到期日', '合同金额', '付款方式', '履行状态', '负责人', '备注'];
+    var data = rows.map(function (t) {
+      return [t.no, t.name || '', t.party || '', t.type || '', t.signDate || '', t.dueDate || '', t.amount, t.payMethod || '', t.status || '待签订', t.owner || '', t.remark || ''];
+    });
+    var csv = '﻿' + [head].concat(data).map(function (r) {
+      return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(',');
+    }).join('\r\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '合同台账_' + FW.today() + '.csv';
+    a.click();
+    FW.toast('已导出 ' + rows.length + ' 份合同（CSV）');
+  }
+
+  FW.contractCalc = { contractSummary: contractSummary };
+
   FW.modules = FW.modules || {};
   FW.modules.invoices = {
     title: '发票台账',
@@ -335,7 +597,8 @@
     tabs: [
       { key: 'all', label: '全部' },
       { key: 'in', label: '进项发票' },
-      { key: 'out', label: '销项发票' }
+      { key: 'out', label: '销项发票' },
+      { key: 'contract', label: '合同台账' }
     ],
     getTab: function () { return state.tab; },
     setTab: function (k) { state.tab = k; state.deduction = ''; render(); if (window.FW.nav) FW.nav.refreshSubNav(); }
