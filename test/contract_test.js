@@ -115,7 +115,8 @@ assert(c.querySelectorAll('#ctWrap tbody tr').length === 1, '删除后列表回�
 // tabs 数组含合同台账
 const tabKeys = mod.tabs.map(function (t) { return t.key; });
 assert(tabKeys.indexOf('contract') >= 0, '模块 tabs 含 contract 键');
-assert(tabKeys.length === 4, 'tabs 共 4 项（全部/进项/销项/合同）');
+assert(tabKeys.indexOf('stock') >= 0, '模块 tabs 含 stock 键');
+assert(JSON.stringify(tabKeys) === JSON.stringify(['all', 'in', 'out', 'contract', 'stock']), 'tabs 共 5 项（全部/进项/销项/合同/库存）');
 
 console.log('\n合同台账测试：通过 ' + pass + '，失败 ' + fail);
 process.exit(fail ? 1 : 0);

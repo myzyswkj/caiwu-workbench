@@ -81,7 +81,7 @@
   FW.pieChart = function (title, items) {
     var total = items.reduce(function (a, b) { return a + b.value; }, 0) || 1;
     var w = 320, h = 220, cx = 110, cy = 110, r = 86;
-    var colors = ['#2f6bff', '#1f9d55', '#f0a020', '#e63946', '#9b5de5', '#00bbf9', '#fb8500', '#6a994e'];
+    var colors = ['#C8102E', '#C9A227', '#E08A1E', '#A4151B', '#D9B45B', '#7A1020', '#B5651D', '#E6C200'];
     var svg = '<svg class="chart-svg" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">';
     var ang = -Math.PI / 2;
     items.forEach(function (it, i) {

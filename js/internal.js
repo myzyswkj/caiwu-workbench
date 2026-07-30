@@ -81,7 +81,12 @@
     return all().filter(function (t) {
       if (f.project && t.project !== f.project) return false;
       if (f.category && cat1Name(t) !== f.category) return false;
-      if (f.account && accountOf(t) !== f.account) return false;
+      if (f.account) {
+        var accMatch = (t.type === 'transfer')
+          ? (t.fromAccount === f.account || t.toAccount === f.account)
+          : (t.account === f.account);
+        if (!accMatch) return false;
+      }
       if (f.type && t.type !== f.type) return false;
       if (f.from && t.date < f.from) return false;
       if (f.to && t.date > f.to) return false;
@@ -189,7 +194,7 @@
     var profit = netProfit('', '');
     var eqNet = equityNet('', '');
     var balanced = Math.abs(cashTotal - (openTotal + profit + eqNet)) < 0.005;
-    var ACCENTS = ['#2f6bff', '#1f9d55', '#f0a020', '#e63946', '#9b5de5', '#00bbf9'];
+    var ACCENTS = ['#C8102E', '#C9A227', '#D99A2B', '#A4151B', '#E0B252', '#8B1E1E'];
     var maxAbs = Math.max.apply(null, bd.map(function (x) { return Math.abs(x.bal); }).concat([1]));
     var bars = bd.length ? bd.map(function (x, i) {
       var w = Math.max(3, Math.abs(x.bal) / maxAbs * 100);
@@ -355,13 +360,17 @@
     var incMom = mom(totalIncome, prev.inc);
     var expMom = mom(totalExpense, prev.exp);
 
-    // 资金层
-    var breakdown = accountBreakdown(to);                 // 截至所选期末的账户分解
+    // 资金层（口径：截至所选区间末「累计」，与账户余额分解口径一致，保证对账恒平衡）
+    var breakdown = accountBreakdown(to);                 // 截至所选期末的账户分解（累计）
     var cashTotal = breakdown.reduce(function (s, x) { return s + x.bal; }, 0);
     var openTotal = openingsTotal();
+    var profitCum = netProfit('', to);                    // 累计结余（截至区间末）
+    var eqNetCum = equityNet('', to);                     // 累计股本净（截至区间末）
+    var balanced = Math.abs(cashTotal - (openTotal + profitCum + eqNetCum)) < 0.005;
+
+    // 「区间」口径（用户所选窗口），仅用于上方 KPI 展示，不影响对账
     var profit = netProfit(from, to);
     var eqNet = equityNet(from, to);
-    var balanced = Math.abs(cashTotal - (openTotal + profit + eqNet)) < 0.005;
 
     // 月度柱状图
     var months = Object.keys(byMonth).sort();
@@ -403,16 +412,16 @@
       '<div class="card" style="margin-bottom:18px;' + (balanced ? 'border-color:#bfe6cd' : 'border-color:#f4d79a') + '">' +
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
           '<span class="badge ' + (balanced ? 'done' : 'warn') + '">' + (balanced ? '✅ 对账平衡' : '⚠️ 对账不平') + '</span>' +
-          '<span class="muted" style="font-size:13px">资金总计 ' + FW.fmtMoney(cashTotal) + ' ＝ 期初 ' + FW.fmtMoney(openTotal) + ' ＋ 区间结余 ' + FW.fmtMoney(profit) + ' ＋ 股本净 ' + FW.fmtMoney(eqNet) + '</span>' +
+          '<span class="muted" style="font-size:13px">资金总计 ' + FW.fmtMoney(cashTotal) + ' ＝ 期初 ' + FW.fmtMoney(openTotal) + ' ＋ 累计结余 ' + FW.fmtMoney(profitCum) + ' ＋ 股本净 ' + FW.fmtMoney(eqNetCum) + '</span>' +
         '</div>' +
         '<div class="muted" style="font-size:12px;margin-top:8px">说明：账户互转只改变资金在各账户间的归属，不改变「资金总计」与「结余」；股本注入/抽回影响资金但不影响经营利润。</div>' +
       '</div>' +
 
       '<div class="chart-wrap">' +
         (months.length ? FW.lineChart('月度收支趋势（收入/支出）', [{ name: '收入', color: '#e63946', points: months.map(function (m) { return { label: m.slice(5) + '月', value: byMonth[m].income }; }) }, { name: '支出', color: '#1f9d55', points: months.map(function (m) { return { label: m.slice(5) + '月', value: byMonth[m].expense }; }) }]) : '') +
-        (months.length ? FW.barChart('每月净收支（收入-支出）', monthItems, { color: '#2f6bff' }) : '') +
+        (months.length ? FW.barChart('每月净收支（收入-支出）', monthItems, { color: '#C9A227' }) : '') +
         (catItems.length ? FW.pieChart('支出分类占比', catItems) : '') +
-        (projItems.length ? FW.barChart('各项目净收支', projItems, { color: '#9b5de5' }) : '') +
+        (projItems.length ? FW.barChart('各项目净收支', projItems, { color: '#C8102E' }) : '') +
       '</div>';
 
     // —— 各账户余额分解表（资金层核心） ——
@@ -428,7 +437,7 @@
     html +=
       '<div class="card" style="margin-top:18px"><h3>各账户余额 <span class="sub">期初＋收支＋往来' + ((from || to) ? '（截至所选区间末）' : '（累计全部）') + '</span></h3>' +
         (breakdown.length ? '<table><thead><tr><th>账户</th><th class="num">期初</th><th class="num">本期收支</th><th class="num">本期往来</th><th class="num">余额</th></tr></thead><tbody>' + balRows +
-          '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(openTotal) + '</td><td class="num">' + FW.fmtMoney(profit) + '</td><td class="num">' + FW.fmtMoney(eqNet) + '</td><td class="num">' + FW.fmtMoney(cashTotal) + '</td></tr>' +
+          '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(openTotal) + '</td><td class="num">' + FW.fmtMoney(profitCum) + '</td><td class="num">' + FW.fmtMoney(eqNetCum) + '</td><td class="num">' + FW.fmtMoney(cashTotal) + '</td></tr>' +
           '</tbody></table>' : '<div class="empty">暂无账户余额数据，去「流水明细」登记收入/支出/互转/股本，或在「设置期初」录入开户金额。</div>') +
       '</div>' +
 
