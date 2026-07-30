@@ -16,8 +16,21 @@
   var BKEY = 'internal_budget';
   var CATKEY = 'internal_cats';
   var DEFAULT_CATS = ['办公用品', '差旅费', '餐饮招待', '工资薪酬', '房租物业', '交通出行', '广告宣传', '材料采购', '设备购置', '税费', '利息收入', '其他收入', '其他支出'];
-  var ACCTS = ['现金', '银行卡', '支付宝', '微信', '对公账户', '其他'];
-  var ACCT_ORDER = ACCTS;   // 账户余额展示顺序
+  var DEFAULT_ACCTS = ['现金', '银行卡', '支付宝', '微信', '对公账户', '其他'];
+  var ACCT_KEY = 'internal_accounts';   // 自定义账户列表（按账本隔离）
+
+  // 动态获取账户列表（从 db 读取，无则用默认值）
+  function getAccounts() {
+    var list = FW.db.getList(ACCT_KEY);
+    if (!list.length) return DEFAULT_ACCTS.slice();
+    return list.map(function (a) { return a.name || ''; }).filter(Boolean);
+  }
+  function saveAccounts(names) {
+    FW.db.saveList(ACCT_KEY, names.map(function (n) { return { name: n }; }));
+  }
+  // 兼容旧代码中直接引用 ACCTS 的地方（余额统计/期初等）
+  var ACCTS = getAccounts();
+  function refreshAccts() { ACCTS = getAccounts(); }
 
   var CATKEY_ = CATKEY;
   function cats() { return FW.db.getList(CATKEY_); }
@@ -105,7 +118,7 @@
     var keys = {};
     [open, flow, move].forEach(function (mm) { Object.keys(mm).forEach(function (k) { if (k) keys[k] = 1; }); });
     var ordered = [], seen = {};
-    ACCT_ORDER.forEach(function (k) { if (keys[k]) { ordered.push(k); seen[k] = 1; } });
+    ACCTS.forEach(function (k) { if (keys[k]) { ordered.push(k); seen[k] = 1; } });
     Object.keys(keys).forEach(function (k) { if (!seen[k]) ordered.push(k); });
     return ordered.map(function (k) {
       var o = open[k] || 0, f = flow[k] || 0, mv = move[k] || 0;
@@ -146,8 +159,9 @@
     if (ov) ov.innerHTML = overviewHtml();
 
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+    ta.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
     document.getElementById('openBtn').onclick = openOpenings;
+    document.getElementById('accMgrBtn').onclick = openAccManager;
     document.getElementById('budgetBtn').onclick = openBudgetForm;
     document.getElementById('catBtn').onclick = openCatManager;
     document.getElementById('addTxBtn').onclick = openForm;
@@ -571,6 +585,65 @@
         saveOpenings(arr);
         FW.closeModal(); render(); FW.toast('期初余额已保存（合计 ' + FW.fmtMoney(arr.reduce(function (s, o) { return s + o.amount; }, 0)) + '）');
       };
+    });
+  }
+
+  /* ---------- 账户管理（自定义增删改排序） ---------- */
+  function openAccManager() {
+    var list = getAccounts().slice();
+    function renderList() {
+      return list.map(function (name, i) {
+        return '<div class="acc-mgr-row" data-idx="' + i + '">' +
+          '<span class="acc-mgr-handle" title="拖拽排序">☰</span>' +
+          '<input class="acc-mgr-name" value="' + FW.esc(name) + '" placeholder="账户名称">' +
+          '<button class="btn ghost acc-mgr-del" data-idx="' + i + '" title="删除" ' + (list.length <= 1 ? 'disabled style="opacity:.4;cursor:not-allowed"' : '') + '>✕</button>' +
+          '</div>';
+      }).join('');
+    }
+    function renderBody() {
+      return '<div class="muted" style="font-size:12px;margin-bottom:10px">自定义账户名称后，新增流水、期初余额、筛选等处都会使用新名称。已有记录中的旧账户名不受影响。至少保留 1 个账户。</div>' +
+        '<div id="accMgrList">' + renderList() + '</div>' +
+        '<button class="btn ghost" id="accMgrAdd">＋ 添加账户</button>' +
+        '<div class="form-actions" style="margin-top:12px"><button class="btn ghost" id="accMgrCancel">取消</button><button class="btn" id="accMgrSave">保存</button></div>';
+    }
+    FW.openModal('账户管理', renderBody(), function () {
+      function rebind() {
+        document.getElementById('accMgrList').innerHTML = renderList();
+        // 删除按钮
+        FW.qa('.acc-mgr-del').forEach(function (btn) {
+          btn.onclick = function () {
+            if (list.length <= 1) { FW.toast('至少保留一个账户'); return; }
+            var idx = +this.dataset.idx;
+            list.splice(idx, 1);
+            rebind();
+          };
+        });
+        // 名称编辑回车或失焦时更新
+        FW.qa('.acc-mgr-name').forEach(function (inp, i) {
+          inp.onchange = function () { list[i] = this.value.trim() || list[i]; };
+        });
+      }
+      // 添加
+      document.getElementById('accMgrAdd').onclick = function () {
+        list.push('新账户' + (list.length + 1));
+        rebind();
+      };
+      // 取消 / 保存
+      document.getElementById('accMgrCancel').onclick = FW.closeModal;
+      document.getElementById('accMgrSave').onclick = function () {
+        // 收集最终名称，去重去空
+        var names = [];
+        var seen = {};
+        FW.qa('.acc-mgr-name').forEach(function (inp) {
+          var n = (inp.value || '').trim();
+          if (n && !seen[n]) { seen[n] = true; names.push(n); }
+        });
+        if (!names.length) { FW.toast('至少需要一个账户'); return; }
+        saveAccounts(names);
+        refreshAccts();
+        FW.closeModal(); render(); FW.toast('已更新 ' + names.length + ' 个账户');
+      };
+      rebind();
     });
   }
 
@@ -1275,6 +1348,8 @@
     netProfit: netProfit,                    // (from,to) -> 区间经营结余
     equityNet: equityNet                     // (from,to) -> 区间股本净
   };
+
+  FW.internalAccMgr = { getAccounts: getAccounts, saveAccounts: saveAccounts, refreshAccts: refreshAccts };
 
   FW.modules = FW.modules || {};
   FW.modules.internal = {
