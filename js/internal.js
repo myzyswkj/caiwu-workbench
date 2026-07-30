@@ -600,17 +600,18 @@
   /* ---------- 账户管理（自定义增删改排序） ---------- */
   function openAccManager() {
     var list = getAccounts().slice();
+    var pendingRenames = {};   // oldName -> newName（编辑时累积，保存时应用）
     function renderList() {
       return list.map(function (name, i) {
         return '<div class="acc-mgr-row" data-idx="' + i + '">' +
           '<span class="acc-mgr-handle" title="拖拽排序">☰</span>' +
-          '<input class="acc-mgr-name" value="' + FW.esc(name) + '" placeholder="账户名称">' +
+          '<input class="acc-mgr-name" value="' + FW.esc(name) + '" data-old="' + FW.esc(name) + '" placeholder="账户名称">' +
           '<button class="btn ghost acc-mgr-del" data-idx="' + i + '" title="删除" ' + (list.length <= 1 ? 'disabled style="opacity:.4;cursor:not-allowed"' : '') + '>✕</button>' +
           '</div>';
       }).join('');
     }
     function renderBody() {
-      return '<div class="muted" style="font-size:12px;margin-bottom:10px">自定义账户名称后，新增流水、期初余额、筛选等处都会使用新名称。已有记录中的旧账户名不受影响。至少保留 1 个账户。</div>' +
+      return '<div class="muted" style="font-size:12px;margin-bottom:10px">自定义账户名称后，新增流水、期初余额、筛选等处都会使用新名称。改名时可选择同步更新历史流水（默认保留旧名）。至少保留 1 个账户。</div>' +
         '<div id="accMgrList">' + renderList() + '</div>' +
         '<button class="btn ghost" id="accMgrAdd">＋ 添加账户</button>' +
         '<div class="form-actions" style="margin-top:12px"><button class="btn ghost" id="accMgrCancel">取消</button><button class="btn" id="accMgrSave">保存</button></div>';
@@ -627,9 +628,17 @@
             rebind();
           };
         });
-        // 名称编辑回车或失焦时更新
+        // 名称编辑回车或失焦时更新，并记录改名（用于同步历史）
         FW.qa('.acc-mgr-name').forEach(function (inp, i) {
-          inp.onchange = function () { list[i] = this.value.trim() || list[i]; };
+          inp.onchange = function () {
+            var newVal = (this.value || '').trim();
+            var oldVal = this.getAttribute('data-old') || '';
+            if (oldVal && newVal && oldVal !== newVal) {
+              pendingRenames[oldVal] = newVal;
+              this.setAttribute('data-old', newVal);
+            }
+            list[i] = newVal || list[i];
+          };
         });
       }
       // 添加
@@ -648,9 +657,47 @@
           if (n && !seen[n]) { seen[n] = true; names.push(n); }
         });
         if (!names.length) { FW.toast('至少需要一个账户'); return; }
+
+        // 收集改名（old->new）：旧名已从列表中消失、新名仍在
+        var finalSet = {};
+        names.forEach(function (n) { finalSet[n] = 1; });
+        var renames = [];
+        Object.keys(pendingRenames).forEach(function (oldN) {
+          var newN = pendingRenames[oldN];
+          if (oldN !== newN && finalSet[newN] && !finalSet[oldN]) renames.push({ old: oldN, new: newN });
+        });
+
+        // 统计受影响的流水条数（普通账户 + 互转双侧）
+        var affected = 0;
+        if (renames.length) {
+          FW.db.getList(KEY).forEach(function (t) {
+            renames.forEach(function (r) {
+              if (t.account === r.old || t.fromAccount === r.old || t.toAccount === r.old) affected++;
+            });
+          });
+        }
+
+        // 用户确认后才同步历史流水（默认保留旧名）
+        var sync = false;
+        if (affected > 0 && confirm('以下账户已改名：\n' + renames.map(function (r) { return '· ' + r.old + ' → ' + r.new; }).join('\n') +
+          '\n\n是否同步更新 ' + affected + ' 条历史流水中的账户名？\n（取消则保留历史记录中的旧名称）')) {
+          sync = true;
+          var txns = FW.db.getList(KEY);
+          renames.forEach(function (r) {
+            txns.forEach(function (t) {
+              if (t.account === r.old) t.account = r.new;
+              if (t.fromAccount === r.old) t.fromAccount = r.new;
+              if (t.toAccount === r.old) t.toAccount = r.new;
+              if (t.type === 'transfer') t.account = (t.fromAccount || '') + ' → ' + (t.toAccount || '');
+            });
+          });
+          FW.db.saveList(KEY, txns);
+        }
+
         saveAccounts(names);
         refreshAccts();
-        FW.closeModal(); render(); FW.toast('已更新 ' + names.length + ' 个账户');
+        FW.closeModal(); render();
+        FW.toast('已更新 ' + names.length + ' 个账户' + (sync ? '，并同步 ' + affected + ' 条历史' : ''));
       };
       rebind();
     });

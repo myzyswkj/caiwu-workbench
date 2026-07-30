@@ -519,9 +519,23 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
   table { min-width: 520px; }
   .stat-row, .dash-grid, .dash-quick, .chart-wrap { grid-template-columns: 1fr 1fr; }
   .form-grid { grid-template-columns: 1fr; }
+  /* 模块顶部操作按钮：换行 + 撑满，移动端更好点按 */
+  #topActions { display: flex; flex-wrap: wrap; gap: 8px; }
+  #topActions .btn { flex: 1 1 auto; }
+  /* 概览账户条形图：极窄屏压缩固定列，给条形更多空间 */
+  .ov-acc-row { grid-template-columns: 72px 1fr 92px; gap: 8px; }
+  .ov-total-val { font-size: 26px; }
+  .toolbar input, .toolbar select { min-width: 120px; }
 }
 @media (max-width: 480px) {
   .stat-row, .dash-grid, .dash-quick { grid-template-columns: 1fr; }
+  .ov-acc-row { grid-template-columns: 60px 1fr 80px; gap: 6px; }
+  .ov-acc-name { font-size: 12px; }
+  .ov-acc-amt { font-size: 12px; }
+  .ov-total-val { font-size: 22px; }
+  .toolbar input, .toolbar select { min-width: 100%; }
+  #topActions .btn { flex: 1 1 45%; }
+  .tbl td, .tbl th { padding: 8px 6px; font-size: 12px; }
 }
 
 
