@@ -98,7 +98,9 @@
 
   /* ---------- 包裹写方法，自动标记 dirty ---------- */
   function hookDb() {
-    var keys = ['lsSet', 'saveList', 'upsert', 'remove', 'savePhoto', 'deletePhoto', 'deletePhotos'];
+    // 注意：setLedgers 走 db.js 内部闭包，不经 FW.db.lsSet，故需单独包裹，
+    // 否则「新建/重命名/删除账本」不会标记 dirty，也就不会自动同步到账本列表。
+    var keys = ['lsSet', 'saveList', 'upsert', 'remove', 'savePhoto', 'deletePhoto', 'deletePhotos', 'setLedgers'];
     keys.forEach(function (m) {
       var orig = FW.db[m];
       if (typeof orig !== 'function') return;
@@ -149,9 +151,12 @@
       }
       return FW.db.decryptSnapshot(payload).then(function (snap) {
         suppress = true;
+        var keepCur = FW.db.getCurrentLedger(); // 各设备保持自己的当前账本，不同步选中态
         return FW.db.importAll(snap, true).then(function () {
           suppress = false;
-          // 重新渲染当前模块
+          FW.db.setCurrentLedger(keepCur);
+          // 重新渲染账本切换器（关键：否则新建/同步的账本不显示在下拉列表）
+          if (FW.refreshLedgers) FW.refreshLedgers();
           if (FW.modules.sidebar) FW.modules.sidebar.render();
           var active = document.querySelector('#moduleNav .nav-item.active');
           if (active && FW.setModule) FW.setModule(active.dataset.module);

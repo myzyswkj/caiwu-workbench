@@ -52,6 +52,9 @@
     if (active) renderSubNav(active.dataset.module);
   }
   FW.nav = { renderSubNav: renderSubNav, refreshSubNav: refreshSubNav };
+  // 供云端同步（sync.js pull）在合并数据后刷新界面：重渲染账本切换器 + 当前模块
+  FW.setModule = setModule;
+  FW.refreshLedgers = renderLedgerSwitch;
 
   /* ---------- 账本切换 ---------- */
   function renderLedgerSwitch() {
