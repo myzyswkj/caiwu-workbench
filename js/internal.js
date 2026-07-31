@@ -56,7 +56,7 @@
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
   function shiftMonth(ym, delta) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1 + delta; y += Math.floor(m / 12); m = (m % 12 + 12) % 12; return y + '-' + (m + 1 < 10 ? '0' + (m + 1) : m + 1); }
 
-  var state = { tab: 'list', filter: { project: '', category: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '' };
+  var state = { tab: 'list', filter: { project: '', category: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '' };
 
   function all() { return FW.db.getList(KEY).sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); }); }
   function projects() {
@@ -225,6 +225,7 @@
     if (state.tab === 'list') drawList();
     else if (state.tab === 'calendar') drawCalendar();
     else if (state.tab === 'fund') drawFund();
+    else if (state.tab === 'reconcile') drawReconcile();
     else drawStat();
   }
 
@@ -1039,6 +1040,279 @@
 
   FW.internalImport = { parseWeChatBill: parseWeChatBill, parseGenericCsv: parseGenericCsv, parseRowsCore: parseRowsCore, csvSplit: csvSplit, guessMap: guessMap };
 
+  /* ---------- 银行对账（导入银行流水 + 自动勾对 + 余额调节表） ---------- */
+  var bankImport = null;   // { account, rows:[{date,type,amount,summary,party,balance,income,expense,_raw}], skipped, parsedAt }
+  var lastRecon = null;    // 缓存最近一次勾对结果，供一键补录使用
+
+  function bankNormDate(s) {
+    s = (s == null ? '' : String(s)).trim();
+    if (!s) return '';
+    if (/^\d{5}$/.test(s)) {
+      var base = Date.UTC(1899, 11, 30);
+      var dd = new Date(base + (parseInt(s, 10)) * 86400000);
+      var yy = dd.getUTCFullYear(), mm = dd.getUTCMonth() + 1, d3 = dd.getUTCDate();
+      return yy + '-' + (mm < 10 ? '0' + mm : mm) + '-' + (d3 < 10 ? '0' + d3 : d3);
+    }
+    var dp = s.split(/[ T]/)[0];
+    var m1 = dp.match(/^(\d{4})[年\-\/\.](\d{1,2})[月\-\/\.](\d{1,2})/);
+    if (m1) { var y1 = +m1[1], mo1 = +m1[2], d1 = +m1[3]; return y1 + '-' + (mo1 < 10 ? '0' + mo1 : mo1) + '-' + (d1 < 10 ? '0' + d1 : d1); }
+    var m2 = dp.match(/^(\d{1,2})[年\-\/\.](\d{1,2})[年\-\/\.](\d{4})/);
+    if (m2) { var mo2 = +m2[1], d2 = +m2[2], y2 = +m2[3]; if (mo2 >= 1 && mo2 <= 12 && d2 >= 1 && d2 <= 31) return y2 + '-' + (mo2 < 10 ? '0' + mo2 : mo2) + '-' + (d2 < 10 ? '0' + d2 : d2); }
+    var m3 = dp.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (m3) return m3[1] + '-' + m3[2] + '-' + m3[3];
+    return '';
+  }
+  function guessBankMap(headers) {
+    function find(words) {
+      for (var i = 0; i < headers.length; i++) {
+        var h = (headers[i] || '').toLowerCase().replace(/\s+/g, '');
+        for (var w = 0; w < words.length; w++) if (h.indexOf(words[w]) > -1) return i;
+      }
+      return -1;
+    }
+    var base = guessMap(headers);
+    var incomeCol = find(['收入', '存入', '进账', '贷方', '收方', '贷方金额', '到账', '存款', '贷']);
+    var expenseCol = find(['支出', '取出', '支取', '出账', '借方', '付方', '借方金额', '扣款', '取款', '消费', '借']);
+    var balanceCol = find(['余额', '本余', '期末余额', '账户余额', '当前余额', '结存', '结余', '账面余额']);
+    return Object.assign({}, base, { incomeCol: incomeCol, expenseCol: expenseCol, balanceCol: balanceCol });
+  }
+  function bankToNum(s) {
+    s = (s == null ? '' : String(s)).replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/[￥¥,\s（）()]/g, '');
+    if (!s.trim()) return null;
+    var neg = /^[\(（].*[\)）]$/.test(s.trim());
+    var n = parseFloat(s);
+    if (isNaN(n)) return null;
+    return neg ? -n : n;
+  }
+  function parseBankRowsCore(rowsArr, map) {
+    var startRow = map.hasHeader ? 1 : 0;
+    var rows = [], skipped = 0;
+    for (var j = startRow; j < rowsArr.length; j++) {
+      var f = (rowsArr[j] || []).map(function (x) { return x == null ? '' : String(x); });
+      var dt = bankNormDate(f[map.dateCol]);
+      if (!dt) { skipped++; continue; }
+      var inc = map.incomeCol > -1 ? bankToNum(f[map.incomeCol]) : null;
+      var exp = map.expenseCol > -1 ? bankToNum(f[map.expenseCol]) : null;
+      var type, amount;
+      if (inc != null && inc > 0) { type = 'income'; amount = inc; }
+      else if (exp != null && exp > 0) { type = 'expense'; amount = exp; }
+      else {
+        var amt = bankToNum(f[map.amountCol]);
+        if (amt == null) { skipped++; continue; }
+        if (map.signMode === 'neg') { type = amt < 0 ? 'expense' : 'income'; amount = Math.abs(amt); }
+        else {
+          var tv = (map.typeCol > -1 ? (f[map.typeCol] || '') : '').trim();
+          if (/收|入|贷/.test(tv) && !/支|出/.test(tv)) { type = 'income'; amount = Math.abs(amt); }
+          else if (/支|出|付|借/.test(tv)) { type = 'expense'; amount = Math.abs(amt); }
+          else { type = amt < 0 ? 'expense' : 'income'; amount = Math.abs(amt); }
+        }
+      }
+      var bal = map.balanceCol > -1 ? bankToNum(f[map.balanceCol]) : null;
+      rows.push({ date: dt, type: type, amount: amount, summary: (map.remarkCol > -1 ? (f[map.remarkCol] || '').trim() : ''), party: (map.partyCol > -1 ? (f[map.partyCol] || '').trim() : ''), balance: bal, income: type === 'income' ? amount : 0, expense: type === 'expense' ? amount : 0, _raw: f });
+    }
+    return { ok: true, rows: rows, skipped: skipped };
+  }
+  function dayDiff(d1, d2) {
+    var t1 = Date.parse(d1), t2 = Date.parse(d2);
+    if (isNaN(t1) || isNaN(t2)) return 999;
+    return Math.abs((t1 - t2) / 86400000);
+  }
+  function reconcile(bankRows, bookRows) {
+    var used = {};
+    var matched = [], bankOnly = [], bookOnly = [];
+    bankRows.forEach(function (b) {
+      var found = null;
+      for (var i = 0; i < bookRows.length; i++) {
+        var t = bookRows[i];
+        if (used[t.id]) continue;
+        if (t.date !== b.date) continue;
+        if (b.type === 'income' && t.type === 'income' && Math.abs(t.amount - b.amount) < 0.01) { found = t; break; }
+        if (b.type === 'expense' && t.type === 'expense' && Math.abs(t.amount - b.amount) < 0.01) { found = t; break; }
+      }
+      if (!found) {
+        for (var k = 0; k < bookRows.length; k++) {
+          var t2 = bookRows[k];
+          if (used[t2.id]) continue;
+          if (dayDiff(t2.date, b.date) > 1) continue;
+          if (b.type === 'income' && t2.type === 'income' && Math.abs(t2.amount - b.amount) < 0.01) { found = t2; break; }
+          if (b.type === 'expense' && t2.type === 'expense' && Math.abs(t2.amount - b.amount) < 0.01) { found = t2; break; }
+        }
+      }
+      if (found) { used[found.id] = true; matched.push({ bank: b, book: found }); }
+      else bankOnly.push(b);
+    });
+    bookRows.forEach(function (t) { if (!used[t.id]) bookOnly.push(t); });
+    return { matched: matched, bankOnly: bankOnly, bookOnly: bookOnly };
+  }
+  function computeAdjust(recon, bookBal, bankEnd) {
+    var enterRecv = recon.bookOnly.filter(function (t) { return t.type === 'income'; }).reduce(function (s, t) { return s + t.amount; }, 0);
+    var enterPay = recon.bookOnly.filter(function (t) { return t.type === 'expense'; }).reduce(function (s, t) { return s + t.amount; }, 0);
+    var bankRecv = recon.bankOnly.filter(function (b) { return b.type === 'income'; }).reduce(function (s, b) { return s + b.amount; }, 0);
+    var bankPay = recon.bankOnly.filter(function (b) { return b.type === 'expense'; }).reduce(function (s, b) { return s + b.amount; }, 0);
+    var adjBook = bookBal + bankRecv - bankPay;
+    var adjBank = (bankEnd == null ? 0 : bankEnd) + enterRecv - enterPay;
+    return { enterRecv: enterRecv, enterPay: enterPay, bankRecv: bankRecv, bankPay: bankPay, adjBook: adjBook, adjBank: adjBank, balanced: Math.abs(adjBook - adjBank) < 0.02 };
+  }
+  function statCard(label, val, cls) {
+    return '<div class="stat"><div class="label">' + label + '</div><div class="value ' + (cls || '') + '">' + val + '</div></div>';
+  }
+  function reconcileBodyHtml(bi, bd) {
+    var acct = bi.account;
+    var bookRows = all().filter(function (t) { return t.account === acct && (t.type === 'income' || t.type === 'expense'); })
+      .map(function (t) { return { id: t.id, date: t.date, type: t.type, amount: Number(t.amount), project: t.project, remark: t.remark }; });
+    var recon = reconcile(bi.rows, bookRows);
+    lastRecon = recon;
+    var acctBalObj = bd.filter(function (x) { return x.name === acct; })[0];
+    var bookBal = acctBalObj ? acctBalObj.bal : 0;
+    var bankEnd = null;
+    for (var i = bi.rows.length - 1; i >= 0; i--) { if (bi.rows[i].balance != null) { bankEnd = bi.rows[i].balance; break; } }
+    var adj = computeAdjust(recon, bookBal, bankEnd);
+    var enterRecv = adj.enterRecv, enterPay = adj.enterPay, bankRecv = adj.bankRecv, bankPay = adj.bankPay, adjBook = adj.adjBook, adjBank = adj.adjBank, balanced = adj.balanced;
+
+    var kpi = '<div class="stat-row">' +
+      statCard('银行流水', bi.rows.length + ' 笔') +
+      statCard('已勾对', recon.matched.length + ' 笔', 'income') +
+      statCard('银行未达（企未记）', recon.bankOnly.length + ' 笔', recon.bankOnly.length ? 'expense' : '') +
+      statCard('企业未达（银未达）', recon.bookOnly.length + ' 笔', recon.bookOnly.length ? 'expense' : '') +
+    '</div>';
+
+    var adjust = '<div class="card" style="margin-bottom:14px;' + (balanced ? 'border-color:#bfe6cd' : 'border-color:#f4d79a') + '">' +
+      '<h3>银行存款余额调节表 <span class="sub">' + FW.esc(acct) + '</span></h3>' +
+      '<table class="adj-table">' +
+        '<tr><td>企业账面余额（内账' + FW.esc(acct) + '）</td><td class="num">' + FW.fmtMoney(bookBal) + '</td></tr>' +
+        '<tr><td>＋ 银行已收、企业未收</td><td class="num income">+' + FW.fmtMoney(bankRecv) + '</td></tr>' +
+        '<tr><td>－ 银行已付、企业未付</td><td class="num expense">−' + FW.fmtMoney(bankPay) + '</td></tr>' +
+        '<tr><td><b>调节后余额（企业侧）</b></td><td class="num"><b>' + FW.fmtMoney(adjBook) + '</b></td></tr>' +
+        '<tr><td>银行对账单余额（期末）</td><td class="num">' + FW.fmtMoney(bankEnd == null ? 0 : bankEnd) + '</td></tr>' +
+        '<tr><td>＋ 企业已收、银行未收</td><td class="num income">+' + FW.fmtMoney(enterRecv) + '</td></tr>' +
+        '<tr><td>－ 企业已付、银行未付</td><td class="num expense">−' + FW.fmtMoney(enterPay) + '</td></tr>' +
+        '<tr><td><b>调节后余额（银行侧）</b></td><td class="num"><b>' + FW.fmtMoney(adjBank) + '</b></td></tr>' +
+      '</table>' +
+      '<div class="muted" style="font-size:12px;margin-top:8px">' + (balanced ? '✅ 两侧调节后余额一致，对账平衡。' : '⚠️ 两侧调节后余额不一致（差 ' + FW.fmtMoney(Math.abs(adjBook - adjBank)) + '），请检查未达账项或期初余额。') + '</div>' +
+    '</div>';
+
+    var unrecBank = recon.bankOnly.length ? '<div class="card" style="margin-bottom:14px">' +
+      '<h3>银行已记录、内账未记录 <span class="sub">企业未达账项，建议补录</span></h3>' +
+      '<div style="margin-bottom:8px"><button class="btn" id="bkAppendAll">一键补录全部到内账</button></div>' +
+      '<table id="bkUnrecTable"><thead><tr><th>日期</th><th>摘要</th><th>对方</th><th class="num">收入</th><th class="num">支出</th><th class="num">余额</th><th>操作</th></tr></thead><tbody>' +
+      recon.bankOnly.map(function (b, i) { return '<tr><td>' + FW.esc(b.date) + '</td><td>' + FW.esc(b.summary || '—') + '</td><td>' + FW.esc(b.party || '—') + '</td><td class="num income">' + (b.income ? FW.fmtMoney(b.income) : '') + '</td><td class="num expense">' + (b.expense ? FW.fmtMoney(b.expense) : '') + '</td><td class="num">' + (b.balance != null ? FW.fmtMoney(b.balance) : '') + '</td><td><button class="btn ghost sm bk-append" data-i="' + i + '">补录</button></td></tr>'; }).join('') +
+      '</tbody></table></div>' : '';
+
+    var unrecBook = recon.bookOnly.length ? '<div class="card" style="margin-bottom:14px">' +
+      '<h3>内账已记录、银行未记录 <span class="sub">银行未达账项（在途/未到账）</span></h3>' +
+      '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th class="num">金额</th></tr></thead><tbody>' +
+      recon.bookOnly.map(function (t) { return '<tr><td>' + FW.esc(t.date) + '</td><td>' + (t.type === 'income' ? '收入' : '支出') + '</td><td>' + FW.esc(t.project || '—') + '</td><td class="num ' + (t.type === 'income' ? 'income' : 'expense') + '">' + FW.fmtMoney(t.amount) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' : '';
+
+    var matchedHtml = recon.matched.length ? '<div class="card">' +
+      '<h3>已勾对明细 <span class="sub">' + recon.matched.length + ' 笔</span></h3>' +
+      '<table><thead><tr><th>日期</th><th>银行摘要</th><th class="num">银行金额</th><th>内账项目</th><th class="num">内账金额</th></tr></thead><tbody>' +
+      recon.matched.map(function (m) { return '<tr><td>' + FW.esc(m.bank.date) + '</td><td>' + FW.esc(m.bank.summary || '—') + '</td><td class="num ' + (m.bank.type === 'income' ? 'income' : 'expense') + '">' + FW.fmtMoney(m.bank.amount) + '</td><td>' + FW.esc(m.book.project || '—') + '</td><td class="num ' + (m.book.type === 'income' ? 'income' : 'expense') + '">' + FW.fmtMoney(m.book.amount) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' : '';
+
+    return kpi + adjust + unrecBank + unrecBook + matchedHtml;
+  }
+  function bindReconcileActions() {
+    var allBtn = document.getElementById('bkAppendAll');
+    if (allBtn) allBtn.onclick = function () { appendBankUnrec(null); };
+    FW.qa('.bk-append').forEach(function (b) { b.onclick = function () { appendBankUnrec(+this.dataset.i); }; });
+  }
+  function appendBankUnrec(idx) {
+    if (!bankImport || !lastRecon) return;
+    var targets = idx == null ? lastRecon.bankOnly.slice() : [lastRecon.bankOnly[idx]];
+    if (!targets.length) return;
+    var n = 0;
+    targets.forEach(function (b) {
+      var rec = { id: FW.db.uid('t_'), date: b.date, type: b.type, project: b.party || '', amount: Number(b.amount), remark: b.summary || '', photos: [], category: '', account: bankImport.account, fromAccount: '', toAccount: '', equityDir: 'in' };
+      FW.db.upsert(KEY, rec); n++;
+      var pos = bankImport.rows.indexOf(b); if (pos > -1) bankImport.rows.splice(pos, 1);
+    });
+    FW.toast('已补录 ' + n + ' 笔到内账（' + FW.esc(bankImport.account) + '）');
+    drawReconcile();
+  }
+  function openBankImport() {
+    var body = '<div class="field"><label>选择银行流水文件（CSV 或 Excel）</label><input type="file" id="bkFile" accept=".csv,.xlsx,.xls,text/csv"></div>' +
+      '<div class="field"><label>编码</label><select id="bkEnc"><option value="auto">自动</option><option value="gbk">GBK</option><option value="utf8">UTF-8</option></select><span class="muted" style="font-size:12px">（仅 CSV 需要）</span></div>' +
+      '<div class="muted" style="font-size:12px">支持含「日期 / 摘要 / 收入 / 支出 / 余额 / 对方户名」等列的表格；系统自动识别列。</div>' +
+      '<div class="form-actions"><button class="btn ghost" id="bkCancel">取消</button><button class="btn" id="bkParse">解析</button></div>';
+    FW.openModal('导入银行流水', body, function () {
+      document.getElementById('bkCancel').onclick = FW.closeModal;
+      document.getElementById('bkParse').onclick = function () {
+        var file = document.getElementById('bkFile').files[0];
+        if (!file) { FW.toast('请先选择文件'); return; }
+        var fname = (file.name || '').toLowerCase();
+        var isExcel = /\.(xlsx|xls)$/.test(fname);
+        function handleRows(rowsArr) {
+          var headers = rowsArr[0].map(function (c) { return c == null ? '' : String(c); });
+          var map = guessBankMap(headers);
+          var res = parseBankRowsCore(rowsArr, map);
+          if (!res.rows.length) { FW.toast('没有可解析的流水（跳过 ' + res.skipped + ' 行）'); return; }
+          bankImport = { account: state.bankAcct || getAccounts()[0], rows: res.rows, skipped: res.skipped, parsedAt: Date.now() };
+          FW.closeModal();
+          drawReconcile();
+          FW.toast('已解析 ' + res.rows.length + ' 笔银行流水' + (res.skipped ? ('，跳过 ' + res.skipped + ' 行') : ''));
+        }
+        if (isExcel) {
+          if (typeof XLSX === 'undefined') { FW.toast('Excel 解析库未加载，请刷新页面后重试'); return; }
+          var fr = new FileReader();
+          fr.onload = function () {
+            try {
+              var wb = XLSX.read(new Uint8Array(fr.result), { type: 'array' });
+              if (!wb.SheetNames.length) { FW.toast('Excel 中没有工作表'); return; }
+              var ws = wb.Sheets[wb.SheetNames[0]];
+              var rowsArr = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+              while (rowsArr.length && rowsArr[rowsArr.length - 1].every(function (c) { return c === '' || c == null; })) rowsArr.pop();
+              if (!rowsArr.length) { FW.toast('Excel 中没有数据'); return; }
+              handleRows(rowsArr);
+            } catch (e) { FW.toast('Excel 解析失败：' + (e && e.message ? e.message : e)); }
+          };
+          fr.onerror = function () { FW.toast('文件读取失败'); };
+          fr.readAsArrayBuffer(file);
+          return;
+        }
+        var enc = document.getElementById('bkEnc').value;
+        decodeFile(file, enc, function (text) {
+          if (!text) { FW.toast('文件读取失败'); return; }
+          var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+          var rowsArr = lines.map(function (l) { return csvSplit(l); });
+          if (!rowsArr.length) { FW.toast('文件无数据'); return; }
+          handleRows(rowsArr);
+        });
+      };
+    });
+  }
+  function drawReconcile() {
+    var bd = accountBreakdown();
+    var c = document.getElementById('inBody');
+    var acctSel = state.bankAcct || getAccounts()[0];
+    var html = '<div class="card" style="margin-bottom:14px">' +
+      '<div class="toolbar">' +
+        '<span style="font-size:13px;color:var(--muted);align-self:center">对账账户：</span>' +
+        '<select id="bankAcct" class="field" style="width:auto">' + accOpts(acctSel) + '</select>' +
+        '<button class="btn" id="bankImportBtn">📥 导入银行流水</button>' +
+        '<button class="btn ghost" id="bankClearBtn">清除</button>' +
+      '</div>' +
+      '<div class="muted" style="font-size:12px;margin-top:8px">导入银行导出的 CSV / Excel 流水（含日期、收支、余额），系统会自动与「' + FW.esc(acctSel) + '」账户的内账逐笔勾对，找出未达账项并生成《银行存款余额调节表》。支持工行、建行、招行等常见格式。</div>' +
+    '</div>';
+
+    if (bankImport && bankImport.account === acctSel) {
+      html += reconcileBodyHtml(bankImport, bd);
+    } else if (bankImport) {
+      html += '<div class="card"><div class="muted">当前展示的是「' + FW.esc(bankImport.account) + '」的银行流水，与所选账户不一致，请重新导入或切换账户。</div></div>';
+    } else {
+      html += '<div class="empty" style="padding:30px">还没有导入银行流水。点「导入银行流水」选择银行导出的对账单文件（CSV 或 Excel）。</div>';
+    }
+    c.innerHTML = html;
+
+    var sel = document.getElementById('bankAcct');
+    if (sel) sel.onchange = function () { state.bankAcct = this.value; if (bankImport && bankImport.account !== this.value) bankImport = null; drawReconcile(); };
+    var ib = document.getElementById('bankImportBtn');
+    if (ib) ib.onclick = openBankImport;
+    var cl = document.getElementById('bankClearBtn');
+    if (cl) cl.onclick = function () { bankImport = null; drawReconcile(); };
+    bindReconcileActions();
+  }
+
   /* ---------- 新增 / 编辑 表单 ---------- */
   function openForm(id) {
     var edit = id ? FW.db.getById(KEY, id) : null;
@@ -1429,7 +1703,8 @@
       { key: 'list', label: '流水明细' },
       { key: 'calendar', label: '收支日历' },
       { key: 'stat', label: '统计分析' },
-      { key: 'fund', label: '资金变动明细' }
+      { key: 'fund', label: '资金变动明细' },
+      { key: 'reconcile', label: '银行对账' }
     ],
     getTab: function () { return state.tab; },
     setTab: function (k) { state.tab = k; drawBody(); if (window.FW.nav) FW.nav.refreshSubNav(); },
@@ -1440,6 +1715,7 @@
       l[pi].children = l[pi].children || []; l[pi].children.splice(j, 0, item);
       FW.db.saveList(CATKEY_, l); return true;
     },
-    cats: cats
+    cats: cats,
+    internalReconcile: { parseBankRowsCore: parseBankRowsCore, reconcile: reconcile, guessBankMap: guessBankMap, computeAdjust: computeAdjust, dayDiff: dayDiff }
   };
 })(window);

@@ -157,6 +157,15 @@ body {
 .card h3 { margin: 0 0 14px; font-size: 15px; display: flex; align-items: center; gap: 8px; padding-left: 10px; border-left: 3px solid var(--primary); }
 .card h3 .sub { font-weight: 400; font-size: 12px; color: var(--muted); }
 
+/* 银行对账：余额调节表 */
+.adj-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.adj-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.adj-table tr:last-child td { border-bottom: none; }
+.adj-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.adj-table td.num.income { color: var(--income); }
+.adj-table td.num.expense { color: var(--expense); }
+
+
 /* 统计块 */
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 14px; margin-bottom: 18px; }
 .stat {
