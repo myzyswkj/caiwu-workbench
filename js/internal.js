@@ -707,7 +707,8 @@
 
   /* ---------- 分类 / 账户 辅助 ---------- */
   function accOpts(sel) {
-    return ACCTS.map(function (a) { return '<option ' + (a === sel ? 'selected' : '') + '>' + a + '</option>'; }).join('');
+    var accounts = getAccounts();  // 每次实时读取，确保自定义账户/同步后立即生效
+    return accounts.map(function (a) { return '<option ' + (a === sel ? 'selected' : '') + '>' + a + '</option>'; }).join('');
   }
   function cat1Opts(sel) {
     return '<option value="">（不选）</option>' + cats().map(function (c) { return '<option ' + (c.name === sel ? 'selected' : '') + '>' + FW.esc(c.name) + '</option>'; }).join('');

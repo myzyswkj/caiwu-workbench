@@ -160,6 +160,8 @@
           if (FW.modules.sidebar) FW.modules.sidebar.render();
           var active = document.querySelector('#moduleNav .nav-item.active');
           if (active && FW.setModule) FW.setModule(active.dataset.module);
+          // 刷新内账模块的账户缓存（否则自定义账户不会出现在下拉列表）
+          if (FW.internalAccMgr && FW.internalAccMgr.refreshAccts) FW.internalAccMgr.refreshAccts();
           FW.toast('已从云端同步最新数据');
           return true; // 标记：已导入云端数据
         }).catch(function () { suppress = false; return false; });
