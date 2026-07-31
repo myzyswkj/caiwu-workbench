@@ -77,6 +77,71 @@
     return '<div class="chart-box"><h4>' + FW.esc(title) + '</h4>' + svg + '</div>';
   };
 
+  /* ---------- SVG 分组柱状图（多系列，如收入/支出按项目对比） ---------- */
+  FW.groupedBarChart = function (title, series, labels, opts) {
+    opts = opts || {};
+    var w = opts.width || 380, h = opts.height || 240;
+    var padL = 46, padB = 32, padT = 18, padR = 14;
+    var n = labels.length || 1;
+    var nSer = series.length || 1;
+    // 收集所有值计算最大值
+    var allVals = [];
+    series.forEach(function (s) { s.values.forEach(function (v) { allVals.push(Math.abs(v)); }); });
+    if (!allVals.length) return '<div class="chart-box"><h4>' + FW.esc(title) + '</h4><div class="empty">暂无数据</div></div>';
+    var max = Math.max.apply(null, allVals.concat([1]));
+    var groupW = (w - padL - padR) / n;          // 每组宽度
+    var barW = Math.min(groupW * 0.7 / nSer, 22); // 每根柱宽
+    var gap = (groupW - barW * nSer) / (nSer + 1); // 组内柱间距
+    var svg = '<svg class="chart-svg" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">';
+    // Y 轴网格线
+    var ticks = 4;
+    for (var ti = 0; ti <= ticks; ti++) {
+      var val = max * ti / ticks;
+      var yy = (h - padB) - (h - padB - padT) * (val / max);
+      svg += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (w - padR) + '" y2="' + yy.toFixed(1) + '" stroke="#eef1f7"/>';
+      svg += '<text x="' + (padL - 6) + '" y="' + (yy + 3).toFixed(1) + '" font-size="9" text-anchor="end" fill="#9aa6bd">' + FW.shortMoney(val) + '</text>';
+    }
+    // X ���基线
+    svg += '<line x1="' + padL + '" y1="' + (h - padB) + '" x2="' + (w - padR) + '" y2="' + (h - padB) + '" stroke="#e6e9f0"/>';
+    // 零线（当有负值时）
+    if (max > 0) {
+      var zeroY = (h - padB) - (h - padB - padT) * (0 / max);
+      // zeroY == h-padB when min is 0, so skip
+    }
+    // 每组画多根柱
+    labels.forEach(function (lb, idx) {
+      var gx = padL + groupW * idx;
+      series.forEach(function (s, si) {
+        var v = s.values[idx] || 0;
+        var bx = gx + gap * (si + 1) + barW * si;
+        var bh = (h - padB - padT) * (Math.abs(v) / max);
+        var by = v >= 0 ? (h - padB) - bh : (h - padB);
+        var bhDraw = Math.max(bh, 1); // 至少 1px 高，避免零值不可见
+        if (v !== 0) {
+          svg += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + bhDraw.toFixed(1) + '" rx="2" fill="' + (s.color || '#888') + '" opacity="0.85"/>';
+        } else {
+          // 零值画个细线占位
+          svg += '<rect x="' + bx.toFixed(1) + '" y="' + ((h - padB) - 1).toFixed(1) + '" width="' + barW.toFixed(1) + '" height="2" rx="1" fill="' + (s.color || '#888') + '" opacity="0.3"/>';
+        }
+        // 数值标签（绝对值较大时才显示）
+        if (Math.abs(v) >= max * 0.05) {
+          var ty = v >= 0 ? by - 4 : by + bhDraw + 11;
+          svg += '<text x="' + (bx + barW / 2).toFixed(1) + '" y="' + ty.toFixed(1) + '" font-size="8" text-anchor="middle" fill="#41506a">' + FW.shortMoney(v) + '</text>';
+        }
+      });
+      // X 轴标签
+      svg += '<text x="' + (gx + groupW / 2).toFixed(1) + '" y="' + (h - padB + 13).toFixed(1) + '" font-size="9" text-anchor="middle" fill="#7a869a">' + FW.esc(FW.clip(lb, 8)) + '</text>';
+    });
+    svg += '</svg>';
+    // 图例
+    var legend = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;justify-content:center">';
+    series.forEach(function (s) {
+      legend += '<span style="display:flex;align-items:center;gap:4px;font-size:11px"><span style="width:10px;height:10px;border-radius:2px;background:' + (s.color || '#888') + '"></span>' + FW.esc(s.name) + '</span>';
+    });
+    legend += '</div>';
+    return '<div class="chart-box"><h4>' + FW.esc(title) + '</h4>' + svg + legend + '</div>';
+  };
+
   /* ---------- SVG 饼图 ---------- */
   FW.pieChart = function (title, items) {
     var total = items.reduce(function (a, b) { return a + b.value; }, 0) || 1;

@@ -379,7 +379,13 @@
     var monthItems = months.map(function (m) { return { label: m.slice(5) + '月', value: byMonth[m].income - byMonth[m].expense }; });
     var catItems = Object.keys(byCat).map(function (k) { return { label: k, value: byCat[k].expense }; }).filter(function (x) { return x.value > 0; });
     var accItems = Object.keys(byAcc).map(function (k) { return { label: k, value: byAcc[k].income + byAcc[k].expense }; }).filter(function (x) { return x.value > 0; });
-    var projItems = Object.keys(byProj).map(function (k) { return { label: k, value: byProj[k].income - byProj[k].expense }; });
+
+    // 各项目收支（分组柱状图数据）
+    var projLabels = Object.keys(byProj).sort();
+    var projSeries = [
+      { name: '收入', color: '#C8102E', values: projLabels.map(function (k) { return byProj[k].income; }) },
+      { name: '支出', color: '#1f9d55', values: projLabels.map(function (k) { return byProj[k].expense; }) }
+    ];
 
     var rangeTxt = (from || to) ? ('（' + (from || '最早') + ' 至 ' + (to || '最新') + '）') : '（全部期间）';
     var html =
@@ -423,7 +429,7 @@
         (months.length ? FW.lineChart('月度收支趋势（收入/支出）', [{ name: '收入', color: '#e63946', points: months.map(function (m) { return { label: m.slice(5) + '月', value: byMonth[m].income }; }) }, { name: '支出', color: '#1f9d55', points: months.map(function (m) { return { label: m.slice(5) + '月', value: byMonth[m].expense }; }) }]) : '') +
         (months.length ? FW.barChart('每月净收支（收入-支出）', monthItems, { color: '#C9A227' }) : '') +
         (catItems.length ? FW.pieChart('支出分类占比', catItems) : '') +
-        (projItems.length ? FW.barChart('各项目净收支', projItems, { color: '#C8102E' }) : '') +
+        (projLabels.length ? FW.groupedBarChart('各项目收支', projSeries, projLabels) : '') +
       '</div>';
 
     // —— 各账户余额分解表（资金层核心） ——
