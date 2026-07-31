@@ -311,18 +311,18 @@
         '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
         '<td>' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
         '<td>' + FW.esc(t.project || '—') + '</td>' +
-        '<td>' + FW.esc(t.party || '—') + '</td>' +
-        '<td>' + FW.esc(t.reimburser || '—') + '</td>' +
         '<td>' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td>' + FW.esc(acctTxt) + '</td>' +
         '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + '</td>' +
         '<td>' + FW.esc(t.remark || '') + '</td>' +
         '<td class="photo-cell">' + (photos || '<span class="muted">—</span>') + '</td>' +
+        '<td>' + FW.esc(t.party || '—') + '</td>' +
+        '<td>' + FW.esc(t.reimburser || '—') + '</td>' +
         '<td class="row-actions nowrap"><button class="btn ghost sm row-edit" data-id="' + t.id + '">编辑</button><button class="btn danger sm row-del" data-id="' + t.id + '">删</button></td>' +
         '</tr>';
     }).join('');
     return '<table id="txTable"><thead><tr>' +
-      '<th>日期</th><th>类型</th><th>项目</th><th>对方/个人</th><th>报销人</th><th>分类</th><th>账户</th><th class="num">金额</th><th>备注</th><th>凭证</th><th>操作</th>' +
+      '<th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th class="num">金额</th><th>备注</th><th>凭证</th><th>对方/个人</th><th>报销人</th><th>操作</th>' +
       '</tr></thead><tbody>' + trs + '</tbody></table>';
   }
 
@@ -1291,9 +1291,9 @@
       if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
       return t.type || '';
     }
-    var head = ['日期', '类型', '项目', '对方单位/个人', '报销人', '分类', '账户', '金额', '备注', '凭证数', '是否影响收支'];
+    var head = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
     var data = rows.map(function (t) {
-      return [t.date, typeLabel(t), t.project || '', t.party || '', t.reimburser || '', t.category || '', accountOf(t), t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), (t.type === 'income' || t.type === 'expense') ? '是' : '否'];
+      return [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense') ? '是' : '否'];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
