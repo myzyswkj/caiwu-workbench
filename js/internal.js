@@ -311,6 +311,8 @@
         '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
         '<td>' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
         '<td>' + FW.esc(t.project || '—') + '</td>' +
+        '<td>' + FW.esc(t.party || '—') + '</td>' +
+        '<td>' + FW.esc(t.reimburser || '—') + '</td>' +
         '<td>' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td>' + FW.esc(acctTxt) + '</td>' +
         '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + '</td>' +
@@ -320,7 +322,7 @@
         '</tr>';
     }).join('');
     return '<table id="txTable"><thead><tr>' +
-      '<th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th class="num">金额</th><th>备注</th><th>凭证</th><th>操作</th>' +
+      '<th>日期</th><th>类型</th><th>项目</th><th>对方/个人</th><th>报销人</th><th>分类</th><th>账户</th><th class="num">金额</th><th>备注</th><th>凭证</th><th>操作</th>' +
       '</tr></thead><tbody>' + trs + '</tbody></table>';
   }
 
@@ -1034,11 +1036,11 @@
   function openForm(id) {
     var edit = id ? FW.db.getById(KEY, id) : null;
     var projList = projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
-    var v = { date: FW.today(), type: 'expense', cat1: DEFAULT_CATS[0], cat2: '', account: ACCTS[0], amount: '', remark: '', project: '', photos: [],
+    var v = { date: FW.today(), type: 'expense', cat1: DEFAULT_CATS[0], cat2: '', account: ACCTS[0], amount: '', remark: '', project: '', party: '', reimburser: '', photos: [],
       fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
     if (edit) {
       v = { date: edit.date || FW.today(), type: edit.type || 'expense', cat1: '', cat2: '', account: edit.account || ACCTS[0],
-        amount: edit.amount, remark: edit.remark || '', project: edit.project || '', photos: edit.photos || [],
+        amount: edit.amount, remark: edit.remark || '', project: edit.project || '', party: edit.party || '', reimburser: edit.reimburser || '', photos: edit.photos || [],
         fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
       if (edit.category) { var parts = edit.category.split(' / '); v.cat1 = parts[0]; v.cat2 = parts[1] || ''; }
       if (edit.type === 'transfer') { v.fromAccount = edit.fromAccount || ACCTS[0]; v.toAccount = edit.toAccount || (ACCTS[1] || ACCTS[0]); }
@@ -1055,6 +1057,8 @@
           '<option value="equity" ' + (v.type === 'equity' ? 'selected' : '') + '>股本资金（不影响收支）</option>' +
         '</select></div>' +
         '<div class="field"><label>项目</label><input id="f_project" list="projList" value="' + FW.esc(v.project) + '" placeholder="如：XX项目"><datalist id="projList">' + projList + '</datalist></div>' +
+        '<div class="field"><label>对方单位 / 个人</label><input id="f_party" value="' + FW.esc(v.party) + '" placeholder="如：XX公司 / 张三"></div>' +
+        '<div class="field"><label>报销人</label><input id="f_reimburser" value="' + FW.esc(v.reimburser) + '" placeholder="报销人姓名（如：李四）"></div>' +
         '<div id="dynArea"></div>' +
         '<div class="field"><label>金额（元）</label><input id="f_amount" type="number" step="0.01" min="0" value="' + FW.esc(v.amount) + '"></div>' +
         '<div class="field full"><label>备注</label><textarea id="f_remark" rows="2" placeholder="用途说明">' + FW.esc(v.remark) + '</textarea></div>' +
@@ -1078,6 +1082,8 @@
           date: document.getElementById('f_date').value || FW.today(),
           type: type,
           project: document.getElementById('f_project').value.trim(),
+          party: document.getElementById('f_party').value.trim(),
+          reimburser: document.getElementById('f_reimburser').value.trim(),
           amount: amount,
           remark: document.getElementById('f_remark').value.trim(),
           photos: photos,
@@ -1285,9 +1291,9 @@
       if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
       return t.type || '';
     }
-    var head = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证数', '是否影响收支'];
+    var head = ['日期', '类型', '项目', '对方单位/个人', '报销人', '分类', '账户', '金额', '备注', '凭证数', '是否影响收支'];
     var data = rows.map(function (t) {
-      return [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), (t.type === 'income' || t.type === 'expense') ? '是' : '否'];
+      return [t.date, typeLabel(t), t.project || '', t.party || '', t.reimburser || '', t.category || '', accountOf(t), t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), (t.type === 'income' || t.type === 'expense') ? '是' : '否'];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
