@@ -819,3 +819,29 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .pc-rate-track { flex: 1; height: 14px; background: #eef1f7; border-radius: 7px; overflow: hidden; }
 .pc-rate-fill { display: block; height: 100%; border-radius: 7px; }
 .pc-rate-val { width: 58px; flex: 0 0 58px; text-align: right; font-weight: 600; }
+
+/* 版本与备份 */
+.ver-card {
+  background: var(--panel, #fff); border: 1px solid var(--border, #e6e9f0); border-radius: var(--radius, 12px);
+  padding: 16px 18px; margin-bottom: 16px;
+}
+.ver-card h3 { margin: 0 0 10px; font-size: 16px; color: var(--text, #1f2430); }
+.ver-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ver-table th, .ver-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border, #eef1f7); vertical-align: middle; }
+.ver-table th { color: #7a869a; font-weight: 600; font-size: 12px; background: #f7f9fc; }
+.ver-table .mono { font-family: ui-monospace, Menlo, Consolas, monospace; color: #41506a; }
+.ver-table tr.ver-cur { background: #fff7f8; }
+.ver-table tr.ver-cur .mono { color: var(--primary, #C8102E); font-weight: 600; }
+.ver-rb-banner {
+  background: #fff7e6; border: 1px solid #ffd591; color: #8a5a00; border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.ver-rb-banner b { color: #ad6800; }
+.ver-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+.ver-log { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.ver-log-row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 5px 8px; border-radius: 6px; background: #f7f9fc; }
+.ver-log-type { flex: 0 0 76px; font-weight: 600; text-align: center; border-radius: 5px; padding: 2px 0; color: #fff; }
+.ver-log-type.type-export { background: #2f6bff; }
+.ver-log-type.type-import { background: #1f9d55; }
+.ver-log-ts { flex: 0 0 150px; color: #7a869a; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.ver-log-detail { color: #41506a; }
