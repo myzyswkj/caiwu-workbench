@@ -380,6 +380,11 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 /* ===== 内账：转账/股本类型标签 & 中性金额 ===== */
 .tag.transfer { background: #F7ECCF; color: #9A7B12; border: 1px solid #E4CE8E; }
 .tag.equity { background: #f3ecff; color: #7b3fd1; border: 1px solid #dcc9ff; }
+.tag.refund { background: #e6f7f4; color: #0d9488; border: 1px solid #b5e3dc; }
+.num.refund { color: #0d9488; }
+.stat .value.refund { color: #0d9488; }
+.dash-value.refund { color: #0d9488; }
+.amt.refund { color: #0d9488; }
 .num.neutral { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* 照片粘贴拖拽区 */

@@ -75,6 +75,7 @@
       var d = ensure(p);
       if (t.type === 'income') d.revenue += a;
       else if (t.type === 'expense') { d.flowCost += a; var c = cat1(t); d.byCat[c] = (d.byCat[c] || 0) + a; }
+      else if (t.type === 'refund') { d.flowCost -= a; var c2 = cat1(t); d.byCat[c2] = (d.byCat[c2] || 0) - a; }
     });
 
     // 工资：底薪/奖金/提成按项目汇总；「未分类」部分进入未分配
@@ -152,6 +153,7 @@
       var d = mEnsure(k);
       if (t.type === 'income') d.rev += num(t.amount);
       else if (t.type === 'expense') d.cost += num(t.amount);
+      else if (t.type === 'refund') d.cost -= num(t.amount);
     });
     recs.forEach(function (r) {
       var k = String(r.year) + '-' + ('0' + r.month).slice(-2);

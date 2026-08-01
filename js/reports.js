@@ -37,6 +37,7 @@
       var a = num(t.amount);
       if (t.type === 'income') m[t.account] = (m[t.account] || 0) + a;
       else if (t.type === 'expense') m[t.account] = (m[t.account] || 0) - a;
+      else if (t.type === 'refund') m[t.account] = (m[t.account] || 0) + a;
       else if (t.type === 'transfer') {
         m[t.fromAccount] = (m[t.fromAccount] || 0) - a;
         m[t.toAccount] = (m[t.toAccount] || 0) + a;
@@ -67,6 +68,13 @@
         else if (k === 'tax') { tax[cat] = (tax[cat] || 0) + a; taxTotal += a; }
         else if (k === 'invest') { invest[cat] = (invest[cat] || 0) + a; investTotal += a; }
         else { fee[cat] = (fee[cat] || 0) + a; feeTotal += a; }
+      } else if (t.type === 'refund') {
+        // 退款收入：冲减对应分类的支出（成本 / 税金 / 费用 / 固定资产），不计入总收入
+        var rk = classify(cat);
+        if (rk === 'cost') { cost[cat] = (cost[cat] || 0) - a; costTotal -= a; }
+        else if (rk === 'tax') { tax[cat] = (tax[cat] || 0) - a; taxTotal -= a; }
+        else if (rk === 'invest') { invest[cat] = (invest[cat] || 0) - a; investTotal -= a; }
+        else { fee[cat] = (fee[cat] || 0) - a; feeTotal -= a; }
       } else if (t.type === 'equity') {
         if (t.equityDir === 'out') equityOut += a; else equityIn += a;
       }

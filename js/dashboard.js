@@ -10,7 +10,7 @@
   function monthSum(m) {
     var inc = 0, exp = 0;
     internalList().forEach(function (t) {
-      if (t.date && t.date.slice(0, 7) === m) { if (t.type === 'income') inc += +t.amount; else if (t.type === 'expense') exp += +t.amount; }
+      if (t.date && t.date.slice(0, 7) === m) { if (t.type === 'income') inc += +t.amount; else if (t.type === 'expense') exp += +t.amount; else if (t.type === 'refund') exp -= +t.amount; }
     });
     return { inc: inc, exp: exp, net: inc - exp };
   }
@@ -42,7 +42,7 @@
   function recentHtml(rows) {
     if (!rows.length) return '<div class="empty">还没有流水，去「登记内账」记一笔吧。</div>';
     var trs = rows.map(function (t) {
-      var cls = t.type === 'income' ? 'income' : (t.type === 'expense' ? 'expense' : 'neutral');
+      var cls = t.type === 'income' ? 'income' : (t.type === 'refund' ? 'refund' : (t.type === 'expense' ? 'expense' : 'neutral'));
       return '<tr><td class="nowrap">' + FW.esc(t.date) + '</td><td>' + FW.esc(t.project || '—') + '</td><td>' + FW.esc(t.category || (t.type === 'transfer' || t.type === 'equity' ? '—' : '—')) + '</td><td class="num ' + cls + '">' + FW.fmtMoney(t.amount) + '</td></tr>';
     }).join('');
     return '<table><thead><tr><th>日期</th><th>项目</th><th>分类</th><th class="num">金额</th></tr></thead><tbody>' + trs + '</tbody></table>';

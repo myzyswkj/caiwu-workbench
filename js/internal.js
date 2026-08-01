@@ -45,12 +45,14 @@
   /* ---------- 预算辅助 ---------- */
   function getBudget(month) { return FW.db.getList(BKEY).filter(function (b) { return b.month === month; })[0] || null; }
   function monthExpense(month) {
-    return all().filter(function (t) { return t.date.slice(0, 7) === month && t.type === 'expense'; })
-      .reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    var rows = all().filter(function (t) { return t.date.slice(0, 7) === month; });
+    var exp = rows.filter(function (t) { return t.type === 'expense'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    var rf = rows.filter(function (t) { return t.type === 'refund'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    return exp - rf;
   }
   function monthSum(m) {
     var inc = 0, exp = 0;
-    all().forEach(function (t) { if (t.date && t.date.slice(0, 7) === m) { if (t.type === 'income') inc += +t.amount; else if (t.type === 'expense') exp += +t.amount; } });
+    all().forEach(function (t) { if (t.date && t.date.slice(0, 7) === m) { if (t.type === 'income') inc += +t.amount; else if (t.type === 'expense') exp += +t.amount; else if (t.type === 'refund') exp -= +t.amount; } });
     return { inc: inc, exp: exp, net: inc - exp };
   }
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
@@ -112,6 +114,7 @@
       var a = Number(t.amount) || 0;
       if (t.type === 'income') { flow[t.account] = (flow[t.account] || 0) + a; }
       else if (t.type === 'expense') { flow[t.account] = (flow[t.account] || 0) - a; }
+      else if (t.type === 'refund') { flow[t.account] = (flow[t.account] || 0) + a; }
       else if (t.type === 'transfer') {
         if (t.fromAccount) move[t.fromAccount] = (move[t.fromAccount] || 0) - a;
         if (t.toAccount) move[t.toAccount] = (move[t.toAccount] || 0) + a;
@@ -140,6 +143,7 @@
       if (!inRange(t, from, to)) return s;
       if (t.type === 'income') return s + (Number(t.amount) || 0);
       if (t.type === 'expense') return s - (Number(t.amount) || 0);
+      if (t.type === 'refund') return s + (Number(t.amount) || 0);
       return s;
     }, 0);
   }
@@ -244,7 +248,7 @@
           '<div class="field"><select id="fProj">' + projOpts + '</select></div>' +
           '<div class="field"><select id="fCat">' + catOpts + '</select></div>' +
           '<div class="field"><select id="fAcc">' + accOpts + '</select></div>' +
-          '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="transfer">账户互转</option><option value="equity">股本资金</option></select></div>' +
+          '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="transfer">账户互转</option><option value="equity">股本资金</option></select></div>' +
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
           '<button class="btn ghost sm" id="fReset">重置</button>' +
@@ -279,10 +283,13 @@
     var rows = filteredRows();
     var income = rows.filter(function (t) { return t.type === 'income'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var expense = rows.filter(function (t) { return t.type === 'expense'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    var refund = rows.filter(function (t) { return t.type === 'refund'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    var netExpense = expense - refund;
     document.getElementById('txStats').innerHTML =
       '<div class="stat"><div class="label">筛选后收入</div><div class="value income">' + FW.fmtMoney(income) + '</div></div>' +
-      '<div class="stat"><div class="label">筛选后支出</div><div class="value expense">' + FW.fmtMoney(expense) + '</div></div>' +
-      '<div class="stat"><div class="label">筛选后结余</div><div class="value">' + FW.fmtMoney(income - expense) + '</div></div>' +
+      '<div class="stat"><div class="label">筛选后支出（净额）</div><div class="value expense">' + FW.fmtMoney(netExpense) + '</div></div>' +
+      '<div class="stat"><div class="label">退款收入（冲减支出）</div><div class="value refund">' + FW.fmtMoney(refund) + '</div></div>' +
+      '<div class="stat"><div class="label">筛选后结余</div><div class="value">' + FW.fmtMoney(income - netExpense) + '</div></div>' +
       '<div class="stat"><div class="label">笔数</div><div class="value">' + rows.length + '</div></div>';
     document.getElementById('txWrap').innerHTML = rows.length ? tableHtml(rows) : '<div class="empty">没有符合条件的流水，点右上角「新增流水」开始登记。</div>';
     FW.qa('#txTable .row-edit').forEach(function (b) { b.onclick = function () { openForm(b.dataset.id); }; });
@@ -294,6 +301,7 @@
   function typeMeta(t) {
     if (t.type === 'income') return { tag: '收入', cls: 'income' };
     if (t.type === 'expense') return { tag: '支出', cls: 'expense' };
+    if (t.type === 'refund') return { tag: '退款收入', cls: 'refund' };
     if (t.type === 'transfer') return { tag: '账户互转', cls: 'transfer' };
     if (t.type === 'equity') return { tag: (t.equityDir === 'out' ? '股本抽回' : '股本注入'), cls: 'equity' };
     return { tag: t.type || '—', cls: '' };
@@ -305,7 +313,7 @@
         return '<img class="photo-thumb" data-pid="' + pid + '" src="" data-load="' + pid + '" alt="凭证">';
       }).join('');
       var m = typeMeta(t);
-      var affects = (t.type === 'income' || t.type === 'expense');
+      var affects = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
       var amtCls = affects ? m.cls : 'neutral';
       var acctTxt = accountOf(t);
       return '<tr>' +
@@ -338,10 +346,12 @@
   function groupSum(rows, keyFn) {
     var map = {};
     rows.forEach(function (t) {
-      if (t.type !== 'income' && t.type !== 'expense') return;
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
       var k = keyFn(t);
       if (!map[k]) map[k] = { income: 0, expense: 0 };
-      map[k][t.type] += Number(t.amount);
+      if (t.type === 'income') map[k].income += Number(t.amount);
+      else if (t.type === 'expense') map[k].expense += Number(t.amount);
+      else if (t.type === 'refund') map[k].expense -= Number(t.amount);
     });
     return map;
   }
@@ -356,7 +366,8 @@
     var byAcc = groupSum(rowsIn, function (t) { return t.account || '其他'; });
 
     var totalIncome = rowsIn.reduce(function (a, t) { return a + (t.type === 'income' ? +t.amount : 0); }, 0);
-    var totalExpense = rowsIn.reduce(function (a, t) { return a + (t.type === 'expense' ? +t.amount : 0); }, 0);
+    var totalRefund = rowsIn.reduce(function (a, t) { return a + (t.type === 'refund' ? +t.amount : 0); }, 0);
+    var totalExpense = rowsIn.reduce(function (a, t) { return a + ((t.type === 'expense' ? +t.amount : 0) - (t.type === 'refund' ? +t.amount : 0)); }, 0);
     var curMonth = FW.today().slice(0, 7);
     var prev = monthSum(prevMonth(curMonth));
     function mom(cur, pv) { if (!(pv > 0)) return null; return (cur - pv) / pv * 100; }
@@ -403,7 +414,8 @@
       // —— 利润层 ——
       '<div class="stat-row">' +
         '<div class="stat"><div class="label">区间收入 ' + rangeTxt + '</div><div class="value income">' + FW.fmtMoney(totalIncome) + '</div></div>' +
-        '<div class="stat"><div class="label">区间支出</div><div class="value expense">' + FW.fmtMoney(totalExpense) + '</div></div>' +
+        '<div class="stat"><div class="label">区间支出（净额）</div><div class="value expense">' + FW.fmtMoney(totalExpense) + '</div></div>' +
+        '<div class="stat"><div class="label">退款收入（冲减支出）</div><div class="value refund">' + FW.fmtMoney(totalRefund) + '</div></div>' +
         '<div class="stat"><div class="label">区间结余（利润）</div><div class="value">' + FW.fmtMoney(totalIncome - totalExpense) + '</div></div>' +
         '<div class="stat"><div class="label">收入环比（上月）</div><div class="value ' + (incMom == null ? '' : (incMom >= 0 ? 'income' : 'expense')) + '">' + (incMom == null ? '—' : (incMom >= 0 ? '▲' : '▼') + Math.abs(incMom).toFixed(1) + '%') + '</div></div>' +
         '<div class="stat"><div class="label">支出环比（上月）</div><div class="value ' + (expMom == null ? '' : (expMom >= 0 ? 'income' : 'expense')) + '">' + (expMom == null ? '—' : (expMom >= 0 ? '▲' : '▼') + Math.abs(expMom).toFixed(1) + '%') + '</div></div>' +
@@ -802,7 +814,25 @@
       var inout = (f[cInout] || '').trim();
       var status = (f[cStatus] || '').trim();
       if (inout === '不计收支') { skipped++; continue; }
-      if (/退还|退款/.test(status) && !/已收钱|已转账/.test(status)) { skipped++; continue; }
+      var isRefund = /退还|退款/.test(status);
+      // 退款：未收到的跳过；已收到的记为「退款收入」（冲减支出，不计入总收入）
+      if (isRefund) {
+        if (/已收钱|已转账/.test(status)) {
+          var ramt = parseFloat((f[cAmt] || '').replace(/[￥¥\s,]/g, ''));
+          if (isNaN(ramt)) { skipped++; continue; }
+          ramt = Math.abs(ramt);
+          var rdt = (f[cTime] || '').slice(0, 10);
+          var rparty = (f[cParty] || '').trim();
+          var rgoods = (f[cGoods] || '').trim();
+          var rnote = (f[cNote] || '').trim();
+          var rremark = rgoods + (rnote ? (rgoods ? ' · ' : '') + rnote : '');
+          var rpay = (f[cPay] || '').trim();
+          var raccount = /银行卡|信用卡/.test(rpay) ? '银行卡' : '微信';
+          rows.push({ date: rdt, type: 'refund', amount: ramt, project: rparty, remark: rremark, account: raccount, _status: status, _inout: inout });
+          continue;
+        }
+        skipped++; continue;
+      }
       if (inout !== '收入' && inout !== '支出') { skipped++; continue; }
       var amt = parseFloat((f[cAmt] || '').replace(/[￥¥\s,]/g, ''));
       if (isNaN(amt)) { skipped++; continue; }
@@ -910,11 +940,11 @@
     var s = impPreviewState;
     function renderPreview() {
       var trs = s.rows.map(function (r, i) {
-        var cls = r.type === 'income' ? 'income' : 'expense';
+        var cls = r.type === 'income' ? 'income' : (r.type === 'refund' ? 'refund' : 'expense');
         return '<tr>' +
           '<td><input type="checkbox" class="pc" data-i="' + i + '" ' + (s.chosen[i] ? 'checked' : '') + '></td>' +
           '<td>' + FW.esc(r.date) + '</td>' +
-          '<td class="' + cls + '">' + (r.type === 'income' ? '收入' : '支出') + '</td>' +
+          '<td class="' + cls + '">' + (r.type === 'income' ? '收入' : r.type === 'refund' ? '退款收入' : '支出') + '</td>' +
           '<td class="num ' + cls + '">' + FW.fmtMoney(r.amount) + '</td>' +
           '<td>' + FW.esc(r.project || '—') + '</td>' +
           '<td>' + FW.esc(r.remark || '—') + '</td>' +
@@ -1126,7 +1156,7 @@
         var t = bookRows[i];
         if (used[t.id]) continue;
         if (t.date !== b.date) continue;
-        if (b.type === 'income' && t.type === 'income' && Math.abs(t.amount - b.amount) < 0.01) { found = t; break; }
+        if (b.type === 'income' && (t.type === 'income' || t.type === 'refund') && Math.abs(t.amount - b.amount) < 0.01) { found = t; break; }
         if (b.type === 'expense' && t.type === 'expense' && Math.abs(t.amount - b.amount) < 0.01) { found = t; break; }
       }
       if (!found) {
@@ -1134,7 +1164,7 @@
           var t2 = bookRows[k];
           if (used[t2.id]) continue;
           if (dayDiff(t2.date, b.date) > 1) continue;
-          if (b.type === 'income' && t2.type === 'income' && Math.abs(t2.amount - b.amount) < 0.01) { found = t2; break; }
+          if (b.type === 'income' && (t2.type === 'income' || t2.type === 'refund') && Math.abs(t2.amount - b.amount) < 0.01) { found = t2; break; }
           if (b.type === 'expense' && t2.type === 'expense' && Math.abs(t2.amount - b.amount) < 0.01) { found = t2; break; }
         }
       }
@@ -1145,7 +1175,7 @@
     return { matched: matched, bankOnly: bankOnly, bookOnly: bookOnly };
   }
   function computeAdjust(recon, bookBal, bankEnd) {
-    var enterRecv = recon.bookOnly.filter(function (t) { return t.type === 'income'; }).reduce(function (s, t) { return s + t.amount; }, 0);
+    var enterRecv = recon.bookOnly.filter(function (t) { return t.type === 'income' || t.type === 'refund'; }).reduce(function (s, t) { return s + t.amount; }, 0);
     var enterPay = recon.bookOnly.filter(function (t) { return t.type === 'expense'; }).reduce(function (s, t) { return s + t.amount; }, 0);
     var bankRecv = recon.bankOnly.filter(function (b) { return b.type === 'income'; }).reduce(function (s, b) { return s + b.amount; }, 0);
     var bankPay = recon.bankOnly.filter(function (b) { return b.type === 'expense'; }).reduce(function (s, b) { return s + b.amount; }, 0);
@@ -1158,7 +1188,7 @@
   }
   function reconcileBodyHtml(bi, bd) {
     var acct = bi.account;
-    var bookRows = all().filter(function (t) { return t.account === acct && (t.type === 'income' || t.type === 'expense'); })
+    var bookRows = all().filter(function (t) { return t.account === acct && (t.type === 'income' || t.type === 'expense' || t.type === 'refund'); })
       .map(function (t) { return { id: t.id, date: t.date, type: t.type, amount: Number(t.amount), project: t.project, remark: t.remark }; });
     var recon = reconcile(bi.rows, bookRows);
     lastRecon = recon;
@@ -1201,13 +1231,13 @@
     var unrecBook = recon.bookOnly.length ? '<div class="card" style="margin-bottom:14px">' +
       '<h3>内账已记录、银行未记录 <span class="sub">银行未达账项（在途/未到账）</span></h3>' +
       '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th class="num">金额</th></tr></thead><tbody>' +
-      recon.bookOnly.map(function (t) { return '<tr><td>' + FW.esc(t.date) + '</td><td>' + (t.type === 'income' ? '收入' : '支出') + '</td><td>' + FW.esc(t.project || '—') + '</td><td class="num ' + (t.type === 'income' ? 'income' : 'expense') + '">' + FW.fmtMoney(t.amount) + '</td></tr>'; }).join('') +
+      recon.bookOnly.map(function (t) { return '<tr><td>' + FW.esc(t.date) + '</td><td>' + (t.type === 'income' ? '收入' : t.type === 'refund' ? '退款收入' : '支出') + '</td><td>' + FW.esc(t.project || '—') + '</td><td class="num ' + (t.type === 'income' ? 'income' : t.type === 'refund' ? 'refund' : 'expense') + '">' + FW.fmtMoney(t.amount) + '</td></tr>'; }).join('') +
       '</tbody></table></div>' : '';
 
     var matchedHtml = recon.matched.length ? '<div class="card">' +
       '<h3>已勾对明细 <span class="sub">' + recon.matched.length + ' 笔</span></h3>' +
       '<table><thead><tr><th>日期</th><th>银行摘要</th><th class="num">银行金额</th><th>内账项目</th><th class="num">内账金额</th></tr></thead><tbody>' +
-      recon.matched.map(function (m) { return '<tr><td>' + FW.esc(m.bank.date) + '</td><td>' + FW.esc(m.bank.summary || '—') + '</td><td class="num ' + (m.bank.type === 'income' ? 'income' : 'expense') + '">' + FW.fmtMoney(m.bank.amount) + '</td><td>' + FW.esc(m.book.project || '—') + '</td><td class="num ' + (m.book.type === 'income' ? 'income' : 'expense') + '">' + FW.fmtMoney(m.book.amount) + '</td></tr>'; }).join('') +
+      recon.matched.map(function (m) { return '<tr><td>' + FW.esc(m.bank.date) + '</td><td>' + FW.esc(m.bank.summary || '—') + '</td><td class="num ' + (m.bank.type === 'income' ? 'income' : 'expense') + '">' + FW.fmtMoney(m.bank.amount) + '</td><td>' + FW.esc(m.book.project || '—') + '</td><td class="num ' + (m.book.type === 'income' ? 'income' : m.book.type === 'refund' ? 'refund' : 'expense') + '">' + FW.fmtMoney(m.book.amount) + '</td></tr>'; }).join('') +
       '</tbody></table></div>' : '';
 
     return kpi + adjust + unrecBank + unrecBook + matchedHtml;
@@ -1334,6 +1364,7 @@
         '<div class="field"><label>类型</label><select id="f_type">' +
           '<option value="expense" ' + (v.type === 'expense' ? 'selected' : '') + '>支出</option>' +
           '<option value="income" ' + (v.type === 'income' ? 'selected' : '') + '>收入</option>' +
+          '<option value="refund" ' + (v.type === 'refund' ? 'selected' : '') + '>退款收入（冲减支出）</option>' +
           '<option value="transfer" ' + (v.type === 'transfer' ? 'selected' : '') + '>账户互转（不影响收支）</option>' +
           '<option value="equity" ' + (v.type === 'equity' ? 'selected' : '') + '>股本资金（不影响收支）</option>' +
         '</select></div>' +
@@ -1370,7 +1401,7 @@
           photos: photos,
           category: '', account: '', fromAccount: '', toAccount: '', equityDir: 'in'
         };
-        if (type === 'income' || type === 'expense') {
+        if (type === 'income' || type === 'expense' || type === 'refund') {
           var c1 = document.getElementById('f_cat1').value;
           var c2 = document.getElementById('f_cat2').value;
           rec.category = c1 ? (c2 ? c1 + ' / ' + c2 : c1) : '';
@@ -1568,13 +1599,14 @@
     function typeLabel(t) {
       if (t.type === 'income') return '收入';
       if (t.type === 'expense') return '支出';
+      if (t.type === 'refund') return '退款收入';
       if (t.type === 'transfer') return '账户互转';
       if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
       return t.type || '';
     }
     var head = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
     var data = rows.map(function (t) {
-      return [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense') ? '是' : '否'];
+      return [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
@@ -1647,9 +1679,11 @@
     var dayMap = {};
     all().forEach(function (t) {
       if (!t.date || t.date.slice(0, 7) !== ym) return;
-      if (t.type !== 'income' && t.type !== 'expense') return;
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
       if (!dayMap[t.date]) dayMap[t.date] = { inc: 0, exp: 0 };
-      if (t.type === 'income') dayMap[t.date].inc += +t.amount; else dayMap[t.date].exp += +t.amount;
+      if (t.type === 'income') dayMap[t.date].inc += +t.amount;
+      else if (t.type === 'refund') dayMap[t.date].exp -= +t.amount;
+      else dayMap[t.date].exp += +t.amount;
     });
     var weekNames = ['日', '一', '二', '三', '四', '五', '六'];
     var head = '<div class="cal-head"><button class="btn ghost sm" id="calPrev">‹</button><span id="calTitle">' + y + '年 ' + (m + 1) + '月</span><button class="btn ghost sm" id="calNext">›</button><button class="btn ghost sm" id="calToday">今天</button></div>';
