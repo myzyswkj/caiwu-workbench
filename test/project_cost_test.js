@@ -82,10 +82,10 @@ var A = d.rows.filter(function (r) { return r.project === '项目A'; })[0];
 ok('项目A 收入 = 100000+10000(2025) = 110000', approx(A.revenue, 110000));
 ok('项目A 流水成本 = 30000', approx(A.flowCost, 30000));
 ok('项目A 工资成本 = 20000+5000+1000 = 26000', approx(A.laborCost, 26000));
-ok('项目A 总成本 = 30000+26000+65000(应收回) = 121000', approx(A.totalCost, 121000));
-ok('项目A 利润 = 110000-121000 = -11000（含预付占用）', approx(A.profit, -11000));
-ok('项目A 利润率 = -11000/110000 = -10%', approx(A.rate, -10));
-ok('项目A 投入产出比 = 110000/121000 = 0.909', approx(A.roi, 0.9091));
+ok('项目A 总成本 = 30000-65000(应收回)+26000 = -9000', approx(A.totalCost, -9000));
+ok('项目A 利润 = 110000-(-9000) = 119000（应收回款项已扣除）', approx(A.profit, 119000));
+ok('项目A 利润率 = 119000/110000 = 108.18%', approx(A.rate, 108.1818));
+ok('项目A 投入产出比 = ∞（总成本<0）', A.roi === Infinity);
 ok('项目A 应收回款项 = 预付(c1 余额50000 + c3 2025余额15000) = 65000', approx(A.recoverable, 65000));
 ok('项目A 应收回款项下钻明细 2 笔（全部年度含2025）', A.recoverList.length === 2);
 ok('明细① 供应商甲：预付60000/已核销10000/未用50000', A.recoverList[0].party === '供应商甲' && approx(A.recoverList[0].amount, 60000) && approx(A.recoverList[0].settled, 10000) && approx(A.recoverList[0].balance, 50000));
@@ -94,7 +94,7 @@ ok('「应收」客户X 不计入明细', A.recoverList.every(function (x) { ret
 
 var B = d.rows.filter(function (r) { return r.project === '项目B'; })[0];
 ok('项目B 收入 = 0（仅有成本）', approx(B.revenue, 0));
-ok('项目B 利润 = -(20000+8000+40000预付) = -68000（亏损）', approx(B.profit, -68000) && B.gain === false);
+ok('项目B 利润 = 0-(20000-40000预付+8000) = 12000（应收回扣除后转盈利）', approx(B.profit, 12000) && B.gain === true);
 ok('项目B 利润率 = 0（无收入）', approx(B.rate, 0));
 ok('项目B 应收回款项 = 预付(c2 余额40000)', approx(B.recoverable, 40000));
 
@@ -106,14 +106,14 @@ ok('项目C 应收回款项 = 0（无预付）', approx(Cc.recoverable, 0));
 
 var Dd = d.rows.filter(function (r) { return r.project === '项目D'; })[0];
 ok('聚合出 4 个项目(A/B/C/D，D 仅预付)', d.rows.length === 4);
-ok('项目D 仅预付无收支，应收回款项=10000→总成本10000、利润=-10000', Dd && approx(Dd.recoverable, 10000) && approx(Dd.revenue, 0) && approx(Dd.totalCost, 10000) && approx(Dd.profit, -10000));
+ok('项目D 仅预付无收支，应收回款项=10000→总成本-10000、利润=10000', Dd && approx(Dd.recoverable, 10000) && approx(Dd.revenue, 0) && approx(Dd.totalCost, -10000) && approx(Dd.profit, 10000));
 ok('应收(c5 kind=应收) 不计入应收回款项', A.recoverable === 65000);
 ok('总应收回款项 = 65000+40000+10000 = 115000', approx(d.tot.recoverable, 115000));
 
 ok('总流水成本 = 30000+20000 = 50000', approx(d.tot.flowCost, 50000));
 ok('总工资成本 = 26000+8000 = 34000', approx(d.tot.laborCost, 34000));
-ok('总利润 = 160000-199000(含预付115000) = -39000', approx(d.tot.profit, -39000));
-ok('平均利润率 = -39000/160000 = -24.375%', approx(d.avgRate, -24.375));
+ok('总利润 = 160000-(50000-115000预付摊销+34000) = 191000', approx(d.tot.profit, 191000));
+ok('平均利润率 = 191000/160000 = 119.375%', approx(d.avgRate, 119.375));
 
 console.log('--- 2) 年度筛选 2026 ---');
 var dd = C.compute(2026);
@@ -121,8 +121,8 @@ var A6 = dd.rows.filter(function (r) { return r.project === '项目A'; })[0];
 ok('2026 项目A 收入 = 100000（不含2025的10000）', approx(A6.revenue, 100000));
 ok('2026 项目A 工资成本 = 25000（仅2026工资）', approx(A6.laborCost, 25000));
 ok('2026 项目A 应收回款项 = 50000（不含2025的15000）', approx(A6.recoverable, 50000));
-ok('2026 项目A 总成本 = 30000+25000+50000 = 105000（含预付占用）', approx(A6.totalCost, 105000));
-ok('2026 项目A 利润 = 100000-105000 = -5000', approx(A6.profit, -5000));
+ok('2026 项目A 总成本 = 30000-50000(应收回)+25000 = 5000（应收回已扣除）', approx(A6.totalCost, 5000));
+ok('2026 项目A 利润 = 100000-5000 = 95000', approx(A6.profit, 95000));
 ok('2026 项目A 下钻明细仅 1 笔（供应商甲50000，不含2025供应商丙）', A6.recoverList.length === 1 && A6.recoverList[0].party === '供应商甲' && approx(A6.recoverList[0].balance, 50000));
 ok('2026 总应收回款项 = A50000+B40000+D10000 = 100000', approx(dd.tot.recoverable, 100000));
 ok('2026 不含 2025 的工资项目', dd.rows.every(function (r) { return r.project !== '虚'; }));
@@ -141,8 +141,8 @@ ok('无项目的工资 → 0 条未分配', d.unalloc.laborCount === 0 && approx
 ok('未关联项目的预付款 1 笔、30000 元', d.unalloc.prepayCount === 1 && approx(d.unalloc.prepayAmt, 30000));
 ok('不再生成「未分类」项目行', d.rows.every(function (r) { return r.project !== '未分类'; }));
 
-ok('排名按利润(含预付)降序：项目C 第1(利润50000)', d.rows[0].project === '项目C' && d.rows[0].rank === 1);
-ok('排名：项目D 第2(-10000)、项目A 第3(-11000)、项目B 第4(-68000 亏损)', d.rows[1].project === '项目D' && d.rows[2].project === '项目A' && d.rows[3].project === '项目B' && d.rows[3].rank === 4);
+ok('排名按利润(含应收回扣除)降序：项目A 第1(119000)', d.rows[0].project === '项目A' && d.rows[0].rank === 1);
+ok('排名：项目C 第2(50000)、项目B 第3(12000)、项目D 第4(10000)', d.rows[1].project === '项目C' && d.rows[2].project === '项目B' && d.rows[3].project === '项目D' && d.rows[3].rank === 4);
 
 ok('逐月趋势月份数 = 8（5 个流水月 + 3 个工资月）', d.monthly.labels.length === 8);
 var revSum = d.monthly.revenue.reduce(function (s, v) { return s + v; }, 0);
