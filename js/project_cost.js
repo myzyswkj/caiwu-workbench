@@ -58,7 +58,7 @@
 
     var map = {};
     function ensure(p) {
-      if (!map[p]) map[p] = { revenue: 0, flowCost: 0, laborCost: 0, byCat: {}, laborByType: { base: 0, bonus: 0, commission: 0 }, recoverable: 0 };
+      if (!map[p]) map[p] = { revenue: 0, flowCost: 0, laborCost: 0, byCat: {}, laborByType: { base: 0, bonus: 0, commission: 0 }, recoverable: 0, recoverList: [] };
       return map[p];
     }
 
@@ -94,7 +94,9 @@
       if (b <= 0) return;
       var p = (r.project || '').trim();
       if (!p) { preUnallocCount++; preUnallocAmt += b; return; }
-      ensure(p).recoverable += b;
+      var dp = ensure(p);
+      dp.recoverable += b;
+      dp.recoverList.push({ party: (r.party || '').trim() || '—', date: r.date || '', amount: num(r.amount), settled: num(r.settled), balance: b });
     });
 
     var projects = Object.keys(map).filter(function (p) {
@@ -114,7 +116,7 @@
       return {
         project: p, revenue: d.revenue, flowCost: d.flowCost, laborCost: d.laborCost,
         totalCost: totalCost, profit: profit, rate: rate, roi: roi, gain: profit >= 0,
-        rank: idx + 1, byCat: d.byCat, laborByType: d.laborByType, recoverable: d.recoverable || 0
+        rank: idx + 1, byCat: d.byCat, laborByType: d.laborByType, recoverable: d.recoverable || 0, recoverList: d.recoverList || []
       };
     });
 
@@ -330,6 +332,20 @@
     h += '<div class="pc-detail-block"><h5>工资成本构成（底薪/奖金/提成）</h5>';
     h += lt.length ? FW.pieChart('', lt) : '<div class="muted">无</div>';
     h += '</div>';
+    if (r.recoverList && r.recoverList.length) {
+      h += '<div class="pc-detail-block"><h5>应收回款项明细（预付未用完，来自「往来账」）</h5>';
+      h += '<table class="pc-recov-table"><thead><tr>' +
+        '<th>供应商 / 对象</th><th>单据日期</th><th class="num">预付金额</th><th class="num">已核销</th><th class="num">未用余额</th></tr></thead><tbody>';
+      r.recoverList.forEach(function (x) {
+        h += '<tr><td>' + FW.esc(x.party) + '</td><td>' + FW.esc(x.date) + '</td>' +
+          '<td class="num">' + FW.fmtMoney(x.amount) + '</td>' +
+          '<td class="num">' + FW.fmtMoney(x.settled) + '</td>' +
+          '<td class="num amt-recover"><b>' + FW.fmtMoney(x.balance) + '</b></td></tr>';
+      });
+      h += '</tbody></table>';
+      h += '<div class="muted" style="font-size:12px;margin-top:6px">以上为付给各对象的预付款尚未用完（已核销后）的余款，属待收回 / 待核销资金，<b>不计入项目利润</b>。</div>';
+      h += '</div>';
+    }
     h += '</div></td></tr>';
     return h;
   }

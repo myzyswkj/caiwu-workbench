@@ -87,6 +87,10 @@ ok('项目A 利润 = 54000', approx(A.profit, 54000));
 ok('项目A 利润率 = 54000/110000 = 49.09%', approx(A.rate, 49.0909));
 ok('项目A 投入产出比 = 110000/56000 = 1.964', approx(A.roi, 1.9643));
 ok('项目A 应收回款项 = 预付(c1 余额50000 + c3 2025余额15000) = 65000', approx(A.recoverable, 65000));
+ok('项目A 应收回款项下钻明细 2 笔（全部年度含2025）', A.recoverList.length === 2);
+ok('明细① 供应商甲：预付60000/已核销10000/未用50000', A.recoverList[0].party === '供应商甲' && approx(A.recoverList[0].amount, 60000) && approx(A.recoverList[0].settled, 10000) && approx(A.recoverList[0].balance, 50000));
+ok('明细② 供应商丙：预付20000/已核销5000/未用15000', A.recoverList[1].party === '供应商丙' && approx(A.recoverList[1].balance, 15000));
+ok('「应收」客户X 不计入明细', A.recoverList.every(function (x) { return x.party !== '客户X'; }));
 
 var B = d.rows.filter(function (r) { return r.project === '项目B'; })[0];
 ok('项目B 收入 = 0（仅有成本）', approx(B.revenue, 0));
@@ -117,6 +121,7 @@ var A6 = dd.rows.filter(function (r) { return r.project === '项目A'; })[0];
 ok('2026 项目A 收入 = 100000（不含2025的10000）', approx(A6.revenue, 100000));
 ok('2026 项目A 工资成本 = 25000（仅2026工资）', approx(A6.laborCost, 25000));
 ok('2026 项目A 应收回款项 = 50000（不含2025的15000）', approx(A6.recoverable, 50000));
+ok('2026 项目A 下钻明细仅 1 笔（供应商甲50000，不含2025供应商丙）', A6.recoverList.length === 1 && A6.recoverList[0].party === '供应商甲' && approx(A6.recoverList[0].balance, 50000));
 ok('2026 总应收回款项 = A50000+B40000+D10000 = 100000', approx(dd.tot.recoverable, 100000));
 ok('2026 不含 2025 的工资项目', dd.rows.every(function (r) { return r.project !== '虚'; }));
 

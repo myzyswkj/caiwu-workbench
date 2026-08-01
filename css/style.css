@@ -691,6 +691,11 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .sal-stat-val.amt-recover { color: #2b6cb0; }
 .proj-sum-table td.amt-recover { color: #2b6cb0; font-weight: 600; }
 .tag.prepay { background: #e8f0fe; color: #2b6cb0; }
+.pc-recov-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+.pc-recov-table th, .pc-recov-table td { padding: 6px 10px; border-bottom: 1px solid #eee; text-align: left; }
+.pc-recov-table th { background: #f4f9ff; color: #2c4a6e; font-weight: 600; }
+.pc-recov-table td.num { text-align: right; }
+.pc-recov-table td.amt-recover { color: #2b6cb0; }
 .pc-section-title { font-size: 14px; font-weight: 700; color: var(--ink); margin: 16px 0 8px; }
 .pc-charts { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
 .pc-charts .chart-box { flex: 1 1 320px; min-width: 300px; }
