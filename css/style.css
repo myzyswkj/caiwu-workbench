@@ -652,7 +652,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .sal-tip strong { color: var(--text); }
 
 .salary-table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
-.salary-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 920px; }
+.salary-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1000px; }
 .salary-table th, .salary-table td { border-bottom: 1px solid var(--border); padding: 9px 8px; text-align: center; white-space: nowrap; }
 .salary-table thead th { background: #f6f8fc; color: var(--muted); font-weight: 600; position: sticky; top: 0; }
 .col-emp { text-align: left !important; min-width: 140px; position: sticky; left: 0; background: var(--panel); }
@@ -669,6 +669,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .col-sum { font-weight: 600; color: var(--text); }
 .col-sum.tax { color: var(--warn); }
 .col-sum.net { color: var(--income); }
+.cell-base { font-weight: 600; color: var(--text); }
+.cell-bonus, .cell-comm { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.cell-amt { font-size: 12px; font-weight: 600; color: var(--text); margin-top: 3px; }
+.col-sum.comm { color: var(--info, #2f6fed); }
 
 /* 员工管理弹窗 */
 .emp-list { display: flex; flex-direction: column; gap: 10px; max-height: 56vh; overflow-y: auto; }

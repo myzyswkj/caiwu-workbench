@@ -9,33 +9,34 @@
 
   // ===== 数据说明 =====
   // salary_employees: { id, name, dept, remark }
-  // salary_records:   { id, empId, year, month, base(底薪), bonus(奖金/提成), remark }
-  // 每笔金额 = 底薪 + 奖金；每人累计 = 各月(底薪+奖金)之和
+  // salary_records:   { id, empId, year, month, base(底薪), bonus(奖金), commission(提成), remark }
+  // 每笔金额 = 底薪 + 奖金 + 提成；每人累计 = 各月(底薪+奖金+提成)之和
 
   function getEmps() { return FW.db.getList('salary_employees'); }
   function getRecs() { return FW.db.getList('salary_records'); }
 
   function recId(empId, year, month) { return empId + '-' + year + '-' + month; }
 
-  // 兼容旧数据：旧记录只含 salary 字段 → 记作底薪
+  // 兼容旧数据：旧记录只含 salary 字段 → 记作底薪；旧 bonus(奖金/提成合并) → 记为奖金，提成置 0
   function normalizeRec(r) {
     var base = num(r.base);
     var bonus = num(r.bonus);
-    if (r.base == null && r.bonus == null && r.salary != null) {
-      base = num(r.salary); bonus = 0;
+    var commission = num(r.commission);
+    if (r.base == null && r.bonus == null && r.commission == null && r.salary != null) {
+      base = num(r.salary); bonus = 0; commission = 0;
     }
-    return { empId: r.empId, year: r.year, month: r.month, base: base, bonus: bonus, remark: r.remark || '' };
+    return { empId: r.empId, year: r.year, month: r.month, base: base, bonus: bonus, commission: commission, remark: r.remark || '' };
   }
 
   function computeEmpYear(emp, recs, year) {
     var months = (recs || []).map(normalizeRec).sort(function (a, b) { return a.month - b.month; });
-    var cumBase = 0, cumBonus = 0, cumAmount = 0;
+    var cumBase = 0, cumBonus = 0, cumCommission = 0, cumAmount = 0;
     var list = months.map(function (r) {
-      var amount = r.base + r.bonus;
-      cumBase += r.base; cumBonus += r.bonus; cumAmount += amount;
-      return { month: r.month, base: r.base, bonus: r.bonus, amount: amount, remark: r.remark };
+      var amount = r.base + r.bonus + r.commission;
+      cumBase += r.base; cumBonus += r.bonus; cumCommission += r.commission; cumAmount += amount;
+      return { month: r.month, base: r.base, bonus: r.bonus, commission: r.commission, amount: amount, remark: r.remark };
     });
-    return { months: list, cumBase: cumBase, cumBonus: cumBonus, cumAmount: cumAmount };
+    return { months: list, cumBase: cumBase, cumBonus: cumBonus, cumCommission: cumCommission, cumAmount: cumAmount };
   }
 
   function computeYear(emps, recs, year) {
@@ -57,10 +58,11 @@
     var recs = getRecs();
     var rows = computeYear(emps, recs, state.year);
 
-    var totalBase = 0, totalBonus = 0, totalAmount = 0;
+    var totalBase = 0, totalBonus = 0, totalCommission = 0, totalAmount = 0;
     rows.forEach(function (rw) {
       totalBase += rw.calc.cumBase;
       totalBonus += rw.calc.cumBonus;
+      totalCommission += rw.calc.cumCommission;
       totalAmount += rw.calc.cumAmount;
     });
 
@@ -91,16 +93,17 @@
       statCard('员工人数', emps.length + ' 人') +
       statCard('累计底薪', FW.fmtMoney(totalBase)) +
       statCard('累计奖金', FW.fmtMoney(totalBonus)) +
+      statCard('累计提成', FW.fmtMoney(totalCommission)) +
       statCard('累计金额', FW.fmtMoney(totalAmount)) +
       '</div>';
 
-    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>与<strong>奖金(提成)</strong>，每笔金额 = 底薪 + 奖金，右侧自动累计每个人的底薪、奖金与总金额。点格子可录入 / 修改；也可点「📥 导入工资」直接导入 Excel/CSV，系统会自动识别员工并新建。</p>';
+    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>、<strong>奖金</strong>与<strong>提成</strong>，三者分开记录，每笔金额 = 底薪 + 奖金 + 提成，右侧自动累计每个人的底薪、奖金、提成与总金额。点格子可录入 / 修改；也可点「📥 导入工资」直接导入 Excel/CSV，系统会自动识别员工并新建。</p>';
 
     if (emps.length === 0) {
       html += '<div class="empty-state">' +
         '<div class="empty-ico">💰</div>' +
         '<div class="empty-title">还没有员工</div>' +
-        '<div class="empty-sub">点「📥 导入工资」选一份含 姓名/底薪/奖金(提成) 的 Excel 或 CSV，系统会自动识别并新建员工；也可点「👥 员工管理」手动添加。</div>' +
+        '<div class="empty-sub">点「📥 导入工资」选一份含 姓名/底薪/奖金/提成 的 Excel 或 CSV，系统会自动识别并新建员工；也可点「👥 员工管理」手动添加。</div>' +
         '<button class="btn primary" id="salImportBtn2">📥 导入工资</button>' +
         '</div>';
       html += '</div>';
@@ -113,7 +116,7 @@
     html += '<div class="salary-table-wrap print-area"><table class="salary-table"><thead><tr>' +
       '<th class="col-emp">员工 / 部门</th>';
     MONTHS.forEach(function (m) { html += '<th>' + m + '</th>'; });
-    html += '<th>累计底薪</th><th>累计奖金</th><th>累计金额</th></tr></thead><tbody>';
+    html += '<th>累计底薪</th><th>累计奖金</th><th>累计提成</th><th>累计金额</th></tr></thead><tbody>';
 
     rows.forEach(function (rw) {
       var emp = rw.emp;
@@ -127,6 +130,7 @@
           html += '<td class="cell-has" data-emp="' + emp.id + '" data-month="' + mo + '" title="点击编辑">' +
             '<div class="cell-base">底 ' + FW.fmtMoney(m.base) + '</div>' +
             '<div class="cell-bonus">奖 ' + FW.fmtMoney(m.bonus) + '</div>' +
+            '<div class="cell-comm">提 ' + FW.fmtMoney(m.commission) + '</div>' +
             '<div class="cell-amt">= ' + FW.fmtMoney(m.amount) + '</div></td>';
         } else {
           html += '<td class="cell-empty" data-emp="' + emp.id + '" data-month="' + mo + '" title="点击录入">' +
@@ -135,6 +139,7 @@
       }
       html += '<td class="col-sum base">' + FW.fmtMoney(rw.calc.cumBase) + '</td>' +
         '<td class="col-sum bonus">' + FW.fmtMoney(rw.calc.cumBonus) + '</td>' +
+        '<td class="col-sum comm">' + FW.fmtMoney(rw.calc.cumCommission) + '</td>' +
         '<td class="col-sum amount">' + FW.fmtMoney(rw.calc.cumAmount) + '</td></tr>';
     });
 
@@ -165,26 +170,33 @@
     var rec = recs.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
     var base = rec ? num(rec.base) : '';
     var bonus = rec ? num(rec.bonus) : '';
+    var commission = rec ? num(rec.commission) : '';
     var remark = rec ? (rec.remark || '') : '';
 
     var body = '<div class="form">' +
       '<div class="form-row"><label>员工</label><div class="form-static">' + FW.esc(emp.name) + ' · ' + state.year + '年' + month + '月</div></div>' +
-      '<div class="form-row"><label>底薪 *</label><input id="mBase" type="number" step="0.01" value="' + (base === '' ? '' : base) + '" placeholder="如 8000"></div>' +
-      '<div class="form-row"><label>奖金(提成)</label><input id="mBonus" type="number" step="0.01" value="' + (bonus === '' ? '' : bonus) + '" placeholder="无则留空"></div>' +
-      '<div class="form-row"><label>备注</label><input id="mRemark" type="text" value="' + FW.esc(remark) + '" placeholder="如 项目奖金"></div>' +
+      '<div class="form-row"><label>底薪</label><input id="mBase" type="number" step="0.01" value="' + (base === '' ? '' : base) + '" placeholder="如 8000"></div>' +
+      '<div class="form-row"><label>奖金</label><input id="mBonus" type="number" step="0.01" value="' + (bonus === '' ? '' : bonus) + '" placeholder="无则留空"></div>' +
+      '<div class="form-row"><label>提成</label><input id="mCommission" type="number" step="0.01" value="' + (commission === '' ? '' : commission) + '" placeholder="无则留空"></div>' +
+      '<div class="form-row"><label>备注</label><input id="mRemark" type="text" value="' + FW.esc(remark) + '" placeholder="如 项目提成 / 年终奖"></div>' +
       '</div>' +
       '<div class="modal-foot"><button class="btn" id="mDel">删除</button><button class="btn primary" id="mSave">保存</button></div>';
 
     FW.openModal(state.year + '年' + month + '月 · ' + emp.name, body, function () {
       document.getElementById('mSave').onclick = function () {
         var bs = document.getElementById('mBase').value;
-        if (bs === '' || isNaN(parseFloat(bs))) { FW.toast('请填写底薪'); return; }
+        var bo = document.getElementById('mBonus').value;
+        var co = document.getElementById('mCommission').value;
+        if ((bs === '' || isNaN(parseFloat(bs))) && (bo === '' || isNaN(parseFloat(bo))) && (co === '' || isNaN(parseFloat(co)))) {
+          FW.toast('请至少填写底薪 / 奖金 / 提成 中的一项'); return;
+        }
         var recs2 = getRecs();
         var exist = recs2.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
         var obj = {
           empId: empId, year: state.year, month: month,
-          base: parseFloat(bs),
-          bonus: document.getElementById('mBonus').value === '' ? 0 : parseFloat(document.getElementById('mBonus').value),
+          base: bs === '' ? 0 : parseFloat(bs),
+          bonus: bo === '' ? 0 : parseFloat(bo),
+          commission: co === '' ? 0 : parseFloat(co),
           remark: document.getElementById('mRemark').value
         };
         if (exist) obj.id = exist.id; else obj.id = recId(empId, state.year, month);
@@ -338,21 +350,24 @@
   }
 
   function guessSalaryMap(headers) {
-    function find(words) {
+    function find(words, used) {
       for (var i = 0; i < headers.length; i++) {
+        if (used[i]) continue;
         var h = (headers[i] || '').toLowerCase().replace(/\s+/g, '');
-        for (var w = 0; w < words.length; w++) if (h.indexOf(words[w]) > -1) return i;
+        for (var w = 0; w < words.length; w++) if (h.indexOf(words[w]) > -1) { used[i] = true; return i; }
       }
       return -1;
     }
-    return {
-      name: find(['姓名', '名字', '员工', '员工姓名', '职员', '名称', 'name']),
-      dept: find(['部门', 'department', 'dept']),
-      month: find(['月份', '月', '期间', 'month']),
-      year: find(['年份', '年', 'year']),
-      base: find(['底薪', '基础工资', '基本工资', '固定工资', '基本', '工资', '应发', '金额', '实发', 'base']),
-      bonus: find(['奖金', '提成', '绩效', '提成奖金', '提成工资', '津贴', '绩效工资', '奖金提成', 'bonus'])
-    };
+    var used = {};
+    var g = {};
+    g.name = find(['姓名', '名字', '员工', '员工姓名', '职员', '名称', 'name'], used);
+    g.dept = find(['部门', 'department', 'dept'], used);
+    g.month = find(['月份', '月', '期间', 'month'], used);
+    g.year = find(['年份', '年', 'year'], used);
+    g.base = find(['底薪', '基础工资', '基本工资', '固定工资', '基本', '工资', '应发', '金额', '实发', 'base'], used);
+    g.commission = find(['提成', '佣金', '返佣', '销售提成', '提', 'commission'], used);
+    g.bonus = find(['奖金', '绩效', '绩效工资', '津贴', '补贴', '奖金提成', 'bonus'], used);
+    return g;
   }
 
   function parseYM(s, defYear) {
@@ -381,6 +396,7 @@
     var yearCol = m.year !== 'ignore' ? +m.year : -1;
     var baseCol = m.base !== 'ignore' ? +m.base : -1;
     var bonusCol = m.bonus !== 'ignore' ? +m.bonus : -1;
+    var commissionCol = m.commission !== 'ignore' ? +m.commission : -1;
     if (nameCol < 0) return { rows: [], skipped: rows.length, newEmps: [], deptByEmp: {} };
 
     var out = [], skipped = 0;
@@ -397,11 +413,12 @@
       if (yearCol >= 0) { var y2 = parseYear(r[yearCol]); if (y2) year = y2; }
       if (!month || month < 1 || month > 12) { skipped++; return; }
 
-      var base = 0, bonus = 0;
+      var base = 0, bonus = 0, commission = 0;
       if (baseCol >= 0) base = num(r[baseCol]);
       if (bonusCol >= 0) bonus = num(r[bonusCol]);
-      if (baseCol < 0 && bonusCol < 0) { skipped++; return; }
-      var amount = base + bonus;
+      if (commissionCol >= 0) commission = num(r[commissionCol]);
+      if (baseCol < 0 && bonusCol < 0 && commissionCol < 0) { skipped++; return; }
+      var amount = base + bonus + commission;
       if (amount === 0) { skipped++; return; }
 
       var key = name.toLowerCase();
@@ -409,7 +426,7 @@
         newEmpSet[key] = name;
         if (dept) deptByEmp[name] = dept;
       }
-      out.push({ name: name, dept: dept, year: year, month: month, base: base, bonus: bonus, amount: amount });
+      out.push({ name: name, dept: dept, year: year, month: month, base: base, bonus: bonus, commission: commission, amount: amount });
     });
 
     var newEmps = Object.keys(newEmpSet).map(function (k) { return newEmpSet[k]; });
@@ -420,7 +437,7 @@
     var body = '<div class="form">' +
       '<div class="form-row"><label>选择文件（Excel .xlsx/.xls 或 CSV）</label><input type="file" id="salFile" accept=".csv,.xlsx,.xls,text/csv"></div>' +
       '<div class="form-row"><label>CSV 编码</label><select id="salEnc"><option value="auto">自动</option><option value="gbk">GBK（老 Excel 导出）</option><option value="utf8">UTF-8</option></select></div>' +
-      '<div class="muted" style="font-size:12px;margin-top:4px">每行 = 某员工某月。系统自动识别 姓名 / 部门 / 月份 / 年份 / 底薪 / 奖金(提成) 列，并<strong>自动新建未存在的员工</strong>，无需手动添加。</div>' +
+      '<div class="muted" style="font-size:12px;margin-top:4px">每行 = 某员工某月。系统自动识别 姓名 / 部门 / 月份 / 年份 / 底薪 / 奖金 / 提成 列，并<strong>自动新建未存在的员工</strong>，无需手动添加。</div>' +
       '</div>' +
       '<div class="modal-foot"><button class="btn" id="salImpCancel">取消</button><button class="btn primary" id="salImpParse">解析</button></div>';
     FW.openModal('导入工资（自动识别员工）', body, function () {
@@ -442,10 +459,10 @@
 
   function openImportMap(headers, dataRows) {
     var guess = guessSalaryMap(headers);
-    var roles = [['ignore', '忽略'], ['name', '姓名'], ['dept', '部门'], ['month', '月份'], ['year', '年份'], ['base', '底薪'], ['bonus', '奖金(提成)']];
+    var roles = [['ignore', '忽略'], ['name', '姓名'], ['dept', '部门'], ['month', '月份'], ['year', '年份'], ['base', '底薪'], ['bonus', '奖金'], ['commission', '提成']];
     var map = {};
     var selHtml = headers.map(function (h, i) {
-      var def = guess.name === i ? 'name' : (guess.dept === i ? 'dept' : (guess.month === i ? 'month' : (guess.year === i ? 'year' : (guess.base === i ? 'base' : (guess.bonus === i ? 'bonus' : 'ignore')))));
+      var def = guess.name === i ? 'name' : (guess.dept === i ? 'dept' : (guess.month === i ? 'month' : (guess.year === i ? 'year' : (guess.base === i ? 'base' : (guess.bonus === i ? 'bonus' : (guess.commission === i ? 'commission' : 'ignore'))))));
       map[i] = def;
       var opts = roles.map(function (r) { return '<option value="' + r[0] + '"' + (def === r[0] ? ' selected' : '') + '>' + r[1] + '</option>'; }).join('');
       return '<div class="form-row"><label>' + FW.esc(h || ('列' + (i + 1))) + '</label><select data-col="' + i + '">' + opts + '</select></div>';
@@ -486,7 +503,7 @@
           var emp = byName[(rec.name || '').trim().toLowerCase()];
           if (!emp) return;
           var id = recId(emp.id, rec.year, rec.month);
-          FW.db.upsert('salary_records', { id: id, empId: emp.id, year: rec.year, month: rec.month, base: rec.base, bonus: rec.bonus, remark: (rec.dept ? '' : '') });
+          FW.db.upsert('salary_records', { id: id, empId: emp.id, year: rec.year, month: rec.month, base: rec.base, bonus: rec.bonus, commission: rec.commission, remark: (rec.dept ? '' : '') });
         });
         FW.closeModal();
         FW.toast('已导入 ' + r.rows.length + ' 条，新建 ' + r.newEmps.length + ' 名员工');
@@ -497,8 +514,8 @@
 
   function exportCSV(rows) {
     var header = ['员工', '部门'];
-    MONTHS.forEach(function (m) { header.push(m + '底薪', m + '奖金', m + '金额'); });
-    header.push('累计底薪', '累计奖金', '累计金额');
+    MONTHS.forEach(function (m) { header.push(m + '底薪', m + '奖金', m + '提成', m + '金额'); });
+    header.push('累计底薪', '累计奖金', '累计提成', '累计金额');
     var lines = [header.join(',')];
     rows.forEach(function (rw) {
       var byMonth = {};
@@ -506,9 +523,9 @@
       var line = [rw.emp.name, rw.emp.dept || ''];
       for (var mo = 1; mo <= 12; mo++) {
         var m = byMonth[mo];
-        line.push(m ? m.base : '', m ? m.bonus : '', m ? m.amount : '');
+        line.push(m ? m.base : '', m ? m.bonus : '', m ? m.commission : '', m ? m.amount : '');
       }
-      line.push(rw.calc.cumBase, rw.calc.cumBonus, rw.calc.cumAmount);
+      line.push(rw.calc.cumBase, rw.calc.cumBonus, rw.calc.cumCommission, rw.calc.cumAmount);
       lines.push(line.join(','));
     });
     var csv = lines.join('\r\n');
