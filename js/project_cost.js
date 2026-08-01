@@ -194,7 +194,7 @@
     return Object.keys(set).sort();
   }
 
-  var state = { year: 'all', expanded: {}, kw: '', pnl: 'all', costType: '', costType2: '' };
+  var state = { year: 'all', expanded: {}, kw: '', pnl: 'all', costType: '', costType2: '', costExcl: false };
 
   // 项目筛选（关键词匹配项目名 + 盈亏过滤）；纯函数，便于测试与外部复用
   function filterRows(rows, kw, pnl) {
@@ -238,15 +238,41 @@
     return rows;
   }
 
-  // 成本率：默认用总成本口径（总成本 / 收入）；可选某一级 / 二级分类成本作为口径
-  function costRateOf(r, costType, costType2) {
-    costType = costType || ''; costType2 = costType2 || '';
+  // 成本率：默认用总成本口径（总成本 / 收入）；可选某一级 / 二级分类成本，或「工资成本」作为口径
+  // costExcl=true 时口径变为「总成本 − 所选类成本」（即不含该类的总成本率）
+  function costRateOf(r, costType, costType2, costExcl) {
+    costType = costType || ''; costType2 = costType2 || ''; costExcl = !!costExcl;
+    var baseCost; // 所选类别的绝对成本（总成本模式为 null）
+    if (!costType) baseCost = null;
+    else if (costType === '__labor__') baseCost = r.laborCost;
+    else if (costType2) baseCost = r.byCat2[(costType + ' / ' + costType2)] || 0;
+    else baseCost = r.byCat[costType] || 0;
     var cost;
-    if (!costType) cost = r.totalCost;
-    else if (costType2) cost = r.byCat2[(costType + ' / ' + costType2)] || 0;
-    else cost = r.byCat[costType] || 0;
+    if (costExcl && baseCost != null) cost = r.totalCost - baseCost; // 不含所选类
+    else if (baseCost == null) cost = r.totalCost;                   // 总成本（默认）
+    else cost = baseCost;                                            // 所选类占比
     var rate = r.revenue > 0 ? cost / r.revenue * 100 : 0;
     return { cost: cost, rate: rate };
+  }
+
+  // 成本率列动态表头（随口径变化，便于一眼看清当前口径）
+  function costRateLabel() {
+    if (!state.costType) return '成本率(总成本)';
+    var lbl = state.costType === '__labor__' ? '工资' : (state.costType2 ? (state.costType + ' / ' + state.costType2) : state.costType);
+    return '成本率(' + (state.costExcl ? ('不含' + lbl) : lbl) + ')';
+  }
+
+  // 合计行的成本率口径成本（绝对金额）；与 costRateOf 的口径逻辑保持一致
+  function costBasisTot(data) {
+    if (!state.costType) return data.tot.totalCost;
+    var sel = state.costType === '__labor__' ? data.tot.laborCost
+      : (state.costType2 ? (data.cat2Tot[(state.costType + ' / ' + state.costType2)] || 0)
+        : (data.catTot[state.costType] || 0));
+    return state.costExcl ? (data.tot.totalCost - sel) : sel;
+  }
+  function totalCostRatePct(data) {
+    var basis = costBasisTot(data);
+    return data.tot.revenue > 0 ? basis / data.tot.revenue * 100 : 0;
   }
 
   function render() { buildTop(); buildBody(); }
@@ -271,6 +297,7 @@
       '<span class="pc-costtype-label">成本率口径</span>' +
       '<select id="pcCostType" class="pc-year"><option value="">总成本（默认）</option></select>' +
       '<select id="pcCostType2" class="pc-year" disabled><option value="">全部二级</option></select>' +
+      '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"> 剔除所选成本类</label>' +
       '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
       '<button class="btn ghost" id="pcExportX">⬇ 导出Excel</button>' +
       '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
@@ -311,15 +338,17 @@
     if (ctSel) {
       var l1set = {};
       rows.forEach(function (r) { Object.keys(r.byCat || {}).forEach(function (k) { l1set[k] = 1; }); });
-      ctSel.innerHTML = '<option value="">总成本（默认）</option>' + Object.keys(l1set).sort().map(function (k) {
-        return '<option value="' + FW.esc(k) + '"' + (state.costType === k ? ' selected' : '') + '>' + FW.esc(k) + '</option>';
-      }).join('');
-      ctSel.onchange = function () { state.costType = this.value; state.costType2 = ''; buildBody(); };
+      ctSel.innerHTML = '<option value="">总成本（默认）</option>' +
+        '<option value="__labor__"' + (state.costType === '__labor__' ? ' selected' : '') + '>工资成本（占比）</option>' +
+        Object.keys(l1set).sort().map(function (k) {
+          return '<option value="' + FW.esc(k) + '"' + (state.costType === k ? ' selected' : '') + '>' + FW.esc(k) + '</option>';
+        }).join('');
+      ctSel.onchange = function () { state.costType = this.value; state.costType2 = ''; if (!this.value) state.costExcl = false; buildBody(); };
     }
     var ct2Sel = document.getElementById('pcCostType2');
     if (ct2Sel) {
       var l2opts = '<option value="">全部二级</option>';
-      if (state.costType) {
+      if (state.costType && state.costType !== '__labor__') {
         var l2set = {};
         rows.forEach(function (r) {
           Object.keys(r.byCat2 || {}).forEach(function (full) {
@@ -335,8 +364,15 @@
         }).join('');
       }
       ct2Sel.innerHTML = l2opts;
-      ct2Sel.disabled = !state.costType;
+      ct2Sel.disabled = !state.costType || state.costType === '__labor__';
       ct2Sel.onchange = function () { state.costType2 = this.value; buildBody(); };
+    }
+    // 剔除所选成本类：仅当选了某成本类 / 工资成本时可用
+    var exclEl = document.getElementById('pcCostExcl');
+    if (exclEl) {
+      exclEl.disabled = !state.costType;
+      exclEl.checked = !!state.costExcl && !!state.costType;
+      exclEl.onchange = function () { state.costExcl = this.checked; buildBody(); };
     }
 
     // 下钻：点击项目行展开/收起明细
@@ -602,14 +638,14 @@
         '</div>';
     }
     var h = '<div class="proj-sum-wrap"><table class="proj-sum-table" id="pcTable"><thead><tr>' +
-      '<th class="pc-rank">排名</th><th>项目</th><th class="num">签收单量</th><th class="num">收入</th><th class="num">收入单产</th><th class="num">流水成本</th><th class="num">应收回款项</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">净利润单产</th><th class="num">利润率</th><th class="num">成本率</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
+      '<th class="pc-rank">排名</th><th>项目</th><th class="num">签收单量</th><th class="num">收入</th><th class="num">收入单产</th><th class="num">流水成本</th><th class="num">应收回款项</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">净利润单产</th><th class="num">利润率</th><th class="num">' + costRateLabel() + '</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
     var totalQty = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
     rows.forEach(function (r) {
       var profitCls = r.profit >= 0 ? 'amt-income' : 'amt-expense';
       var badge = r.profit >= 0 ? '<span class="badge ok">盈利</span>' : '<span class="badge bad">亏损</span>';
       var open = !!state.expanded[r.project];
       var qtyVal = r.qty ? r.qty : '';
-      var cr = costRateOf(r, state.costType, state.costType2);
+      var cr = costRateOf(r, state.costType, state.costType2, state.costExcl);
       h += '<tr class="pc-row' + (open ? ' open' : '') + '" data-p="' + FW.esc(r.project) + '" data-rev="' + r.revenue + '" data-profit="' + r.profit + '">' +
         '<td class="pc-rank">' + r.rank + '</td>' +
         '<td><span class="pc-caret">' + (open ? '▾' : '▸') + '</span> ' + FW.esc(r.project) + '</td>' +
@@ -628,8 +664,7 @@
         '<td>' + badge + '</td></tr>';
       if (open) h += detailHtml(r);
     });
-    var totCostRateCost = state.costType ? (state.costType2 ? (data.cat2Tot[(state.costType + ' / ' + state.costType2)] || 0) : (data.catTot[state.costType] || 0)) : data.tot.totalCost;
-    var totCostRate = data.tot.revenue > 0 ? totCostRateCost / data.tot.revenue * 100 : 0;
+    var totCostRate = totalCostRatePct(data);
     h += '<tr class="proj-sum-total"><td></td><td>合计</td>' +
       '<td class="num">' + totalQty + '</td>' +
       '<td class="num amt-income">' + FW.fmtMoney(data.tot.revenue) + '</td>' +
@@ -652,15 +687,14 @@
     var header = ['排名', '项目', '签收单量', '收入', '收入单产', '流水成本', '应收回款项', '工资成本', '总成本', '利润', '净利润单产', '利润率(%)', '成本率(%)', '投入产出比', '盈亏'];
     var lines = [header.join(',')];
     rows.forEach(function (r) {
-      var cr = costRateOf(r, state.costType, state.costType2);
+      var cr = costRateOf(r, state.costType, state.costType2, state.costExcl);
       lines.push([
         r.rank, r.project, (r.qty || 0), r.revenue, (r.revUnit == null ? '' : Number(r.revUnit.toFixed(2))), r.flowCost, (r.recoverable || 0), r.laborCost, r.totalCost, r.profit,
         (r.profitUnit == null ? '' : Number(r.profitUnit.toFixed(2))), r.rate.toFixed(1), cr.rate.toFixed(1), fmtRoi(r.roi), r.profit >= 0 ? '盈利' : '亏损'
       ].join(','));
     });
     var tq = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
-    var totCostRateCost = state.costType ? (state.costType2 ? (data.cat2Tot[(state.costType + ' / ' + state.costType2)] || 0) : (data.catTot[state.costType] || 0)) : data.tot.totalCost;
-    var totCostRate = data.tot.revenue > 0 ? totCostRateCost / data.tot.revenue * 100 : 0;
+    var totCostRate = totalCostRatePct(data);
     lines.push([
       '', '合计', tq, data.tot.revenue, '', data.tot.flowCost, data.tot.recoverable, data.tot.laborCost, data.tot.totalCost, data.tot.profit,
       '', (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—'), totCostRate.toFixed(1), fmtRoi(data.avgRoi), ''
@@ -683,15 +717,14 @@
     var x = window.XLSX;
     var aoa = [['排名', '项目', '签收单量', '收入', '收入单产', '流水成本', '应收回款项', '工资成本', '总成本', '利润', '净利润单产', '利润率(%)', '成本率(%)', '投入产出比', '盈亏']];
     rows.forEach(function (r) {
-      var cr = costRateOf(r, state.costType, state.costType2);
+      var cr = costRateOf(r, state.costType, state.costType2, state.costExcl);
       aoa.push([
         r.rank, r.project, (r.qty || 0), r.revenue, (r.revUnit == null ? '' : Number(r.revUnit.toFixed(2))), r.flowCost, (r.recoverable || 0), r.laborCost, r.totalCost, r.profit,
         (r.profitUnit == null ? '' : Number(r.profitUnit.toFixed(2))), Number(r.rate.toFixed(2)), Number(cr.rate.toFixed(2)), r.roi === Infinity ? '∞' : Number(r.roi.toFixed(2)), r.profit >= 0 ? '盈利' : '亏损'
       ]);
     });
     var tq = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
-    var totCostRateCost = state.costType ? (state.costType2 ? (data.cat2Tot[(state.costType + ' / ' + state.costType2)] || 0) : (data.catTot[state.costType] || 0)) : data.tot.totalCost;
-    var totCostRate = data.tot.revenue > 0 ? totCostRateCost / data.tot.revenue * 100 : 0;
+    var totCostRate = totalCostRatePct(data);
     aoa.push([
       '', '合计', tq, data.tot.revenue, '', data.tot.flowCost, data.tot.recoverable, data.tot.laborCost, data.tot.totalCost, data.tot.profit,
       '', data.avgRate === Infinity ? '—' : Number(data.avgRate.toFixed(2)), Number(totCostRate.toFixed(2)), data.avgRoi === Infinity ? '∞' : Number(data.avgRoi.toFixed(2)), ''
@@ -759,7 +792,7 @@
     });
   }
 
-  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf };
+  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct };
 
   FW.modules = FW.modules || {};
   FW.modules.projectCost = { title: '项目核算', render: render };

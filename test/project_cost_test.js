@@ -194,5 +194,20 @@ ok('成本率 一级下无该二级 → cost=0、rate=0', C.costRateOf(crRow, '�
 ok('成本率 收入为 0 → rate=0', C.costRateOf({ revenue: 0, totalCost: 10, byCat: {}, byCat2: {} }, '', '').rate === 0);
 ok('成本率 选了不存在的一级 → cost=0、rate=0', C.costRateOf(crRow, '不存在', '').cost === 0 && C.costRateOf(crRow, '不存在', '').rate === 0);
 
+// ===== 成本率扩展：工资成本口径 + 剔除所选成本类（costRateOf 第4参数 costExcl） =====
+var er = { revenue: 100000, totalCost: 70000, laborCost: 22000, byCat: { '办公费': 30000, '差旅': 10000 }, byCat2: { '办公费 / 文具': 12000, '办公费 / 打印': 8000, '差旅 / 交通': 10000 } };
+ok('成本率 选「工资成本」= 工资/收入（22000/100000=22%）', approx(C.costRateOf(er, '__labor__', '').rate, 22));
+ok('成本率 选「工资成本」cost=工资成本（22000）', C.costRateOf(er, '__labor__', '').cost === 22000);
+ok('成本率 剔除一级「办公费」= (总成本-办公费)/收入 = (70000-30000)/100000=40%', approx(C.costRateOf(er, '办公费', '', true).rate, 40));
+ok('成本率 剔除一级「办公费」cost = 总成本-办公费 = 40000', C.costRateOf(er, '办公费', '', true).cost === 40000);
+ok('成本率 剔除二级「办公费 / 文具」= (70000-12000)/100000=58%', approx(C.costRateOf(er, '办公费', '文具', true).rate, 58));
+ok('成本率 剔除「工资成本」= (总成本-工资)/收入 = (70000-22000)/100000=48%', approx(C.costRateOf(er, '__labor__', '', true).rate, 48));
+ok('成本率 默认+剔除(未选类) → 剔除无效，仍=总成本/收入=70%', approx(C.costRateOf(er, '', '', true).rate, 70));
+ok('成本率 剔除「工资成本」cost = 总成本-工资 = 48000', C.costRateOf(er, '__labor__', '', true).cost === 48000);
+
+// 合计行成本率（默认口径）+ 表头默认文案（不依赖切换 state）
+ok('合计成本率(默认) = 总成本/收入（70000/100000=70%）', approx(C.totalCostRatePct({ tot: { revenue: 100000, totalCost: 70000, laborCost: 22000 }, catTot: { '办公费': 30000 }, cat2Tot: {} }), 70));
+ok('成本率表头默认文案 = 成本率(总成本)', C.costRateLabel() === '成本率(总成本)');
+
 console.log('\n项目核算 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);
