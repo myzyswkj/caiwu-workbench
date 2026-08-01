@@ -232,6 +232,20 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .photo-thumb { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); cursor: pointer; }
 .photo-add { width: 64px; height: 64px; border: 1px dashed var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--muted); cursor: pointer; font-size: 22px; }
 
+/* 合同文档 / 附件（正文文档解析提取 + 相关附件） */
+.ct-file-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.ct-file { display: flex; align-items: center; gap: 6px; background: var(--card, #fff); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px; max-width: 100%; }
+.ct-file-ic { font-size: 15px; flex: 0 0 auto; }
+.ct-file-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-file-sz { color: var(--muted); flex: 0 0 auto; }
+.ct-file-tag { color: var(--primary); font-size: 11px; flex: 0 0 auto; }
+.ct-file-act { flex: 0 0 auto; }
+.ct-file-act a { margin-left: 8px; color: var(--primary); cursor: pointer; text-decoration: none; }
+.ct-file-act a:hover { text-decoration: underline; }
+.ct-file-add { display: flex; align-items: center; justify-content: center; min-width: 70px; height: 28px; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); cursor: pointer; font-size: 12px; }
+.ct-file-add:hover { border-color: var(--primary); color: var(--primary); }
+.ct-attach-list { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow: auto; }
+
 /* tabs */
 .tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
 .tab { padding: 8px 15px; border-radius: 9px; border: 1px solid var(--border); background: #fff; cursor: pointer; font-size: 13px; }

@@ -9,6 +9,7 @@
 (function (global) {
   'use strict';
   var FW = global.FW;
+  if (global.pdfjsLib) { try { global.pdfjsLib.GlobalWorkerOptions.workerSrc = 'js/vendor/pdf.worker.min.js'; } catch (e) {} }
   var KEY = 'invoices';
   var CONTRACT_KEY = 'contracts';
   var STOCK_KEY = 'stock';
@@ -36,7 +37,7 @@
     photos: [],
     // 合同台账筛选
     ctKw: '', ctFrom: '', ctTo: '', ctStatus: '',
-    ctPhotos: [],
+    ctPhotos: [], ctDocFiles: [], ctAttachments: [],
     // 库存台账筛选
     stKw: '', stFrom: '', stTo: '', stType: '',
     stPhotos: []
@@ -467,14 +468,254 @@
         '<td><span class="tag ' + stCls + '">' + FW.esc(st) + '</span></td>' +
         '<td class="nowrap">' + due + '</td>' +
         '<td>' + FW.esc(t.remark || '') + '</td>' +
+        (function () { var c = (t.docFiles ? t.docFiles.length : 0) + (t.attachments ? t.attachments.length : 0) + (t.photos ? t.photos.length : 0); return '<td class="nowrap">' + (c ? '<button class="btn ghost sm" data-att="' + t.id + '">📎 ' + c + '</button>' : '<span class="muted">—</span>') + '</td>'; })() +
         '<td class="row-actions nowrap"><button class="btn ghost sm row-edit" data-id="' + t.id + '">编辑</button><button class="btn danger sm row-del" data-id="' + t.id + '">删</button></td>' +
         '</tr>';
     }).join('');
     el.innerHTML = '<table><thead><tr>' +
-      '<th>合同编号</th><th>合同名称</th><th>对方单位</th><th>签订日期</th><th class="num">合同金额</th><th>付款方式</th><th>履行状态</th><th>到期日</th><th>备注</th><th>操作</th>' +
+      '<th>合同编号</th><th>合同名称</th><th>对方单位</th><th>签订日期</th><th class="num">合同金额</th><th>付款方式</th><th>履行状态</th><th>到期日</th><th>备注</th><th>附件</th><th>操作</th>' +
       '</tr></thead><tbody>' + trs + '</tbody></table>';
     FW.qa('#ctWrap .row-edit').forEach(function (b) { b.onclick = function () { openContractForm(b.dataset.id); }; });
     FW.qa('#ctWrap .row-del').forEach(function (b) { b.onclick = function () { delContract(b.dataset.id); }; });
+    FW.qa('#ctWrap [data-att]').forEach(function (b) { b.onclick = function () { openContractAttachments(b.dataset.att); }; });
+  }
+
+  /* ===== 合同文档解析与附件 ===== */
+  function fileExt(name) { var i = (name || '').lastIndexOf('.'); return i >= 0 ? (name.slice(i + 1).toLowerCase()) : ''; }
+  function fileToUint8(dataUrl) {
+    var b64 = (dataUrl || '').split(',')[1] || '';
+    var bin = atob(b64);
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr;
+  }
+  function readAsArrayBuffer(file) {
+    return new Promise(function (res) {
+      var r = new FileReader();
+      r.onload = function () { res(r.result); };
+      r.onerror = function () { res(null); };
+      r.readAsArrayBuffer(file);
+    });
+  }
+  // 从上传文件提取纯文本；图片/不支持格式返回 ''
+  function extractTextFromFile(file, dataUrl) {
+    var ext = fileExt(file.name);
+    if (ext === 'txt' || ext === 'text' || file.type === 'text/plain') {
+      return new Promise(function (res) {
+        var r = new FileReader();
+        r.onload = function () { res(r.result); };
+        r.onerror = function () { res(''); };
+        r.readAsText(file, 'utf-8');
+      });
+    }
+    if (ext === 'pdf') {
+      if (!global.pdfjsLib) return Promise.resolve('');
+      try {
+        var loadingTask = global.pdfjsLib.getDocument({ data: fileToUint8(dataUrl) });
+        return loadingTask.promise.then(function (pdf) {
+          var tasks = [];
+          for (var p = 1; p <= pdf.numPages; p++) {
+            tasks.push(pdf.getPage(p).then(function (pg) {
+              return pg.getTextContent().then(function (tc) {
+                return tc.items.map(function (it) { return it.str || ''; }).join(' ');
+              });
+            }));
+          }
+          return Promise.all(tasks).then(function (arr) { return arr.join('\n'); });
+        }).catch(function () { return ''; });
+      } catch (e) { return Promise.resolve(''); }
+    }
+    if (ext === 'docx') {
+      if (!global.mammoth) return Promise.resolve('');
+      try {
+        return readAsArrayBuffer(file).then(function (ab) {
+          if (!ab) return '';
+          return global.mammoth.extractRawText({ arrayBuffer: ab }).then(function (r) { return r.value || ''; }).catch(function () { return ''; });
+        }).catch(function () { return ''; });
+      } catch (e) { return Promise.resolve(''); }
+    }
+    if (ext === 'xlsx' || ext === 'xls') {
+      if (!global.XLSX) return Promise.resolve('');
+      try {
+        return readAsArrayBuffer(file).then(function (ab) {
+          if (!ab) return '';
+          var wb = global.XLSX.read(ab, { type: 'array' });
+          return wb.SheetNames.map(function (sn) { return global.XLSX.utils.sheet_to_csv(wb.Sheets[sn]); }).join('\n');
+        }).catch(function () { return ''; });
+      } catch (e) { return Promise.resolve(''); }
+    }
+    return Promise.resolve('');
+  }
+  function ymd(y, m, d) {
+    return y + '-' + (+m < 10 ? '0' + (+m) : '' + (+m)) + '-' + (+d < 10 ? '0' + (+d) : '' + (+d));
+  }
+  function firstDateNear(text, kwRe) {
+    var m = text.match(kwRe);
+    if (m) {
+      var near = text.slice(m.index, m.index + 80);
+      var d = near.match(/(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})/);
+      if (d) return ymd(d[1], d[2], d[3]);
+    }
+    return '';
+  }
+  function firstDateInText(text) {
+    var d = text.match(/(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})/);
+    return d ? ymd(d[1], d[2], d[3]) : '';
+  }
+  function parseAmount(str) {
+    if (!str) return 0;
+    var m = ('' + str).match(/([\d][\d,]*\.?\d*)\s*(万|亿)?/);
+    if (!m) return 0;
+    var n = parseFloat(m[1].replace(/,/g, ''));
+    if (isNaN(n)) return 0;
+    if (m[2] === '万') n *= 10000;
+    else if (m[2] === '亿') n *= 100000000;
+    return n;
+  }
+  // 从合同文本提取关键字段（仅返回能识别到的项），fileName 用于兜底合同名称
+  function extractContractFields(text, fileName) {
+    text = text || '';
+    var out = {};
+    var noM = text.match(/(?:合同编号|合同号|编号|NO\.?|No\.?)\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9\-_／/\u4e00-\u9fa5]{2,30})/i)
+          || text.match(/(?:HT|合同)\s*[-_]\s*([A-Za-z0-9\-_／/]{3,30})/i);
+    if (noM) out.no = noM[1].trim();
+    var name = fileName ? fileName.replace(/\.[^.]+$/, '') : '';
+    var nameM = text.match(/(?:项目名称|工程名称|协议名称|关于)\s*[:：]?\s*([^\n，,。；;]{2,40}?)(?:的|合同|协议)/);
+    if (!name && nameM) name = nameM[1].trim();
+    if (name) out.name = name;
+    var partyM = text.match(/(?:甲方|乙方|供方|需方|卖方|买方|出租方|承租方|发包方|承包方|定作方|承揽方|委托方|受托方|采购方|销售方)\s*[:：]?\s*[（(]?\s*([^\n，,。；;）)]{2,40})/);
+    if (partyM) out.party = partyM[1].trim();
+    else { var compM = text.match(/([^\n，,。；;（）()]{2,30}?(?:有限公司|股份公司|公司|集团))/); if (compM) out.party = compM[1].trim(); }
+    out.signDate = firstDateNear(text, /(?:签订|签署|订立|签约|日期)/) || firstDateInText(text);
+    out.dueDate = firstDateNear(text, /(?:到期|终止|届满|完毕)/);
+    var amtM = text.match(/(?:合同总价|合同总价款|总价|合同价款|合同金额|总金额|价款|金额)\s*[:：]?\s*(?:人民币|RMB|￥|¥)?\s*([\d][\d,]*\.?\d*)\s*(万|亿元|万元|元|万)?/i);
+    if (amtM) out.amount = parseAmount(amtM[1] + (amtM[2] || ''));
+    var payMap = ['一次性付款', '分期付款', '月结', '货到付款', '按进度付款', '先款后货', '年付', '季付', '月付'];
+    for (var i = 0; i < payMap.length; i++) { if (text.indexOf(payMap[i]) >= 0) { out.payMethod = payMap[i]; break; } }
+    var ownerM = text.match(/(?:负责人|经办人|联系人)\s*[:：]?\s*([^\n，,。；;]{2,10}?)(?:[，,。；;]|$)/);
+    if (ownerM) out.owner = ownerM[1].trim();
+    return out;
+  }
+  // 把识别到的字段回填到表单（不覆盖用户已填内容）
+  function fillContractFields(ext) {
+    var map = { no: 'c_no', name: 'c_name', party: 'c_party', signDate: 'c_sign', dueDate: 'c_due', amount: 'c_amt', payMethod: 'c_pay', owner: 'c_owner' };
+    var filled = 0;
+    Object.keys(ext).forEach(function (k) {
+      var id = map[k]; if (!id) return;
+      var el = document.getElementById(id); if (!el) return;
+      if (k === 'payMethod') {
+        if (!el.value) { el.value = ext.payMethod; filled++; }
+        return;
+      }
+      if (!el.value) { el.value = ext[k]; filled++; }
+    });
+    return filled;
+  }
+  function fileIcon(type, ext) {
+    if (ext === 'pdf') return '📕';
+    if (ext === 'doc' || ext === 'docx') return '📘';
+    if (ext === 'xls' || ext === 'xlsx') return '📗';
+    if (ext === 'txt' || ext === 'text') return '📄';
+    if ((type || '').indexOf('image/') === 0) return '🖼';
+    return '📎';
+  }
+  function downloadFile(id, name) {
+    FW.db.getPhoto(id).then(function (d) {
+      if (!d) { FW.toast('文件已丢失'); return; }
+      var a = document.createElement('a');
+      a.href = d; a.download = name || 'file';
+      document.body.appendChild(a); a.click();
+      try { document.body.removeChild(a); } catch (e) {}
+    }).catch(function () { FW.toast('文件读取失败'); });
+  }
+  function openFile(id, name) {
+    FW.db.getPhoto(id).then(function (d) {
+      if (!d) { FW.toast('文件已丢失'); return; }
+      window.open(d, '_blank');
+    }).catch(function () { FW.toast('文件读取失败'); });
+  }
+  // 渲染文件网格（合同正文文档 docFiles / 相关附件 attachments）；doExtract=true 时上传后自动解析提取字段
+  function renderContractFileGrid(gridId, files, doExtract) {
+    var grid = document.getElementById(gridId);
+    if (!grid) return;
+    grid.innerHTML = '';
+    (files || []).forEach(function (f) {
+      var ext = fileExt(f.name);
+      var row = document.createElement('div'); row.className = 'ct-file';
+      var sz = f.size ? (f.size > 1048576 ? (f.size / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(f.size / 1024)) + 'KB') : '';
+      row.innerHTML = '<span class="ct-file-ic">' + fileIcon(f.type, ext) + '</span>' +
+        '<span class="ct-file-name" title="' + FW.esc(f.name) + '">' + FW.esc(f.name) + '</span>' +
+        '<span class="ct-file-sz muted">' + sz + '</span>' +
+        '<span class="ct-file-act"><a href="#" data-act="open">预览</a><a href="#" data-act="dl">下载</a><a href="#" data-act="del">删除</a></span>';
+      row.querySelector('[data-act="dl"]').onclick = function (e) { e.preventDefault(); downloadFile(f.id, f.name); };
+      row.querySelector('[data-act="open"]').onclick = function (e) { e.preventDefault(); openFile(f.id, f.name); };
+      row.querySelector('[data-act="del"]').onclick = function (e) {
+        e.preventDefault();
+        files.splice(files.indexOf(f), 1); FW.db.deletePhoto(f.id); renderContractFileGrid(gridId, files, doExtract);
+      };
+      grid.appendChild(row);
+    });
+    var add = document.createElement('div'); add.className = 'ct-file-add'; add.textContent = '＋ 上传';
+    add.onclick = function () {
+      var inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = doExtract ? '.pdf,.doc,.docx,.txt,.xlsx,.xls,image/*' : '*';
+      inp.multiple = true;
+      inp.onchange = function () {
+        Array.prototype.slice.call(inp.files).forEach(function (file) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            FW.db.savePhoto(reader.result).then(function (fid) {
+              var rec = { id: fid, name: file.name, type: file.type || '', size: file.size || 0 };
+              files.push(rec);
+              renderContractFileGrid(gridId, files, doExtract);
+              if (doExtract) {
+                extractTextFromFile(file, reader.result).then(function (txt) {
+                  if (txt && txt.trim()) {
+                    var ext = extractContractFields(txt, file.name);
+                    var n = fillContractFields(ext);
+                    if (n > 0) FW.toast('已从「' + file.name + '」识别并填入 ' + n + ' 项信息，请核对');
+                  } else {
+                    FW.toast('「' + file.name + '」未提取到文字（图片/扫描件需 OCR，当前未启用）');
+                  }
+                });
+              }
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      };
+      inp.click();
+    };
+    grid.appendChild(add);
+  }
+  // 列表/详情查看某合同全部附件
+  function openContractAttachments(id) {
+    var rec = FW.db.getById(CONTRACT_KEY, id);
+    if (!rec) return;
+    var docs = rec.docFiles || [], atts = rec.attachments || [], photos = rec.photos || [];
+    var all = docs.map(function (f) { return { f: f, tag: '正文文档' }; })
+      .concat(atts.map(function (f) { return { f: f, tag: '相关附件' }; }))
+      .concat(photos.map(function (fid) { return { f: { id: fid, name: '合同照片', type: 'image', size: 0 }, tag: '照片' }; }));
+    if (!all.length) { FW.toast('该合同暂无附件'); return; }
+    var rows = all.map(function (item) {
+      var ext = fileExt(item.f.name);
+      return '<div class="ct-file"><span class="ct-file-ic">' + fileIcon(item.f.type, ext) + '</span>' +
+        '<span class="ct-file-tag">' + item.tag + '</span>' +
+        '<span class="ct-file-name" title="' + FW.esc(item.f.name) + '">' + FW.esc(item.f.name) + '</span>' +
+        '<span class="ct-file-act"><a href="#" data-act="open" data-id="' + item.f.id + '" data-name="' + FW.esc(item.f.name) + '">预览</a>' +
+        '<a href="#" data-act="dl" data-id="' + item.f.id + '" data-name="' + FW.esc(item.f.name) + '">下载</a></span></div>';
+    }).join('');
+    var body = '<div id="ct-attach-list" class="ct-attach-list">' + rows + '</div>';
+    FW.openModal('合同附件（' + all.length + '）', body, function () {
+      FW.qa('#ct-attach-list .ct-file [data-act]').forEach(function (a) {
+        a.onclick = function (e) {
+          e.preventDefault();
+          if (a.dataset.act === 'dl') downloadFile(a.dataset.id, a.dataset.name);
+          else openFile(a.dataset.id, a.dataset.name);
+        };
+      });
+    });
   }
 
   function openContractForm(id) {
@@ -483,17 +724,20 @@
       no: '', name: '', party: '', type: '采购合同',
       signDate: FW.today(), dueDate: '', amount: '',
       payMethod: '一次性付款', status: '履行中',
-      owner: '', remark: '', photos: []
+      owner: '', remark: '', photos: [], docFiles: [], attachments: []
     };
     if (edit) {
       v = {
         no: edit.no || '', name: edit.name || '', party: edit.party || '', type: edit.type || '采购合同',
         signDate: edit.signDate || FW.today(), dueDate: edit.dueDate || '', amount: edit.amount,
         payMethod: edit.payMethod || '一次性付款', status: edit.status || '履行中',
-        owner: edit.owner || '', remark: edit.remark || '', photos: edit.photos || []
+        owner: edit.owner || '', remark: edit.remark || '', photos: edit.photos || [],
+        docFiles: edit.docFiles || [], attachments: edit.attachments || []
       };
     }
     state.ctPhotos = v.photos.slice();
+    state.ctDocFiles = (v.docFiles || []).slice();
+    state.ctAttachments = (v.attachments || []).slice();
 
     var body =
       '<div class="form-grid">' +
@@ -509,11 +753,15 @@
         '<div class="field"><label>负责人</label><input id="c_owner" value="' + FW.esc(v.owner) + '" placeholder="选填"></div>' +
         '<div class="field full"><label>备注</label><textarea id="c_remark" rows="2" placeholder="主要条款 / 关联单据">' + FW.esc(v.remark) + '</textarea></div>' +
         '<div class="field full"><label>合同 / 附件照片</label><div class="photo-grid" id="ctPhotoGrid"></div></div>' +
+        '<div class="field full"><label>合同正文文档（自动识别提取关键信息）</label><div class="ct-file-grid" id="ctDocGrid"></div><div class="muted" style="font-size:12px;margin-top:4px">支持 PDF / Word / Excel / 文本，上传后立即提取合同编号、对方单位、金额、签订/到期日期等并填入下方表单，请核对。</div></div>' +
+        '<div class="field full"><label>相关附件（发票 / 图纸 / 其他）</label><div class="ct-file-grid" id="ctAttGrid"></div></div>' +
       '</div>' +
       '<div class="form-actions"><button class="btn ghost" id="ctCancel">取消</button><button class="btn" id="ctSave">保存</button></div>';
 
     FW.openModal(edit ? '编辑合同' : '新增合同', body, function () {
       renderContractPhotoGrid(state.ctPhotos);
+      renderContractFileGrid('ctDocGrid', state.ctDocFiles, true);
+      renderContractFileGrid('ctAttGrid', state.ctAttachments, false);
       document.getElementById('ctCancel').onclick = FW.closeModal;
       document.getElementById('ctSave').onclick = function () {
         var no = document.getElementById('c_no').value.trim();
@@ -533,7 +781,9 @@
           status: document.getElementById('c_status').value,
           owner: document.getElementById('c_owner').value.trim(),
           remark: document.getElementById('c_remark').value.trim(),
-          photos: state.ctPhotos
+          photos: state.ctPhotos,
+          docFiles: state.ctDocFiles,
+          attachments: state.ctAttachments
         };
         FW.db.upsert(CONTRACT_KEY, rec);
         FW.closeModal(); renderContractView(); FW.toast('已保存');
@@ -544,9 +794,11 @@
   function delContract(id) {
     var rec = FW.db.getById(CONTRACT_KEY, id);
     if (!rec) return;
-    if (!confirm('确定删除该合同？' + (rec.photos && rec.photos.length ? '（将同时删除 ' + rec.photos.length + ' 张合同照片）' : ''))) return;
+    var cnt = (rec.photos ? rec.photos.length : 0) + (rec.docFiles ? rec.docFiles.length : 0) + (rec.attachments ? rec.attachments.length : 0);
+    if (!confirm('确定删除该合同？' + (cnt ? '（将同时删除 ' + cnt + ' 个附件）' : ''))) return;
     FW.db.remove(CONTRACT_KEY, id);
-    if (rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
+    var ids = (rec.photos || []).concat((rec.docFiles || []).map(function (f) { return f.id; })).concat((rec.attachments || []).map(function (f) { return f.id; }));
+    if (ids.length) FW.db.deletePhotos(ids);
     renderContractView(); FW.toast('已删除');
   }
 
@@ -588,9 +840,10 @@
   function exportContractCsv() {
     var rows = contractsFiltered(state.ctKw, state.ctFrom, state.ctTo, state.ctStatus);
     if (!rows.length) { FW.toast('没有可导出的合同'); return; }
-    var head = ['合同编号', '合同名称', '对方单位', '合同类型', '签订日期', '到期日', '合同金额', '付款方式', '履行状态', '负责人', '备注'];
+    var head = ['合同编号', '合同名称', '对方单位', '合同类型', '签订日期', '到期日', '合同金额', '付款方式', '履行状态', '负责人', '备注', '附件数'];
     var data = rows.map(function (t) {
-      return [t.no, t.name || '', t.party || '', t.type || '', t.signDate || '', t.dueDate || '', t.amount, t.payMethod || '', t.status || '待签订', t.owner || '', t.remark || ''];
+      var attCnt = (t.docFiles ? t.docFiles.length : 0) + (t.attachments ? t.attachments.length : 0) + (t.photos ? t.photos.length : 0);
+      return [t.no, t.name || '', t.party || '', t.type || '', t.signDate || '', t.dueDate || '', t.amount, t.payMethod || '', t.status || '待签订', t.owner || '', t.remark || '', attCnt];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(',');
@@ -603,7 +856,7 @@
     FW.toast('已导出 ' + rows.length + ' 份合同（CSV）');
   }
 
-  FW.contractCalc = { contractSummary: contractSummary };
+  FW.contractCalc = { contractSummary: contractSummary, extractContractFields: extractContractFields };
 
   /* ============================================================
    * 库存台账（采购 / 入库 / 出库 / 退货）

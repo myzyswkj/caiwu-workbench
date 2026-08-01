@@ -118,5 +118,50 @@ assert(tabKeys.indexOf('contract') >= 0, '模块 tabs 含 contract 键');
 assert(tabKeys.indexOf('stock') >= 0, '模块 tabs 含 stock 键');
 assert(JSON.stringify(tabKeys) === JSON.stringify(['all', 'in', 'out', 'contract', 'stock']), 'tabs 共 5 项（全部/进项/销项/合同/库存）');
 
+console.log('— 合同文档关键信息提取 —');
+var sampleText = [
+  '本合同由甲方（深圳市某某科技有限公司）与乙方于2026年3月15日签订。',
+  '合同编号：HT-2026-0078',
+  '签订日期：2026年3月15日',
+  '到期日：2026年9月15日',
+  '合同总金额：人民币1,234,567.00元',
+  '付款方式：一次性付款',
+  '负责人：张三'
+].join('\n');
+var ext = window.FW.contractCalc.extractContractFields(sampleText, 'XX采购合同.pdf');
+assert(ext.no === 'HT-2026-0078', '提取合同编号 HT-2026-0078（实际 ' + ext.no + '）');
+assert(ext.party === '深圳市某某科技有限公司', '提取对方单位（甲方）（实际 ' + ext.party + '）');
+assert(ext.signDate === '2026-03-15', '提取签订日期 2026-03-15（实际 ' + ext.signDate + '）');
+assert(ext.dueDate === '2026-09-15', '提取到期日 2026-09-15（实际 ' + ext.dueDate + '）');
+assert(Math.abs((ext.amount || 0) - 1234567) < 0.01, '提取合同金额 1234567（实际 ' + ext.amount + '）');
+assert(ext.payMethod === '一次性付款', '提取付款方式 一次性付款（实际 ' + ext.payMethod + '）');
+assert(ext.owner === '张三', '提取负责人 张三（实际 ' + ext.owner + '）');
+assert(ext.name === 'XX采购合同', '文件名兜底合同名称 XX采购合同（实际 ' + ext.name + '）');
+
+// 金额含「万」单位换算
+var extWan = window.FW.contractCalc.extractContractFields('合同总价：人民币 50万元整');
+assert(Math.abs((extWan.amount || 0) - 500000) < 0.01, '「50万元」换算为 500000（实际 ' + extWan.amount + '）');
+
+// 空文本（如图片/扫描件无OCR）不误提取
+var extEmpty = window.FW.contractCalc.extractContractFields('', 'scan.jpg');
+assert(extEmpty.no === undefined && extEmpty.amount === undefined, '空文本不误提取字段');
+
+console.log('— 合同附件数据结构与列表展示 —');
+window.FW.db.upsert('contracts', { id: 'ct_test_1', no: 'HT-2026-0099', name: '带附件合同', party: '乙公司', type: '销售合同', signDate: '2026-02-01', dueDate: '', amount: 50000, payMethod: '月结', status: '履行中', owner: '', remark: '', photos: [], docFiles: [{ id: 'f1', name: 'contract.pdf', type: 'application/pdf', size: 1024 }], attachments: [{ id: 'f2', name: 'invoice.xlsx', type: '', size: 2048 }] });
+mod.setTab('contract');
+var rows2 = c.querySelectorAll('#ctWrap tbody tr');
+var attRow = null;
+rows2.forEach(function (r) { if (/HT-2026-0099/.test(r.textContent)) attRow = r; });
+assert(!!attRow, '找到带附件合同行');
+assert(attRow && /📎 2/.test(attRow.textContent), '附件列显示 📎 2（1正文+1附件，实际 ' + (attRow ? attRow.textContent.replace(/📎/g, '📎') : '') + '）');
+
+// 点击附件按钮弹出附件列表
+var attBtn = attRow.querySelector('[data-att]');
+attBtn.click();
+var mb = document.getElementById('modalBody').textContent;
+var mt = document.getElementById('modalTitle').textContent;
+assert(/合同附件（2）/.test(mt), '附件弹窗标题 合同附件（2）（实际 ' + mt + '）');
+assert(/contract\.pdf/.test(mb) && /invoice\.xlsx/.test(mb), '附件弹窗列出文件名');
+
 console.log('\n合同台账测试：通过 ' + pass + '，失败 ' + fail);
 process.exit(fail ? 1 : 0);
