@@ -104,12 +104,14 @@
     });
     projects.sort(function (a, b) {
       var da = map[a], db = map[b];
-      return (db.revenue - db.flowCost - db.laborCost) - (da.revenue - da.flowCost - da.laborCost);
+      var pa = da.revenue - da.flowCost - da.laborCost - (da.recoverable || 0);
+      var pb = db.revenue - db.flowCost - db.laborCost - (db.recoverable || 0);
+      return pb - pa;
     });
 
     var rows = projects.map(function (p, idx) {
       var d = map[p];
-      var totalCost = d.flowCost + d.laborCost;
+      var totalCost = d.flowCost + d.laborCost + (d.recoverable || 0);
       var profit = d.revenue - totalCost;
       var rate = d.revenue > 0 ? profit / d.revenue * 100 : 0;
       var roi = totalCost > 0 ? d.revenue / totalCost : (d.revenue > 0 ? Infinity : 0);
@@ -246,7 +248,7 @@
     if (!data.tot.recoverable) return '';
     return '<div class="pc-note">' +
       '<span class="pc-note-ico">↩</span>' +
-      '<div>项目「应收回款项」合计 <b>' + FW.fmtMoney(data.tot.recoverable) + '</b>：来自「往来账」中标记为 <b>预付</b> 且关联了项目的单据，取其<b>未用完余额</b>（预付款 − 已核销）。这是待收回 / 待核销的资金，<b>不参与利润计算</b>，但属于项目占用的可收回资金。核销（收回 / 消耗）后余额减少，这里的金额会同步下降。</div>' +
+      '<div>项目「应收回款项」合计 <b>' + FW.fmtMoney(data.tot.recoverable) + '</b>：来自「往来账」中标记为 <b>预付</b> 且关联了项目的单据，取其<b>未用完余额</b>（预付款 − 已核销）。这笔钱作为<b>资金占用已计入各项目的「总成本」与「利润」</b>（总成本 = 流水成本 + 工资成本 + 应收回款项）。核销（收回 / 消耗）后余额减少，总成本下降、利润同步改善。</div>' +
       '</div>';
   }
 
@@ -314,7 +316,7 @@
     ];
     var title = (state.year === 'all' ? '逐月 收入/成本/利润趋势（全部年度）' : '逐月 收入/成本/利润趋势（' + state.year + ' 年）');
     return '<div class="pc-section-title">逐月趋势</div>' + FW.lineChart(title, series, {}) +
-      '<div class="muted" style="font-size:12px;margin:-6px 0 8px">点项目行可展开查看该项目的成本分类与工资构成明细。</div>';
+      '<div class="muted" style="font-size:12px;margin:-6px 0 8px">点项目行可展开查看该项目的成本分类、工资构成与应收回款项明细。注：本趋势为当月实际收支（不含预付款占用余额），表格「总成本 / 利润」为含预付占用的口径。</div>';
   }
 
   // 下钻明细
@@ -343,7 +345,7 @@
           '<td class="num amt-recover"><b>' + FW.fmtMoney(x.balance) + '</b></td></tr>';
       });
       h += '</tbody></table>';
-      h += '<div class="muted" style="font-size:12px;margin-top:6px">以上为付给各对象的预付款尚未用完（已核销后）的余款，属待收回 / 待核销资金，<b>不计入项目利润</b>。</div>';
+      h += '<div class="muted" style="font-size:12px;margin-top:6px">以上为付给各对象的预付款尚未用完（已核销后）的余款，已计入本项目的<b>总成本与利润</b>（作为资金占用）。收回 / 核销后余额减少，利润随之改善。</div>';
       h += '</div>';
     }
     h += '</div></td></tr>';
