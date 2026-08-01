@@ -74,7 +74,7 @@ let drillHtml = '';
 try {
   var tbl = domEls['pcTable'];
   if (tbl && tbl.onclick) {
-    tbl.onclick({ target: { closest: function () { return { getAttribute: function () { return '项目A'; } }; } } });
+    tbl.onclick({ target: { tagName: 'TD', closest: function (sel) { if (sel === '.pc-qty-cell') return null; return { getAttribute: function () { return '项目A'; } }; } } });
     drillHtml = domEls['content'].innerHTML;
     ok('展开下钻不抛错', true);
   } else {

@@ -820,6 +820,17 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .pc-rate-fill { display: block; height: 100%; border-radius: 7px; }
 .pc-rate-val { width: 58px; flex: 0 0 58px; text-align: right; font-weight: 600; }
 
+/* 签收单量（可编辑输入框）*/
+.pc-qty-cell { padding: 4px 6px !important; }
+.pc-qty-in {
+  width: 72px; box-sizing: border-box; padding: 4px 6px; font-size: 13px; text-align: right;
+  border: 1px solid var(--border, #d7dce6); border-radius: 6px; background: var(--panel, #fff); color: var(--text, #1f2430);
+}
+.pc-qty-in:focus { outline: none; border-color: var(--primary, #C8102E); box-shadow: 0 0 0 2px rgba(200,16,46,.12); }
+/* 隐藏数字输入框的上下箭头，避免误触 */
+.pc-qty-in::-webkit-outer-spin-button, .pc-qty-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pc-qty-in { -moz-appearance: textfield; appearance: textfield; }
+
 /* 版本与备份 */
 .ver-card {
   background: var(--panel, #fff); border: 1px solid var(--border, #e6e9f0); border-radius: var(--radius, 12px);

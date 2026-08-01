@@ -165,5 +165,22 @@ ok('仅盈利 = 4 个（当前样例均盈利）', C.filterRows(d.rows, '', 'pro
 ok('仅亏损 = 0 个', C.filterRows(d.rows, '', 'loss').length === 0);
 ok('关键词 + 仅盈利 组合：项目A 且盈利 = 1 个', (function () { var f = C.filterRows(d.rows, '项目A', 'profit'); return f.length === 1 && f[0].profit >= 0; })());
 
+console.log('--- 7) 签收单量 / 单产 enrichRows ---');
+store['project_qty'] = [];
+C.setQty('项目A', 10);
+var er = C.enrichRows(d.rows);
+var a = er.filter(function (r) { return r.project === '项目A'; })[0];
+ok('setQty 后 getQtyMap 含 项目A=10', C.getQtyMap()['项目A'] === 10);
+ok('项目A 单量 qty = 10', a.qty === 10);
+ok('项目A 收入单产 = 收入/单量（110000/10=11000）', approx(a.revUnit, 11000));
+ok('项目A 净利润单产 = 利润/单量', approx(a.profitUnit, a.profit / 10));
+ok('项目A 净利润单产数值正确（利润=110000-(30000-65000+26000)=119000 → 11900）', approx(a.profitUnit, 11900));
+var b = er.filter(function (r) { return r.project === '项目B'; })[0];
+ok('未录入单量的项目 qty=0、收入单产为 null', b.qty === 0 && b.revUnit === null);
+ok('未录入单量的项目 净利润单产为 null', b.profitUnit === null);
+C.setQty('项目A', -5); // 负数应归零
+ok('setQty 负数归零', C.getQtyMap()['项目A'] === 0);
+C.setQty('项目A', 0);
+
 console.log('\n项目核算 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);

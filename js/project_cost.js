@@ -206,6 +206,36 @@
     });
   }
 
+  // ===== 签收单量（手动录入，按项目维度持久化；与统计年度无关，按账本隔离） =====
+  var QTY_KEY = 'project_qty';
+  // 返回 { 项目名: 单量 }
+  function getQtyMap() {
+    var m = {};
+    FW.db.getList(QTY_KEY).forEach(function (it) { if (it && it.project) m[it.project] = num(it.qty); });
+    return m;
+  }
+  // 写入某个项目的单量（负数归零；空项目忽略）
+  function setQty(project, qty) {
+    project = (project || '').trim();
+    if (!project) return;
+    qty = num(qty); if (qty < 0) qty = 0;
+    var arr = FW.db.getList(QTY_KEY), id = null;
+    arr.forEach(function (it) { if (it.project === project) id = it.id; });
+    if (id) FW.db.upsert(QTY_KEY, { id: id, project: project, qty: qty });
+    else FW.db.upsert(QTY_KEY, { id: FW.db.uid('pq_'), project: project, qty: qty });
+  }
+  // 在筛选之后，把单量 / 单产补全到每行（收入单产 = 收入 / 单量；净利润单产 = 利润 / 单量）
+  function enrichRows(rows) {
+    var m = getQtyMap();
+    (rows || []).forEach(function (r) {
+      var q = m[r.project] || 0;
+      r.qty = q;
+      r.revUnit = q > 0 ? r.revenue / q : null;       // 收入单产
+      r.profitUnit = q > 0 ? r.profit / q : null;     // 净利润单产
+    });
+    return rows;
+  }
+
   function render() { buildTop(); buildBody(); }
 
   // 顶部操作区（年度 / 搜索 / 盈亏筛选 / 导出 / 校正）——独立构建，避免搜索输入时整页重渲导致输入框失焦
@@ -236,10 +266,10 @@
     document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
   }
 
-  // 计算当前视图数据（含筛选）
+  // 计算当前视图数据（含筛选 + 单量/单产补全）
   function getView() {
     var data = compute(state.year);
-    var rows = filterRows(data.rows, state.kw, state.pnl);
+    var rows = enrichRows(filterRows(data.rows, state.kw, state.pnl));
     return { data: data, rows: rows };
   }
 
@@ -264,11 +294,30 @@
     var tbl = document.getElementById('pcTable');
     if (tbl) {
       tbl.onclick = function (e) {
-        var tr = e.target && e.target.closest ? e.target.closest('tr[data-p]') : null;
+        if (!e.target) return;
+        // 签收单量输入框不触发行展开
+        if (e.target.tagName === 'INPUT' || (e.target.closest && e.target.closest('.pc-qty-cell'))) return;
+        var tr = e.target.closest ? e.target.closest('tr[data-p]') : null;
         if (!tr) return;
         var p = tr.getAttribute('data-p');
         if (state.expanded[p]) delete state.expanded[p]; else state.expanded[p] = true;
         buildBody();
+      };
+      // 签收单量：输入即时保存并局部刷新两个单产单元格（不整页重渲，避免输入框失焦）
+      tbl.oninput = function (e) {
+        var inp = e.target && e.target.classList && e.target.classList.contains('pc-qty-in') ? e.target : null;
+        if (!inp) return;
+        var tr = e.target.closest ? e.target.closest('tr[data-p]') : null;
+        if (!tr) return;
+        var p = tr.getAttribute('data-p');
+        var q = parseFloat(inp.value); if (isNaN(q) || q < 0) q = 0;
+        setQty(p, q);
+        var rev = parseFloat(tr.getAttribute('data-rev')) || 0;
+        var prof = parseFloat(tr.getAttribute('data-profit')) || 0;
+        var revCell = tr.querySelector('[data-unit="rev"]');
+        var profCell = tr.querySelector('[data-unit="profit"]');
+        if (revCell) revCell.textContent = q > 0 ? FW.fmtMoney(rev / q) : '—';
+        if (profCell) profCell.textContent = q > 0 ? FW.fmtMoney(prof / q) : '—';
       };
     }
   }
@@ -427,7 +476,7 @@
 
   // 下钻明细
   function detailHtml(r) {
-    var h = '<tr class="pc-detail-row"><td colspan="11"><div class="pc-detail">';
+    var h = '<tr class="pc-detail-row"><td colspan="14"><div class="pc-detail">';
     h += '<div class="pc-detail-block"><h5>利润形成（瀑布图）</h5>' + profitWaterfall(r) +
       '<div class="muted" style="font-size:11px;margin-top:4px">收入 − 流水成本 + 应收回款项 − 工资成本 = 利润（应收回款项为预付未用完、从成本中扣除的可收回项）</div></div>';
     var cats = Object.keys(r.byCat).map(function (c) { return { label: c, value: r.byCat[c] }; }).sort(function (a, b) { return b.value - a.value; });
@@ -504,32 +553,40 @@
         '</div>';
     }
     var h = '<div class="proj-sum-wrap"><table class="proj-sum-table" id="pcTable"><thead><tr>' +
-      '<th class="pc-rank">排名</th><th>项目</th><th class="num">收入</th><th class="num">流水成本</th><th class="num">应收回款项</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">利润率</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
+      '<th class="pc-rank">排名</th><th>项目</th><th class="num">签收单量</th><th class="num">收入</th><th class="num">收入单产</th><th class="num">流水成本</th><th class="num">应收回款项</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">净利润单产</th><th class="num">利润率</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
+    var totalQty = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
     rows.forEach(function (r) {
       var profitCls = r.profit >= 0 ? 'amt-income' : 'amt-expense';
       var badge = r.profit >= 0 ? '<span class="badge ok">盈利</span>' : '<span class="badge bad">亏损</span>';
       var open = !!state.expanded[r.project];
-      h += '<tr class="pc-row' + (open ? ' open' : '') + '" data-p="' + FW.esc(r.project) + '">' +
+      var qtyVal = r.qty ? r.qty : '';
+      h += '<tr class="pc-row' + (open ? ' open' : '') + '" data-p="' + FW.esc(r.project) + '" data-rev="' + r.revenue + '" data-profit="' + r.profit + '">' +
         '<td class="pc-rank">' + r.rank + '</td>' +
         '<td><span class="pc-caret">' + (open ? '▾' : '▸') + '</span> ' + FW.esc(r.project) + '</td>' +
+        '<td class="num pc-qty-cell"><input class="pc-qty-in" type="number" min="0" step="1" value="' + qtyVal + '" placeholder="填单量" title="签收单量（手动录入，用于核算收入单产与净利润单产）"></td>' +
         '<td class="num amt-income">' + FW.fmtMoney(r.revenue) + '</td>' +
+        '<td class="num" data-unit="rev">' + (r.revUnit == null ? '—' : FW.fmtMoney(r.revUnit)) + '</td>' +
         '<td class="num amt-expense">' + FW.fmtMoney(r.flowCost) + '</td>' +
         '<td class="num amt-recover">' + FW.fmtMoney(r.recoverable || 0) + '</td>' +
         '<td class="num amt-expense">' + FW.fmtMoney(r.laborCost) + '</td>' +
         '<td class="num">' + FW.fmtMoney(r.totalCost) + '</td>' +
         '<td class="num ' + profitCls + '"><b>' + FW.fmtMoney(r.profit) + '</b></td>' +
+        '<td class="num" data-unit="profit">' + (r.profitUnit == null ? '—' : FW.fmtMoney(r.profitUnit)) + '</td>' +
         '<td class="num">' + r.rate.toFixed(1) + '%</td>' +
         '<td class="num">' + fmtRoi(r.roi) + '</td>' +
         '<td>' + badge + '</td></tr>';
       if (open) h += detailHtml(r);
     });
     h += '<tr class="proj-sum-total"><td></td><td>合计</td>' +
+      '<td class="num">' + totalQty + '</td>' +
       '<td class="num amt-income">' + FW.fmtMoney(data.tot.revenue) + '</td>' +
+      '<td class="num">—</td>' +
       '<td class="num amt-expense">' + FW.fmtMoney(data.tot.flowCost) + '</td>' +
       '<td class="num amt-recover"><b>' + FW.fmtMoney(data.tot.recoverable) + '</b></td>' +
       '<td class="num amt-expense">' + FW.fmtMoney(data.tot.laborCost) + '</td>' +
       '<td class="num">' + FW.fmtMoney(data.tot.totalCost) + '</td>' +
       '<td class="num ' + (data.tot.profit >= 0 ? 'amt-income' : 'amt-expense') + '"><b>' + FW.fmtMoney(data.tot.profit) + '</b></td>' +
+      '<td class="num">—</td>' +
       '<td class="num">' + (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—') + '%</td>' +
       '<td class="num">' + fmtRoi(data.avgRoi) + '</td><td></td></tr>';
     h += '</tbody></table></div>';
@@ -538,17 +595,18 @@
 
   function exportCSV(rows, data) {
     if (!rows || !rows.length) { FW.toast('没有可导出的项目'); return; }
-    var header = ['排名', '项目', '收入', '流水成本', '应收回款项', '工资成本', '总成本', '利润', '利润率(%)', '投入产出比', '盈亏'];
+    var header = ['排名', '项目', '签收单量', '收入', '收入单产', '流水成本', '应收回款项', '工资成本', '总成本', '利润', '净利润单产', '利润率(%)', '投入产出比', '盈亏'];
     var lines = [header.join(',')];
     rows.forEach(function (r) {
       lines.push([
-        r.rank, r.project, r.revenue, r.flowCost, (r.recoverable || 0), r.laborCost, r.totalCost, r.profit,
-        r.rate.toFixed(1), fmtRoi(r.roi), r.profit >= 0 ? '盈利' : '亏损'
+        r.rank, r.project, (r.qty || 0), r.revenue, (r.revUnit == null ? '' : Number(r.revUnit.toFixed(2))), r.flowCost, (r.recoverable || 0), r.laborCost, r.totalCost, r.profit,
+        (r.profitUnit == null ? '' : Number(r.profitUnit.toFixed(2))), r.rate.toFixed(1), fmtRoi(r.roi), r.profit >= 0 ? '盈利' : '亏损'
       ].join(','));
     });
+    var tq = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
     lines.push([
-      '', '合计', data.tot.revenue, data.tot.flowCost, data.tot.recoverable, data.tot.laborCost, data.tot.totalCost, data.tot.profit,
-      (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—'), fmtRoi(data.avgRoi), ''
+      '', '合计', tq, data.tot.revenue, '', data.tot.flowCost, data.tot.recoverable, data.tot.laborCost, data.tot.totalCost, data.tot.profit,
+      '', (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—'), fmtRoi(data.avgRoi), ''
     ].join(','));
     var csv = lines.join('\r\n');
     var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
@@ -566,21 +624,22 @@
     if (!rows || !rows.length) { FW.toast('没有可导出的项目'); return; }
     if (!window.XLSX) { FW.toast('Excel 导出组件未加载'); return; }
     var x = window.XLSX;
-    var aoa = [['排名', '项目', '收入', '流水成本', '应收回款项', '工资成本', '总成本', '利润', '利润率(%)', '投入产出比', '盈亏']];
+    var aoa = [['排名', '项目', '签收单量', '收入', '收入单产', '流水成本', '应收回款项', '工资成本', '总成本', '利润', '净利润单产', '利润率(%)', '投入产出比', '盈亏']];
     rows.forEach(function (r) {
       aoa.push([
-        r.rank, r.project, r.revenue, r.flowCost, (r.recoverable || 0), r.laborCost, r.totalCost, r.profit,
-        Number(r.rate.toFixed(2)), r.roi === Infinity ? '∞' : Number(r.roi.toFixed(2)), r.profit >= 0 ? '盈利' : '亏损'
+        r.rank, r.project, (r.qty || 0), r.revenue, (r.revUnit == null ? '' : Number(r.revUnit.toFixed(2))), r.flowCost, (r.recoverable || 0), r.laborCost, r.totalCost, r.profit,
+        (r.profitUnit == null ? '' : Number(r.profitUnit.toFixed(2))), Number(r.rate.toFixed(2)), r.roi === Infinity ? '∞' : Number(r.roi.toFixed(2)), r.profit >= 0 ? '盈利' : '亏损'
       ]);
     });
+    var tq = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
     aoa.push([
-      '', '合计', data.tot.revenue, data.tot.flowCost, data.tot.recoverable, data.tot.laborCost, data.tot.totalCost, data.tot.profit,
-      data.avgRate === Infinity ? '—' : Number(data.avgRate.toFixed(2)), data.avgRoi === Infinity ? '∞' : Number(data.avgRoi.toFixed(2)), ''
+      '', '合计', tq, data.tot.revenue, '', data.tot.flowCost, data.tot.recoverable, data.tot.laborCost, data.tot.totalCost, data.tot.profit,
+      '', data.avgRate === Infinity ? '—' : Number(data.avgRate.toFixed(2)), data.avgRoi === Infinity ? '∞' : Number(data.avgRoi.toFixed(2)), ''
     ]);
     var wb = x.utils.book_new();
     var ws = x.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [
-      { wch: 6 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 8 }
+      { wch: 6 }, { wch: 18 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 8 }
     ];
     x.utils.book_append_sheet(wb, ws, '项目核算');
     var out = x.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -640,7 +699,7 @@
     });
   }
 
-  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows };
+  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty };
 
   FW.modules = FW.modules || {};
   FW.modules.projectCost = { title: '项目核算', render: render };
