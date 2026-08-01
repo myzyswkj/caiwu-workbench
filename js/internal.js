@@ -322,8 +322,8 @@
         '<td>' + FW.esc(t.project || '—') + '</td>' +
         '<td>' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td>' + FW.esc(acctTxt) + '</td>' +
-        '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + '</td>' +
-        '<td>' + FW.esc(t.remark || '') + '</td>' +
+        '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
+        '<td>' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣支出 ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
         '<td class="photo-cell">' + (photos || '<span class="muted">—</span>') + '</td>' +
         '<td>' + FW.esc(t.party || '—') + '</td>' +
         '<td>' + FW.esc(t.reimburser || '—') + '</td>' +
@@ -749,10 +749,17 @@
         '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>';
     } else {
       var c1 = v.cat1 || '', c2 = v.cat2 || '';
+      var deductField = '';
+      if (type === 'income') {
+        deductField = '<div class="field full"><label>其中已扣除的支出（代付/代扣）¥</label>' +
+          '<input id="f_deduct" type="number" step="0.01" min="0" value="' + FW.esc(v.deduct || '') + '" placeholder="如本笔收入是扣除支出后的净额，填被扣除的金额">' +
+          '<div class="muted" style="font-size:12px;margin-top:4px">填了之后：实际收入 = 本笔金额 + 此处；该扣除额会计入<b>项目成本</b>（只计一次），对账/到账金额仍按本笔金额。用于修正「收入按净额记导致利润率失真」。</div></div>';
+      }
       el.innerHTML =
         '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select></div>' +
         '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a></div>' +
-        '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>';
+        '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
+        deductField;
       var c1sel = document.getElementById('f_cat1');
       if (c1sel) c1sel.onchange = function () { document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); };
       var mg = document.getElementById('mgCats');
@@ -1406,6 +1413,10 @@
           var c2 = document.getElementById('f_cat2').value;
           rec.category = c1 ? (c2 ? c1 + ' / ' + c2 : c1) : '';
           rec.account = document.getElementById('f_account').value;
+          if (type === 'income') {
+            var dv = parseFloat(document.getElementById('f_deduct').value);
+            rec.deduct = (dv > 0 && !isNaN(dv)) ? dv : 0;
+          }
         } else if (type === 'transfer') {
           rec.fromAccount = document.getElementById('f_from').value;
           rec.toAccount = document.getElementById('f_to').value;
@@ -1604,9 +1615,10 @@
       if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
       return t.type || '';
     }
-    var head = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
+    var head = ['日期', '类型', '项目', '分类', '账户', '金额', '已扣支出', '实际收入', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
     var data = rows.map(function (t) {
-      return [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), t.amount, (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'];
+      var dv = (t.type === 'income' && t.deduct > 0) ? t.deduct : 0;
+      return [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), t.amount, dv, dv ? (t.amount + dv) : '', (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');

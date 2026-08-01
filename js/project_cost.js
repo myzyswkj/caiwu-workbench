@@ -74,9 +74,14 @@
     txs.forEach(function (t) {
       var p = (t.project || '').trim();
       var a = num(t.amount);
-      if (!p) { unFlowCount++; unFlowAmt += a; return; }
+      var dv = (t.type === 'income' && num(t.deduct) > 0) ? num(t.deduct) : 0; // 已扣支出（代付/代扣）
+      if (!p) { unFlowCount++; unFlowAmt += (a + dv); return; }
       var d = ensure(p);
-      if (t.type === 'income') d.revenue += a;
+      if (t.type === 'income') {
+        // 实际收入 = 到账净额 + 已扣支出（还原毛额）；已扣支出计入流水成本（只计一次，不重复）
+        d.revenue += (a + dv);
+        if (dv > 0) { var ic = cat1(t); var icf = catFull(t); d.flowCost += dv; d.byCat[ic] = (d.byCat[ic] || 0) + dv; d.byCat2[icf] = (d.byCat2[icf] || 0) + dv; }
+      }
       else if (t.type === 'expense') { d.flowCost += a; var c = cat1(t); var cf = catFull(t); d.byCat[c] = (d.byCat[c] || 0) + a; d.byCat2[cf] = (d.byCat2[cf] || 0) + a; }
       else if (t.type === 'refund') { d.flowCost -= a; var c2 = cat1(t); var cf2 = catFull(t); d.byCat[c2] = (d.byCat[c2] || 0) - a; d.byCat2[cf2] = (d.byCat2[cf2] || 0) - a; }
     });
@@ -201,9 +206,11 @@
         '<option value="all"' + (state.year === 'all' ? ' selected' : '') + '>全部年度</option>' +
         years.map(function (y) { return '<option value="' + y + '"' + (state.year === y ? ' selected' : '') + '>' + y + ' 年</option>'; }).join('') +
         '</select>' +
-        '<button class="btn" id="pcExport">⬇ 导出CSV</button>';
+        '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
+        '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
       document.getElementById('pcYear').onchange = function () { state.year = this.value; render(); };
       document.getElementById('pcExport').onclick = function () { exportCSV(data); };
+      document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
     }
 
     var html = '<div class="salary-wrap">';
@@ -457,7 +464,53 @@
     FW.toast('已导出 CSV');
   }
 
-  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears };
+  // 批量校正：把按净额记的收入，补填被扣除的支出（已扣支出）
+  function openDeductCorrector() {
+    var inc = FW.db.getList('internal').filter(function (t) { return t.type === 'income'; })
+      .sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    var body =
+      '<div class="muted" style="font-size:12px;margin-bottom:8px">以下为所有「收入」流水。若某笔是按<b>净额</b>记的（已扣除代付/代扣支出），请在「已扣支出」列填入被减去的金额。保存后：<b>实际收入</b> = 到账金额 + 已扣支出，已扣支出计入该项目<b>成本</b>（只计一次），利润率即正确；对账与到账金额不受影响。</div>' +
+      '<div style="max-height:52vh;overflow:auto"><table class="pc-correct-table"><thead><tr><th>日期</th><th>项目</th><th>对方</th><th class="num">到账金额</th><th class="num">已扣支出</th><th class="num">实际收入</th></tr></thead><tbody>' +
+      inc.map(function (t, i) {
+        var d = num(t.deduct) > 0 ? num(t.deduct) : 0;
+        return '<tr>' +
+          '<td>' + FW.esc(t.date || '') + '</td>' +
+          '<td>' + FW.esc(t.project || '—') + '</td>' +
+          '<td>' + FW.esc(t.party || '—') + '</td>' +
+          '<td class="num">' + FW.fmtMoney(num(t.amount)) + '</td>' +
+          '<td class="num"><input class="pc-deduct-in" data-i="' + i + '" type="number" step="0.01" min="0" value="' + (d ? d : '') + '" style="width:90px"></td>' +
+          '<td class="num pc-actual" data-i="' + i + '">' + FW.fmtMoney(num(t.amount) + d) + '</td>' +
+          '</tr>';
+      }).join('') +
+      '</tbody></table></div>' +
+      '<div class="form-actions"><button class="btn ghost" id="pcCorCancel">取消</button><button class="btn" id="pcCorSave">保存校正</button></div>';
+    FW.openModal('校正净额收入', body, function () {
+      FW.qa('.pc-deduct-in').forEach(function (inp) {
+        inp.oninput = function () {
+          var i = +this.dataset.i;
+          var v = parseFloat(this.value) || 0;
+          var cell = document.querySelector('.pc-actual[data-i="' + i + '"]');
+          if (cell) cell.textContent = FW.fmtMoney(num(inc[i].amount) + v);
+        };
+      });
+      document.getElementById('pcCorCancel').onclick = FW.closeModal;
+      document.getElementById('pcCorSave').onclick = function () {
+        var n = 0;
+        FW.qa('.pc-deduct-in').forEach(function (inp) {
+          var i = +this.dataset.i;
+          var v = parseFloat(this.value);
+          var dv = (v > 0 && !isNaN(v)) ? v : 0;
+          var rec = inc[i];
+          if (num(rec.deduct) !== dv) { rec.deduct = dv; FW.db.upsert('internal', rec); n++; }
+        });
+        FW.closeModal();
+        render();
+        FW.toast(n ? ('已校正 ' + n + ' 笔收入') : '无变更');
+      };
+    });
+  }
+
+  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector };
 
   FW.modules = FW.modules || {};
   FW.modules.projectCost = { title: '项目核算', render: render };

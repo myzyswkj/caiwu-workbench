@@ -725,6 +725,14 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .pc-cat2-table tr.cat2-subtotal td { background: #faf5ea; font-weight: 600; border-top: 1px dashed #d4c8a8; }
 .pc-cat2-table td.cat2-l1-total { text-align: right; padding-right: 10px; color: #7a6a3a; }
 
+/* 校正净额收入面板 */
+.pc-correct-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pc-correct-table thead th { background: #f4f9ff; color: #2c4a6e; font-weight: 600; padding: 7px 10px; border-bottom: 1px solid #dce8f5; text-align: left; position: sticky; top: 0; }
+.pc-correct-table tbody td { padding: 5px 10px; border-bottom: 1px solid #eef3f9; }
+.pc-correct-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pc-correct-table .pc-actual { color: #C9A227; font-weight: 600; }
+.pc-correct-table input.pc-deduct-in { text-align: right; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; }
+
 /* 项目明细录入 */
 .form-section { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: #fffdf8; }
 .form-sec-title { font-weight: 600; font-size: 13px; margin-bottom: 8px; color: var(--text); }

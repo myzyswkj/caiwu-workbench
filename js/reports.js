@@ -61,7 +61,17 @@
       if (!inRange(t, from, to)) return;
       var a = num(t.amount), cat = t.category || '未分类';
       if (t.type === 'income') {
-        income[cat] = (income[cat] || 0) + a; incomeTotal += a;
+        // 实际收入 = 到账净额 + 已扣支出（还原毛额）；已扣支出计入对应分类成本（只计一次）
+        var dv = num(t.deduct);
+        var gross = a + (dv > 0 ? dv : 0);
+        income[cat] = (income[cat] || 0) + gross; incomeTotal += gross;
+        if (dv > 0) {
+          var ik = classify(cat);
+          if (ik === 'cost') { cost[cat] = (cost[cat] || 0) + dv; costTotal += dv; }
+          else if (ik === 'tax') { tax[cat] = (tax[cat] || 0) + dv; taxTotal += dv; }
+          else if (ik === 'invest') { invest[cat] = (invest[cat] || 0) + dv; investTotal += dv; }
+          else { fee[cat] = (fee[cat] || 0) + dv; feeTotal += dv; }
+        }
       } else if (t.type === 'expense') {
         var k = classify(cat);
         if (k === 'cost') { cost[cat] = (cost[cat] || 0) + a; costTotal += a; }
