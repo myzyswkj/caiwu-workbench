@@ -62,11 +62,21 @@ store['salary_records'] = [
     baseItems: [{ project: '项目A', amount: 1000 }] }
 ];
 
+// 往来账：预付款 → 项目核算「应收回款项」。仅 kind='预付' 计入；按项目聚合未用完余额（amount - settled）
+store['contacts'] = [
+  { id: 'c1', kind: '预付', party: '供应商甲', project: '项目A', date: '2026-02-01', amount: 60000, settled: 10000 }, // 余额 50000
+  { id: 'c2', kind: '预付', party: '供应商乙', project: '项目B', date: '2026-04-01', amount: 40000, settled: 0 },     // 余额 40000
+  { id: 'c3', kind: '预付', party: '供应商丙', project: '项目A', date: '2025-08-01', amount: 20000, settled: 5000 },  // 2025 余额 15000
+  { id: 'c4', kind: '预付', party: '供应商丁', project: '', date: '2026-05-01', amount: 30000, settled: 0 },          // 未关联项目 30000
+  { id: 'c5', kind: '应收', party: '客户X', project: '项目A', date: '2026-03-01', amount: 30000, settled: 0 },          // 应收，不计入应收回款项
+  { id: 'c6', kind: '预付', party: '供应商戊', project: '项目D', date: '2026-06-01', amount: 10000, settled: 0 }          // 仅预付、无收支的项目
+];
+
 var C = FW.projectCostCalc;
 
 console.log('--- 1) 全部年度聚合 ---');
 var d = C.compute('all');
-ok('聚合出 3 个项目(A/B/C)', d.rows.length === 3);
+ok('聚合出 4 个项目(A/B/C/D)', d.rows.length === 4);
 
 var A = d.rows.filter(function (r) { return r.project === '项目A'; })[0];
 ok('项目A 收入 = 100000+10000(2025) = 110000', approx(A.revenue, 110000));
@@ -76,16 +86,25 @@ ok('项目A 总成本 = 56000', approx(A.totalCost, 56000));
 ok('项目A 利润 = 54000', approx(A.profit, 54000));
 ok('项目A 利润率 = 54000/110000 = 49.09%', approx(A.rate, 49.0909));
 ok('项目A 投入产出比 = 110000/56000 = 1.964', approx(A.roi, 1.9643));
+ok('项目A 应收回款项 = 预付(c1 余额50000 + c3 2025余额15000) = 65000', approx(A.recoverable, 65000));
 
 var B = d.rows.filter(function (r) { return r.project === '项目B'; })[0];
 ok('项目B 收入 = 0（仅有成本）', approx(B.revenue, 0));
 ok('项目B 利润 = -28000（亏损）', approx(B.profit, -28000) && B.gain === false);
 ok('项目B 利润率 = 0（无收入）', approx(B.rate, 0));
+ok('项目B 应收回款项 = 预付(c2 余额40000)', approx(B.recoverable, 40000));
 
 var Cc = d.rows.filter(function (r) { return r.project === '项目C'; })[0];
 ok('项目C 总成本 = 0（无成本）', approx(Cc.totalCost, 0));
 ok('项目C 利润 = 50000', approx(Cc.profit, 50000));
 ok('项目C 投入产出比 = ∞（成本0且收入>0）', Cc.roi === Infinity);
+ok('项目C 应收回款项 = 0（无预付）', approx(Cc.recoverable, 0));
+
+var Dd = d.rows.filter(function (r) { return r.project === '项目D'; })[0];
+ok('聚合出 4 个项目(A/B/C/D，D 仅预付)', d.rows.length === 4);
+ok('项目D 仅预付无收支，应收回款项 = 10000 仍出现', Dd && approx(Dd.recoverable, 10000) && approx(Dd.revenue, 0) && approx(Dd.profit, 0));
+ok('应收(c5 kind=应收) 不计入应收回款项', A.recoverable === 65000);
+ok('总应收回款项 = 65000+40000+10000 = 115000', approx(d.tot.recoverable, 115000));
 
 ok('总流水成本 = 30000+20000 = 50000', approx(d.tot.flowCost, 50000));
 ok('总工资成本 = 26000+8000 = 34000', approx(d.tot.laborCost, 34000));
@@ -97,6 +116,8 @@ var dd = C.compute(2026);
 var A6 = dd.rows.filter(function (r) { return r.project === '项目A'; })[0];
 ok('2026 项目A 收入 = 100000（不含2025的10000）', approx(A6.revenue, 100000));
 ok('2026 项目A 工资成本 = 25000（仅2026工资）', approx(A6.laborCost, 25000));
+ok('2026 项目A 应收回款项 = 50000（不含2025的15000）', approx(A6.recoverable, 50000));
+ok('2026 总应收回款项 = A50000+B40000+D10000 = 100000', approx(dd.tot.recoverable, 100000));
 ok('2026 不含 2025 的工资项目', dd.rows.every(function (r) { return r.project !== '虚'; }));
 
 console.log('--- 3) getYears ---');
@@ -110,10 +131,11 @@ ok('旧数值工资归为「未分类」单条 5000', items.length === 1 && item
 console.log('--- 5) 未分配 / 月度趋势 / 排名 / 成本结构 ---');
 ok('未分配流水 1 笔、999 元', d.unalloc.flowCount === 1 && approx(d.unalloc.flowAmt, 999));
 ok('无项目的工资 → 0 条未分配', d.unalloc.laborCount === 0 && approx(d.unalloc.laborAmt, 0));
+ok('未关联项目的预付款 1 笔、30000 元', d.unalloc.prepayCount === 1 && approx(d.unalloc.prepayAmt, 30000));
 ok('不再生成「未分类」项目行', d.rows.every(function (r) { return r.project !== '未分类'; }));
 
 ok('排名按利润降序：项目A 第1', d.rows[0].project === '项目A' && d.rows[0].rank === 1);
-ok('排名：项目C 第2、项目B 第3（亏损）', d.rows[1].project === '项目C' && d.rows[2].project === '项目B' && d.rows[2].rank === 3);
+ok('排名：项目C 第2、项目D 第3(利润0)、项目B 第4（亏损）', d.rows[1].project === '项目C' && d.rows[2].project === '项目D' && d.rows[3].project === '项目B' && d.rows[3].rank === 4);
 
 ok('逐月趋势月份数 = 8（5 个流水月 + 3 个工资月）', d.monthly.labels.length === 8);
 var revSum = d.monthly.revenue.reduce(function (s, v) { return s + v; }, 0);

@@ -14,6 +14,8 @@
   var FW = window.FW || (window.FW = {});
 
   function num(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+  // 往来账余额：金额 − 已核销
+  function contactBalance(r) { return (Number(r.amount) || 0) - (Number(r.settled) || 0); }
 
   function getInternal() { return FW.db.getList('internal'); }
   function getSalaryRecs() { return FW.db.getList('salary_records'); }
@@ -56,13 +58,14 @@
 
     var map = {};
     function ensure(p) {
-      if (!map[p]) map[p] = { revenue: 0, flowCost: 0, laborCost: 0, byCat: {}, laborByType: { base: 0, bonus: 0, commission: 0 } };
+      if (!map[p]) map[p] = { revenue: 0, flowCost: 0, laborCost: 0, byCat: {}, laborByType: { base: 0, bonus: 0, commission: 0 }, recoverable: 0 };
       return map[p];
     }
 
     // ===== 未分配统计 =====
     var unFlowCount = 0, unFlowAmt = 0;
     var unLaborAmt = 0, laborUnallocRecs = {};
+    var preUnallocCount = 0, preUnallocAmt = 0;
 
     // 流水：收入 / 支出（仅统计带项目的流水；不带项目的进入未分配）
     txs.forEach(function (t) {
@@ -83,8 +86,19 @@
       });
     });
 
+    // ===== 往来账：预付款未用完余额 → 应收回款项（按项目） =====
+    FW.db.getList('contacts').filter(function (r) {
+      return r.kind === '预付' && inYear((r.date || '').slice(0, 4), year);
+    }).forEach(function (r) {
+      var b = contactBalance(r);
+      if (b <= 0) return;
+      var p = (r.project || '').trim();
+      if (!p) { preUnallocCount++; preUnallocAmt += b; return; }
+      ensure(p).recoverable += b;
+    });
+
     var projects = Object.keys(map).filter(function (p) {
-      var d = map[p]; return d.revenue || d.flowCost || d.laborCost;
+      var d = map[p]; return d.revenue || d.flowCost || d.laborCost || d.recoverable;
     });
     projects.sort(function (a, b) {
       var da = map[a], db = map[b];
@@ -100,14 +114,14 @@
       return {
         project: p, revenue: d.revenue, flowCost: d.flowCost, laborCost: d.laborCost,
         totalCost: totalCost, profit: profit, rate: rate, roi: roi, gain: profit >= 0,
-        rank: idx + 1, byCat: d.byCat, laborByType: d.laborByType
+        rank: idx + 1, byCat: d.byCat, laborByType: d.laborByType, recoverable: d.recoverable || 0
       };
     });
 
-    var tot = { revenue: 0, flowCost: 0, laborCost: 0, totalCost: 0, profit: 0 };
+    var tot = { revenue: 0, flowCost: 0, laborCost: 0, totalCost: 0, profit: 0, recoverable: 0 };
     rows.forEach(function (r) {
       tot.revenue += r.revenue; tot.flowCost += r.flowCost; tot.laborCost += r.laborCost;
-      tot.totalCost += r.totalCost; tot.profit += r.profit;
+      tot.totalCost += r.totalCost; tot.profit += r.profit; tot.recoverable += (r.recoverable || 0);
     });
     var avgRate = tot.revenue > 0 ? tot.profit / tot.revenue * 100 : 0;
     var avgRoi = tot.totalCost > 0 ? tot.revenue / tot.totalCost : (tot.revenue > 0 ? Infinity : 0);
@@ -150,7 +164,8 @@
 
     var unalloc = {
       flowCount: unFlowCount, flowAmt: unFlowAmt,
-      laborCount: Object.keys(laborUnallocRecs).length, laborAmt: unLaborAmt
+      laborCount: Object.keys(laborUnallocRecs).length, laborAmt: unLaborAmt,
+      prepayCount: preUnallocCount, prepayAmt: preUnallocAmt
     };
 
     return { rows: rows, tot: tot, avgRate: avgRate, avgRoi: avgRoi, cats: cats, laborTypes: laborTypes, monthly: monthly, unalloc: unalloc };
@@ -184,6 +199,7 @@
 
     var html = '<div class="salary-wrap">';
     html += statRow(data);
+    html += recoverNote(data);
     html += unallocHtml(data);
     html += chartHtml(data);
     html += trendHtml(data);
@@ -217,21 +233,35 @@
       statCard('总工资成本', FW.fmtMoney(t.laborCost), 'amt-expense') +
       statCard('总成本', FW.fmtMoney(t.totalCost)) +
       statCard('总利润', FW.fmtMoney(t.profit), t.profit >= 0 ? 'amt-income' : 'amt-expense') +
+      statCard('应收回款项（预付未用完）', FW.fmtMoney(t.recoverable), 'amt-recover') +
       statCard('平均利润率', (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—') + '%') +
       statCard('平均投入产出比', isFinite(data.avgRoi) ? data.avgRoi.toFixed(2) : '∞') +
+      '</div>';
+  }
+
+  // 应收回款项说明（来自往来账预付未用完余额）
+  function recoverNote(data) {
+    if (!data.tot.recoverable) return '';
+    return '<div class="pc-note">' +
+      '<span class="pc-note-ico">↩</span>' +
+      '<div>项目「应收回款项」合计 <b>' + FW.fmtMoney(data.tot.recoverable) + '</b>：来自「往来账」中标记为 <b>预付</b> 且关联了项目的单据，取其<b>未用完余额</b>（预付款 − 已核销）。这是待收回 / 待核销的资金，<b>不参与利润计算</b>，但属于项目占用的可收回资金。核销（收回 / 消耗）后余额减少，这里的金额会同步下降。</div>' +
       '</div>';
   }
 
   // 未分配资金提醒
   function unallocHtml(data) {
     var u = data.unalloc;
-    if (!u.flowCount && !u.laborCount) return '';
+    if (!u.flowCount && !u.laborCount && !u.prepayCount) return '';
     var parts = [];
     if (u.flowCount) parts.push('流水 <b>' + u.flowCount + '</b> 笔、合计 <b>' + FW.fmtMoney(u.flowAmt) + '</b> 未填写项目');
     if (u.laborCount) parts.push('工资 <b>' + u.laborCount + '</b> 条、合计 <b>' + FW.fmtMoney(u.laborAmt) + '</b> 未分类项目');
+    if (u.prepayCount) parts.push('预付款 <b>' + u.prepayCount + '</b> 笔、余额合计 <b>' + FW.fmtMoney(u.prepayAmt) + '</b> 未关联项目');
     return '<div class="pc-unalloc">' +
       '<span class="pc-unalloc-ico">⚠</span>' +
-      '<div class="pc-unalloc-body"><b>有 ' + parts.join('；') + '</b>，未纳入项目核算。补全流水「项目」或工资「按项目分类」后，这些数据会自动进入对应项目的成本 / 利润。</div>' +
+      '<div class="pc-unalloc-body"><b>有 ' + parts.join('；') + '</b>，未纳入项目核算。' +
+      (u.flowCount || u.laborCount ? '补全流水「项目」或工资「按项目分类」后，会自动进入对应项目的成本 / 利润。' : '') +
+      (u.prepayCount ? '在「往来账」给预付款登记「关联项目」后，其未用完余额会自动进入对应项目的「应收回款项」。' : '') +
+      '</div>' +
       '</div>';
   }
 
@@ -287,7 +317,7 @@
 
   // 下钻明细
   function detailHtml(r) {
-    var h = '<tr class="pc-detail-row"><td colspan="10"><div class="pc-detail">';
+    var h = '<tr class="pc-detail-row"><td colspan="11"><div class="pc-detail">';
     var cats = Object.keys(r.byCat).map(function (c) { return { label: c, value: r.byCat[c] }; }).sort(function (a, b) { return b.value - a.value; });
     h += '<div class="pc-detail-block"><h5>流水成本构成（按分类）</h5>';
     h += cats.length ? FW.barChart('', cats, { height: 180 }) : '<div class="muted">无</div>';
@@ -313,7 +343,7 @@
         '</div>';
     }
     var h = '<div class="proj-sum-wrap"><table class="proj-sum-table" id="pcTable"><thead><tr>' +
-      '<th class="pc-rank">排名</th><th>项目</th><th class="num">收入</th><th class="num">流水成本</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">利润率</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
+      '<th class="pc-rank">排名</th><th>项目</th><th class="num">收入</th><th class="num">流水成本</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">利润率</th><th class="num">投入产出比</th><th class="num">应收回款项</th><th>盈亏</th></tr></thead><tbody>';
     data.rows.forEach(function (r) {
       var profitCls = r.profit >= 0 ? 'amt-income' : 'amt-expense';
       var badge = r.profit >= 0 ? '<span class="badge ok">盈利</span>' : '<span class="badge bad">亏损</span>';
@@ -328,6 +358,7 @@
         '<td class="num ' + profitCls + '"><b>' + FW.fmtMoney(r.profit) + '</b></td>' +
         '<td class="num">' + r.rate.toFixed(1) + '%</td>' +
         '<td class="num">' + fmtRoi(r.roi) + '</td>' +
+        '<td class="num amt-recover">' + FW.fmtMoney(r.recoverable || 0) + '</td>' +
         '<td>' + badge + '</td></tr>';
       if (open) h += detailHtml(r);
     });
@@ -338,23 +369,24 @@
       '<td class="num">' + FW.fmtMoney(data.tot.totalCost) + '</td>' +
       '<td class="num ' + (data.tot.profit >= 0 ? 'amt-income' : 'amt-expense') + '"><b>' + FW.fmtMoney(data.tot.profit) + '</b></td>' +
       '<td class="num">' + (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—') + '%</td>' +
-      '<td class="num">' + fmtRoi(data.avgRoi) + '</td><td></td></tr>';
+      '<td class="num">' + fmtRoi(data.avgRoi) + '</td>' +
+      '<td class="num amt-recover"><b>' + FW.fmtMoney(data.tot.recoverable) + '</b></td><td></td></tr>';
     h += '</tbody></table></div>';
     return h;
   }
 
   function exportCSV(data) {
-    var header = ['排名', '项目', '收入', '流水成本', '工资成本', '总成本', '利润', '利润率(%)', '投入产出比', '盈亏'];
+    var header = ['排名', '项目', '收入', '流水成本', '工资成本', '总成本', '利润', '利润率(%)', '投入产出比', '应收回款项', '盈亏'];
     var lines = [header.join(',')];
     data.rows.forEach(function (r) {
       lines.push([
         r.rank, r.project, r.revenue, r.flowCost, r.laborCost, r.totalCost, r.profit,
-        r.rate.toFixed(1), fmtRoi(r.roi), r.profit >= 0 ? '盈利' : '亏损'
+        r.rate.toFixed(1), fmtRoi(r.roi), (r.recoverable || 0), r.profit >= 0 ? '盈利' : '亏损'
       ].join(','));
     });
     lines.push([
       '', '合计', data.tot.revenue, data.tot.flowCost, data.tot.laborCost, data.tot.totalCost, data.tot.profit,
-      (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—'), fmtRoi(data.avgRoi), ''
+      (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—'), fmtRoi(data.avgRoi), data.tot.recoverable, ''
     ].join(','));
     var csv = lines.join('\r\n');
     var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });

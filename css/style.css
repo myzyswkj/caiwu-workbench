@@ -685,6 +685,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .pc-unalloc { display: flex; gap: 10px; align-items: flex-start; background: #fff8e8; border: 1px solid #f0d79a; color: #7a5b13; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; line-height: 1.5; }
 .pc-unalloc-ico { font-size: 18px; line-height: 1.2; }
 .pc-unalloc-body b { color: #8a5a00; }
+.pc-note { display: flex; gap: 10px; align-items: flex-start; background: #f4f9ff; border: 1px solid #cfe0f5; border-left: 4px solid #2b6cb0; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; line-height: 1.55; color: #2c4a6e; }
+.pc-note-ico { font-size: 18px; line-height: 1.2; color: #2b6cb0; }
+.pc-note b { color: #1f4e79; }
+.sal-stat-val.amt-recover { color: #2b6cb0; }
+.proj-sum-table td.amt-recover { color: #2b6cb0; font-weight: 600; }
+.tag.prepay { background: #e8f0fe; color: #2b6cb0; }
 .pc-section-title { font-size: 14px; font-weight: 700; color: var(--ink); margin: 16px 0 8px; }
 .pc-charts { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
 .pc-charts .chart-box { flex: 1 1 320px; min-width: 300px; }
