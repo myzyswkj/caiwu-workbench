@@ -113,7 +113,7 @@
     // 子标签
     html += '<div class="tabs sal-tabs">' +
       '<button class="tab ' + (state.tab !== 'mind' ? 'active' : '') + '" data-tab="table">工资表</button>' +
-      '<button class="tab ' + (state.tab === 'mind' ? 'active' : '') + '" data-tab="mind">项目工资脑图</button>' +
+      '<button class="tab ' + (state.tab === 'mind' ? 'active' : '') + '" data-tab="mind">项目工资图</button>' +
       '</div>';
 
     if (emps.length === 0) {
@@ -129,7 +129,7 @@
       return;
     }
 
-    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>、<strong>奖金</strong>与<strong>提成</strong>，三者分开记录；底薪、奖金与提成均可按<strong>项目/客户</strong>分类（点格子编辑时分行填写）。右侧自动累计各项。切到「项目工资脑图」可直观看到每个项目发了多少底薪、奖金与提成。</p>';
+    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>、<strong>奖金</strong>与<strong>提成</strong>，三者分开记录；底薪、奖金与提成均可按<strong>项目/客户</strong>分类（点格子编辑时分行填写）。右侧自动累计各项。切到「项目工资图」可直观看到每个项目发了多少底薪、奖金与提成。</p>';
 
     if (state.tab === 'mind') html += drawMindView();
     else html += drawTableView(rows);
@@ -203,18 +203,26 @@
     var mind = buildMindData();
     if (!mind.projects.length) {
       return '<div class="empty-state">' +
-        '<div class="empty-ico">🧠</div>' +
-        '<div class="empty-title">还没有按项目登记的底薪/奖金/提成</div>' +
-        '<div class="empty-sub">在「工资表」点任意格子编辑某月工资，底薪、奖金或提成可逐行填写项目（如 项目A、客户B）。登记后这里会以脑图展示每个项目发了多少底薪、奖金与提成。</div>' +
+        '<div class="empty-ico">📊</div>' +
+        '<div class="empty-title">还没有按项目登记底薪/奖金/提成</div>' +
+        '<div class="empty-sub">在「工资表」点任意格子编辑某月工资，底薪、奖金或提成可逐行填写项目（如 项目A、客户B）。登记后这里会以柱状图展示每个项目发了多少底薪、奖金与提成。</div>' +
         '</div>';
     }
+    var labels = mind.projects;
+    var baseVals = labels.map(function (p) { return mind.projMap[p].base; });
+    var bonusVals = labels.map(function (p) { return mind.projMap[p].bonus; });
+    var commVals = labels.map(function (p) { return mind.projMap[p].commission; });
+    var series = [
+      { name: '底薪', color: '#C9A227', values: baseVals },
+      { name: '奖金', color: '#C8102E', values: bonusVals },
+      { name: '提成', color: '#1f9d55', values: commVals }
+    ];
+    var chartW = Math.max(440, labels.length * 74 + 70);
     var html = '';
-    html += '<div class="mind-legend">' +
-      '<span class="lg-item"><i style="background:#C9A227"></i>底薪</span>' +
-      '<span class="lg-item"><i style="background:#C8102E"></i>奖金</span>' +
-      '<span class="lg-item"><i style="background:#1f9d55"></i>提成</span>' +
-      '<span class="muted" style="margin-left:8px">' + state.year + ' 全年 · 按项目统计底薪、奖金与提成发放</span></div>';
-    html += mind.svg;
+    html += '<p class="sal-tip">📊 ' + state.year + ' 全年各项目工资对比：<strong style="color:#C9A227">金色=底薪</strong>、<strong style="color:#C8102E">红色=奖金</strong>、<strong style="color:#1f9d55">绿色=提成</strong>。柱子越高表示该项目该项金额越大；下表列出每个项目的明细与合计。</p>';
+    html += '<div class="mindmap-box"><div style="min-width:' + chartW + 'px">' +
+      FW.groupedBarChart(state.year + ' 年 · 各项目工资（底薪/奖金/提成）', series, labels, { width: chartW, height: 220 }) +
+      '</div></div>';
     html += '<div class="proj-sum-wrap"><table class="proj-sum-table"><thead><tr>' +
       '<th>项目</th><th class="num">底薪</th><th class="num">奖金</th><th class="num">提成</th><th class="num">合计</th></tr></thead><tbody>';
     mind.projects.forEach(function (p) {

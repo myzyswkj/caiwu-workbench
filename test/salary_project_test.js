@@ -139,5 +139,19 @@ var cLegacy = Calc.computeEmpYear({ id: 'lg' }, legacy, 2028);
 ok('旧 base 规范为 1 条底薪明细(7500)', cLegacy.months[0].baseItems.length === 1 && Math.abs(cLegacy.months[0].baseItems[0].amount - 7500) < 0.001);
 ok('旧 base 规范后底薪合计不变 = 7500', Math.abs(cLegacy.months[0].base - 7500) < 0.001);
 
+console.log('--- 7) 项目工资图（分组柱状图）渲染输出 ---');
+var chartSeries = [
+  { name: '底薪', color: '#C9A227', values: aggB.projects.map(function (p) { return aggB.projMap[p].base; }) },
+  { name: '奖金', color: '#C8102E', values: aggB.projects.map(function (p) { return aggB.projMap[p].bonus; }) },
+  { name: '提成', color: '#1f9d55', values: aggB.projects.map(function (p) { return aggB.projMap[p].commission; }) }
+];
+var chartSvg = FW.groupedBarChart('2028 年 · 各项目工资', chartSeries, aggB.projects, { width: 440, height: 220 });
+ok('分组柱状图含项目甲', chartSvg.indexOf('项目甲') > -1);
+ok('分组柱状图含项目乙', chartSvg.indexOf('项目乙') > -1);
+ok('分组柱状图含图例「底薪」', chartSvg.indexOf('>底薪<') > -1 || chartSvg.indexOf('底薪') > -1);
+ok('分组柱状图含金色 #C9A227', chartSvg.indexOf('#C9A227') > -1);
+ok('分组柱状图含红色 #C8102E', chartSvg.indexOf('#C8102E') > -1);
+ok('分组柱状图含绿色 #1f9d55', chartSvg.indexOf('#1f9d55') > -1);
+
 console.log('\n工资项目化/脑图 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);
