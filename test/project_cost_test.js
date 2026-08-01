@@ -107,5 +107,24 @@ console.log('--- 4) 旧数值工资 / 未选项目 兼容 ---');
 var items = C.salaryItems({ base: 5000, bonus: 0, commission: 0 });
 ok('旧数值工资归为「未分类」单条 5000', items.length === 1 && items[0].project === '未分类' && approx(items[0].amount, 5000));
 
+console.log('--- 5) 未分配 / 月度趋势 / 排名 / 成本结构 ---');
+ok('未分配流水 1 笔、999 元', d.unalloc.flowCount === 1 && approx(d.unalloc.flowAmt, 999));
+ok('无项目的工资 → 0 条未分配', d.unalloc.laborCount === 0 && approx(d.unalloc.laborAmt, 0));
+ok('不再生成「未分类」项目行', d.rows.every(function (r) { return r.project !== '未分类'; }));
+
+ok('排名按利润降序：项目A 第1', d.rows[0].project === '项目A' && d.rows[0].rank === 1);
+ok('排名：项目C 第2、项目B 第3（亏损）', d.rows[1].project === '项目C' && d.rows[2].project === '项目B' && d.rows[2].rank === 3);
+
+ok('逐月趋势月份数 = 8（5 个流水月 + 3 个工资月）', d.monthly.labels.length === 8);
+var revSum = d.monthly.revenue.reduce(function (s, v) { return s + v; }, 0);
+var costSum = d.monthly.cost.reduce(function (s, v) { return s + v; }, 0);
+ok('月度收入合计 = 总收入 160000', approx(revSum, 160000));
+ok('月度成本合计 = 总流水+总工资 = 84000', approx(costSum, 84000));
+
+ok('成本结构(分类)：无分类流水归「其他」= 50000', d.cats.length === 1 && d.cats[0].label === '其他' && approx(d.cats[0].value, 50000));
+var ltSum = d.laborTypes.reduce(function (s, x) { return s + x.value; }, 0);
+ok('工资成本构成合计 = 34000（底薪21000+奖金5000+提成8000）', approx(ltSum, 34000));
+ok('工资成本构成含 底薪/奖金/提成 三项', d.laborTypes.length === 3);
+
 console.log('\n项目核算 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);

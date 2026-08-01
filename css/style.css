@@ -679,6 +679,27 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .proj-sum-table .amt-income { color: #C8102E; }
 .proj-sum-table .amt-expense { color: #1f9d55; }
 
+/* ===== 项目核算：未分配提醒 / 成本结构 / 趋势 / 下钻 ===== */
+.pc-year-label { font-size: 13px; color: var(--muted); margin-right: 4px; }
+.pc-year { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; }
+.pc-unalloc { display: flex; gap: 10px; align-items: flex-start; background: #fff8e8; border: 1px solid #f0d79a; color: #7a5b13; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; line-height: 1.5; }
+.pc-unalloc-ico { font-size: 18px; line-height: 1.2; }
+.pc-unalloc-body b { color: #8a5a00; }
+.pc-section-title { font-size: 14px; font-weight: 700; color: var(--ink); margin: 16px 0 8px; }
+.pc-charts { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+.pc-charts .chart-box { flex: 1 1 320px; min-width: 300px; }
+.proj-sum-table .pc-rank { width: 52px; text-align: center; color: var(--muted); font-weight: 600; }
+.proj-sum-table td.pc-rank { font-size: 15px; }
+.pc-row { cursor: pointer; transition: background .12s; }
+.pc-row:hover { background: #faf6ee; }
+.pc-row.open { background: #fbf2dd; }
+.pc-caret { display: inline-block; color: #C9A227; font-size: 12px; transition: transform .12s; }
+.pc-detail-row > td { background: #fcfaf4; padding: 0 !important; }
+.pc-detail { display: flex; flex-wrap: wrap; gap: 16px; padding: 14px 18px; }
+.pc-detail-block { flex: 1 1 300px; min-width: 280px; }
+.pc-detail-block h5 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.pc-detail-block .chart-box { border: none; padding: 0; background: transparent; }
+
 /* 项目明细录入 */
 .form-section { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: #fffdf8; }
 .form-sec-title { font-weight: 600; font-size: 13px; margin-bottom: 8px; color: var(--text); }
