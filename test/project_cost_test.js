@@ -182,5 +182,17 @@ C.setQty('项目A', -5); // 负数应归零
 ok('setQty 负数归零', C.getQtyMap()['项目A'] === 0);
 C.setQty('项目A', 0);
 
+// ===== 成本率（costRateOf）：默认总成本口径，可选一级/二级分类口径 =====
+var crRow = { revenue: 100000, totalCost: 70000, byCat: { '办公费': 30000, '差旅': 10000 }, byCat2: { '办公费 / 文具': 12000, '办公费 / 打印': 8000, '差旅 / 交通': 10000 } };
+ok('成本率 默认口径=总成本/收入（70000/100000=70%）', approx(C.costRateOf(crRow, '', '').rate, 70));
+ok('成本率 默认口径 cost=总成本（70000）', C.costRateOf(crRow, '', '').cost === 70000);
+ok('成本率 选一级「办公费」=$(30000)/100000=30%', approx(C.costRateOf(crRow, '办公费', '').rate, 30));
+ok('成本率 选一级「办公费」cost=30000', C.costRateOf(crRow, '办公费', '').cost === 30000);
+ok('成本率 选二级「办公费 / 文具」=$(12000)/100000=12%', approx(C.costRateOf(crRow, '办公费', '文具').rate, 12));
+ok('成本率 选二级 cost=对应二级成本', C.costRateOf(crRow, '办公费', '文具').cost === 12000);
+ok('成本率 一级下无该二级 → cost=0、rate=0', C.costRateOf(crRow, '差旅', '文具').cost === 0 && C.costRateOf(crRow, '差旅', '文具').rate === 0);
+ok('成本率 收入为 0 → rate=0', C.costRateOf({ revenue: 0, totalCost: 10, byCat: {}, byCat2: {} }, '', '').rate === 0);
+ok('成本率 选了不存在的一级 → cost=0、rate=0', C.costRateOf(crRow, '不存在', '').cost === 0 && C.costRateOf(crRow, '不存在', '').rate === 0);
+
 console.log('\n项目核算 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);

@@ -805,6 +805,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
   border-radius: 8px; font-size: 13px; min-width: 140px; background: var(--panel, #fff); color: var(--text);
 }
 .pc-search:focus { outline: none; border-color: var(--primary, #C8102E); }
+.pc-costtype-label { font-size: 13px; color: var(--muted, #7a869a); align-self: center; margin-left: 4px; }
 .pc-filter-note {
   font-size: 12px; color: #7a869a; background: #f6f8fc; border: 1px solid #e6e9f0;
   border-radius: 8px; padding: 8px 12px; margin: 10px 0;
