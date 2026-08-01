@@ -216,6 +216,67 @@
     return '<div class="chart-box"><h4>' + FW.esc(title) + '</h4>' + svg + '<div class="chart-legend">' + legend + '</div></div>';
   };
 
+  /* ---------- 思维导图（左→右树状） ---------- */
+  FW.mindMap = function (opts) {
+    opts = opts || {};
+    var root = opts.root || { label: '根', value: '' };
+    var branches = opts.branches || [];
+    var nodeW = 150, nodeH = 38, rowH = 44, pad = 18, colGap = 64;
+    var rootX = pad, branchX = rootX + nodeW + colGap, leafX = branchX + nodeW + colGap;
+    var totalLeaves = 0;
+    branches.forEach(function (b) { totalLeaves += Math.max(1, (b.children || []).length); });
+    var H = pad * 2 + Math.max(1, totalLeaves) * rowH;
+    var W = leafX + nodeW + pad;
+
+    function mkNode(x, y, label, value, fill, tcol) {
+      var lbl = FW.clip(label, 9);
+      return '<g>' +
+        '<rect x="' + x + '" y="' + y + '" width="' + nodeW + '" height="' + nodeH + '" rx="7" ry="7" fill="' + fill + '"/>' +
+        '<text x="' + (x + 9) + '" y="' + (y + 16) + '" font-size="12.5" font-weight="600" fill="' + tcol + '">' + FW.esc(lbl) + '</text>' +
+        '<text x="' + (x + 9) + '" y="' + (y + 31) + '" font-size="11" fill="' + tcol + '" opacity="0.92">' + FW.esc(value == null ? '' : String(value)) + '</text>' +
+        '</g>';
+    }
+
+    var svg = '<svg class="mindmap-svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet">';
+    var rootTop = H / 2 - nodeH / 2;
+
+    var li = 0;
+    var binfo = branches.map(function (b) {
+      var kids = b.children || [];
+      var ys = [];
+      if (!kids.length) { ys.push(pad + li * rowH); li++; }
+      else kids.forEach(function () { ys.push(pad + li * rowH); li++; });
+      var cy = (ys[0] + ys[ys.length - 1]) / 2; // 分支节点顶部 y（中心 = cy + nodeH/2）
+      return { b: b, ys: ys, cy: cy };
+    });
+
+    // 连接线
+    binfo.forEach(function (bi) {
+      var rx = rootX + nodeW, ry = rootTop + nodeH / 2;
+      var bx = branchX + nodeW, bcy = bi.cy + nodeH / 2;
+      svg += '<path d="M ' + rx + ' ' + ry + ' C ' + (rx + colGap / 2) + ' ' + ry + ', ' + (branchX - colGap / 2) + ' ' + bcy + ', ' + branchX + ' ' + bcy + '" stroke="#d9c79a" stroke-width="1.6" fill="none"/>';
+      bi.ys.forEach(function (yy, k) {
+        var child = bi.b.children && bi.b.children[k];
+        var col = child ? child.color : '#c9c9c9';
+        var ly = yy + nodeH / 2;
+        svg += '<path d="M ' + bx + ' ' + bcy + ' C ' + (bx + colGap / 2) + ' ' + bcy + ', ' + (leafX - colGap / 2) + ' ' + ly + ', ' + leafX + ' ' + ly + '" stroke="' + col + '" stroke-width="1.3" fill="none" opacity="0.75"/>';
+      });
+    });
+
+    // 节点
+    svg += mkNode(rootX, rootTop, root.label, root.value, root.color || '#3A0F14', '#fff');
+    binfo.forEach(function (bi) {
+      var b = bi.b;
+      svg += mkNode(branchX, bi.cy, b.label, b.value || '', b.color || '#C9A227', '#3A0F14');
+      bi.ys.forEach(function (yy, k) {
+        var child = b.children && b.children[k];
+        if (child) svg += mkNode(leafX, yy, child.label, child.value, child.color, '#fff');
+      });
+    });
+    svg += '</svg>';
+    return '<div class="mindmap-box">' + svg + '</div>';
+  };
+
   FW.shortMoney = function (n) {
     var num = Number(n) || 0;
     if (Math.abs(num) >= 10000) return (num / 10000).toFixed(1) + '万';

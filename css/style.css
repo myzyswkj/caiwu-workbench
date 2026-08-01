@@ -651,6 +651,35 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 }
 .sal-tip strong { color: var(--text); }
 
+.sal-tabs { margin: 2px 0 14px; }
+.sal-tabs .tab { font-size: 13px; }
+
+/* ===== 项目提成奖金脑图 ===== */
+.mind-legend { display: flex; align-items: center; gap: 6px; margin: 4px 0 10px; flex-wrap: wrap; }
+.mind-legend .lg-item { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.mind-legend .lg-item i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.mindmap-box { width: 100%; overflow: auto; background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.mindmap-svg { display: block; min-width: 540px; }
+.proj-sum-wrap { margin-top: 18px; overflow: auto; }
+.proj-sum-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 420px; }
+.proj-sum-table th, .proj-sum-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); text-align: left; }
+.proj-sum-table thead th { background: #f6f8fc; color: var(--muted); font-weight: 600; }
+.proj-sum-table th.num, .proj-sum-table td.num { text-align: right; }
+.proj-sum-table .proj-sum-total td { font-weight: 700; border-top: 2px solid var(--border); }
+.proj-sum-table .amt-income { color: #C8102E; }
+.proj-sum-table .amt-expense { color: #1f9d55; }
+
+/* 项目明细录入 */
+.form-section { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: #fffdf8; }
+.form-sec-title { font-weight: 600; font-size: 13px; margin-bottom: 8px; color: var(--text); }
+.pi-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.pi-row { display: flex; gap: 6px; align-items: center; }
+.pi-row .pi-proj { flex: 1.5; }
+.pi-row .pi-amt { flex: 1; max-width: 160px; }
+.pi-empty { font-size: 12px; padding: 2px 0; }
+.pi-total { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.pi-total b { color: var(--text); }
+
 .salary-table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .salary-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1000px; }
 .salary-table th, .salary-table td { border-bottom: 1px solid var(--border); padding: 9px 8px; text-align: center; white-space: nowrap; }
