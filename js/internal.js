@@ -36,6 +36,7 @@
   function cats() { return FW.db.getList(CATKEY_); }
   function ensureCats() { if (!cats().length) FW.db.saveList(CATKEY_, DEFAULT_CATS.map(function (n) { return { name: n, children: [] }; })); }
   function cat1Name(t) { return (t.category || '').split(' / ')[0]; }
+  function cat2Name(t) { return (t.category || '').split(' / ')[1] || ''; }
 
   /* ---------- 期初余额 ---------- */
   function getOpenings() { return FW.db.getList(OPEN_KEY); }
@@ -58,7 +59,7 @@
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
   function shiftMonth(ym, delta) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1 + delta; y += Math.floor(m / 12); m = (m % 12 + 12) % 12; return y + '-' + (m + 1 < 10 ? '0' + (m + 1) : m + 1); }
 
-  var state = { tab: 'list', filter: { project: '', category: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '' };
+  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '' };
 
   function all() { return FW.db.getList(KEY).sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); }); }
   function projects() {
@@ -78,11 +79,12 @@
   }
   function inRange(t, from, to) { return (!from || t.date >= from) && (!to || t.date <= to); }
 
-  function filteredRows() {
-    var f = state.filter;
+  function filteredRows() { return filterRows(state.filter); }
+  function filterRows(f) {
     return all().filter(function (t) {
       if (f.project && t.project !== f.project) return false;
       if (f.category && cat1Name(t) !== f.category) return false;
+      if (f.category2 && cat2Name(t) !== f.category2) return false;
       if (f.account) {
         var accMatch = (t.type === 'transfer')
           ? (t.fromAccount === f.account || t.toAccount === f.account)
@@ -290,6 +292,7 @@
     var f = state.filter;
     var projOpts = '<option value="">全部项目</option>' + projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
     var catOpts = '<option value="">全部分类</option>' + cats().map(function (c) { return '<option' + (c.name === f.category ? ' selected' : '') + '>' + FW.esc(c.name) + '</option>'; }).join('');
+    var cat2OptsF = cat2OptsForFilter(f.category, f.category2);
     var accOpts = '<option value="">全部账户</option>' + ACCTS.map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
     document.getElementById('inBody').innerHTML =
       '<div id="budgetCard">' + budgetBannerHtml() + '</div>' +
@@ -299,6 +302,7 @@
           '<div class="field"><input id="fKw" placeholder="搜索备注/项目" value="' + FW.esc(f.kw) + '"></div>' +
           '<div class="field"><select id="fProj">' + projOpts + '</select></div>' +
           '<div class="field"><select id="fCat">' + catOpts + '</select></div>' +
+          '<div class="field"><select id="fCat2">' + cat2OptsF + '</select></div>' +
           '<div class="field"><select id="fAcc">' + accOpts + '</select></div>' +
           '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="transfer">账户互转</option><option value="equity">股本资金</option></select></div>' +
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
@@ -309,6 +313,7 @@
       '</div>';
     document.getElementById('fProj').value = f.project;
     document.getElementById('fCat').value = f.category;
+    document.getElementById('fCat2').value = f.category2;
     document.getElementById('fAcc').value = f.account;
     document.getElementById('fType').value = f.type || '';
     document.getElementById('fFrom').value = f.from;
@@ -323,12 +328,19 @@
     var g = function (id) { return document.getElementById(id); };
     g('fKw').oninput = function () { state.filter.kw = this.value.trim(); drawTable(); };
     g('fProj').onchange = function () { state.filter.project = this.value; drawTable(); };
-    g('fCat').onchange = function () { state.filter.category = this.value; drawTable(); };
+    g('fCat').onchange = function () {
+      state.filter.category = this.value;
+      state.filter.category2 = '';
+      var c2 = document.getElementById('fCat2');
+      if (c2) { c2.innerHTML = cat2OptsForFilter(this.value, ''); c2.value = ''; }
+      drawTable();
+    };
+    g('fCat2').onchange = function () { state.filter.category2 = this.value; drawTable(); };
     g('fAcc').onchange = function () { state.filter.account = this.value; drawTable(); };
     g('fType').onchange = function () { state.filter.type = this.value; drawTable(); };
     g('fFrom').onchange = function () { state.filter.from = this.value; drawTable(); };
     g('fTo').onchange = function () { state.filter.to = this.value; drawTable(); };
-    g('fReset').onclick = function () { state.filter = { project: '', category: '', account: '', type: '', kw: '', from: '', to: '' }; drawList(); };
+    g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }; drawList(); };
   }
 
   function drawTable() {
@@ -788,6 +800,13 @@
     var c = null; cats().forEach(function (x) { if (x.name === c1) c = x; });
     var kids = c ? (c.children || []) : [];
     return '<option value="">（无二级）</option>' + kids.map(function (k) { return '<option ' + (k === sel ? 'selected' : '') + '>' + FW.esc(k) + '</option>'; }).join('');
+  }
+  // 筛选区用的二级分类下拉：依赖已选的一级分类
+  function cat2OptsForFilter(c1, sel) {
+    if (!c1) return '<option value="">（先选一级）</option>';
+    var c = null; cats().forEach(function (x) { if (x.name === c1) c = x; });
+    var kids = c ? (c.children || []) : [];
+    return '<option value="">全部二级</option>' + kids.map(function (k) { return '<option' + (k === sel ? ' selected' : '') + '>' + FW.esc(k) + '</option>'; }).join('');
   }
   function renderDyn(type, v) {
     var el = document.getElementById('dynArea');
@@ -1787,7 +1806,9 @@
     openingsTotal: openingsTotal,            // () -> 期初合计
     getOpeningsTotal: openingsTotal,         // 别名（报表用）
     netProfit: netProfit,                    // (from,to) -> 区间经营结余
-    equityNet: equityNet                     // (from,to) -> 区间股本净
+    equityNet: equityNet,                    // (from,to) -> 区间股本净
+    filterRows: filterRows,                  // (filter) -> 按筛选条件过滤流水（支持二级分类 category2）
+    cat2Name: cat2Name                       // (t) -> 提取二级分类名
   };
 
   FW.internalAccMgr = { getAccounts: getAccounts, saveAccounts: saveAccounts, refreshAccts: refreshAccts };
