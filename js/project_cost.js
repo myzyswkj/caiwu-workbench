@@ -256,7 +256,7 @@
     html += profitRateHtml(rows);
     html += trendHtml(data);
     html += filterNote;
-    html += tableHtml(rows);
+    html += tableHtml(rows, data);
     html += '</div>';
     var c = document.getElementById('content'); if (c) c.innerHTML = html;
 
@@ -495,8 +495,8 @@
     return h;
   }
 
-  function tableHtml(data) {
-    if (!data.rows.length) {
+  function tableHtml(rows, data) {
+    if (!rows.length) {
       return '<div class="empty-state">' +
         '<div class="empty-ico">📊</div>' +
         '<div class="empty-title">还没有可用于项目核算的数据</div>' +
@@ -505,7 +505,7 @@
     }
     var h = '<div class="proj-sum-wrap"><table class="proj-sum-table" id="pcTable"><thead><tr>' +
       '<th class="pc-rank">排名</th><th>项目</th><th class="num">收入</th><th class="num">流水成本</th><th class="num">应收回款项</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">利润率</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
-    data.rows.forEach(function (r) {
+    rows.forEach(function (r) {
       var profitCls = r.profit >= 0 ? 'amt-income' : 'amt-expense';
       var badge = r.profit >= 0 ? '<span class="badge ok">盈利</span>' : '<span class="badge bad">亏损</span>';
       var open = !!state.expanded[r.project];
