@@ -74,7 +74,14 @@
     if (!user) { FW.toast('请先登录'); return Promise.resolve(); }
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) { FW.toast('请先解锁加密再同步'); return Promise.resolve(); }
     syncing = true;
-    return pull().then(function () {
+    return pull().then(function (res) {
+      // 关键修复：拉取出错时绝不推送，避免用本机旧/不完整数据整行覆盖云端，导致他端数据丢失
+      if (res === 'error') {
+        syncing = false;
+        FW.toast('拉取云端失败，已取消推送以保护云端数据');
+        return false;
+      }
+      // 'merged'（有云端数据并合并）或 'empty'（首次初始化）都可安全推送
       return pushIfHasData();
     }).then(function () {
       markClean();
@@ -141,16 +148,20 @@
   }
 
   /* ---------- 拉取（云端 → 本地） ---------- */
+  // 返回 Promise，resolve 值为同步语义：
+  //   'merged' 已成功拉取并合并云端数据到本机
+  //   'empty'  云端暂无数据（首次使用），可安全推送本机数据做初始化
+  //   'error'  拉取/解密失败 —— 调用方严禁继续推送，否则会用本机旧数据覆盖云端导致他端数据丢失
   function pull() {
-    if (!user) return Promise.resolve(false);
+    if (!user) return Promise.resolve('error');
     return sb.from('snapshots').select('data').eq('user_id', user.id).maybeSingle().then(function (r) {
-      if (r.error && r.error.code !== 'PGRST116') { FW.toast('拉取失败：' + r.error.message); return false; }
-      if (!r.data || !r.data.data) return false; // 尚无云端数据
+      if (r.error && r.error.code !== 'PGRST116') { FW.toast('拉取失败：' + r.error.message); return 'error'; }
+      if (!r.data || !r.data.data) return 'empty'; // 尚无云端数据，可安全推送初始化
       var payload = r.data.data;
       // 云端为密文但本端未解锁（多设备首次）：弹出密码解锁后再拉
       if (payload && payload.__enc && !FW.db.isUnlocked()) {
         if (FW.cryptoUI && FW.cryptoUI.showUnlock) FW.cryptoUI.showUnlock(function () { pull(); }, payload.salt);
-        return false;
+        return 'error';
       }
       return FW.db.decryptSnapshot(payload).then(function (snap) {
         suppress = true;
@@ -166,12 +177,61 @@
           // 刷新内账模块的账户缓存（否则自定义账户不会出现在下拉列表）
           if (FW.internalAccMgr && FW.internalAccMgr.refreshAccts) FW.internalAccMgr.refreshAccts();
           FW.toast('已从云端同步最新数据');
-          return true; // 标记：已导入云端数据
-        }).catch(function () { suppress = false; return false; });
+          return 'merged';
+        }).catch(function () { suppress = false; return 'error'; });
       }).catch(function () {
         FW.toast('云端数据解密失败（主密码不符？）');
-        return false;
+        return 'error';
       });
+    });
+  }
+
+  // 以云端为准覆盖本机：丢弃本机独有数据，完全对齐云端（用于本机数据混乱/不一致时一键对齐）
+  function overwriteFromCloud() {
+    if (syncing) return Promise.resolve();
+    if (!user) { FW.toast('请先登录'); return Promise.resolve(); }
+    if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) { FW.toast('请先解锁加密再同步'); return Promise.resolve(); }
+    if (!global.confirm || !global.confirm('将以云端数据完全覆盖本机（本机独有数据将丢失），确定继续？')) return Promise.resolve();
+    syncing = true;
+    return sb.from('snapshots').select('data').eq('user_id', user.id).maybeSingle().then(function (r) {
+      if (r.error && r.error.code !== 'PGRST116') { FW.toast('拉取失败：' + r.error.message); syncing = false; return false; }
+      if (!r.data || !r.data.data) { FW.toast('云端暂无数据，无法覆盖'); syncing = false; return false; }
+      var payload = r.data.data;
+      if (payload && payload.__enc && !FW.db.isUnlocked()) {
+        if (FW.cryptoUI && FW.cryptoUI.showUnlock) FW.cryptoUI.showUnlock(function () { overwriteFromCloud(); }, payload.salt);
+        syncing = false; return false;
+      }
+      return FW.db.decryptSnapshot(payload).then(function (snap) {
+        suppress = true;
+        return FW.db.importAll(snap, false).then(function () { // false = 覆盖式，不按 id 合并
+          suppress = false;
+          var keepCur = FW.db.getCurrentLedger();
+          FW.db.setCurrentLedger(keepCur);
+          if (FW.refreshLedgers) FW.refreshLedgers();
+          if (FW.modules.sidebar) FW.modules.sidebar.render();
+          var active = document.querySelector('#moduleNav .nav-item.active');
+          if (active && FW.setModule) FW.setModule(active.dataset.module);
+          if (FW.internalAccMgr && FW.internalAccMgr.refreshAccts) FW.internalAccMgr.refreshAccts();
+          markClean();
+          FW.toast('已以云端为准覆盖本机');
+          syncing = false;
+          return true;
+        }).catch(function () { suppress = false; syncing = false; return false; });
+      }).catch(function () { FW.toast('云端数据解密失败（主密码不符？）'); syncing = false; return false; });
+    });
+  }
+
+  // 以本机为准覆盖云端：用本机数据整行覆盖云端（谨慎！其他端独有数据将丢失）。仅用于云端被污染时恢复。
+  function forcePushLocal() {
+    if (syncing) return Promise.resolve();
+    if (!user) { FW.toast('请先登录'); return Promise.resolve(); }
+    if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) { FW.toast('请先解锁加密再同步'); return Promise.resolve(); }
+    if (!global.confirm || !global.confirm('将用本机数据完全覆盖云端（其他设备独有数据将丢失），仅建议在云端数据出错时恢复，确定继续？')) return Promise.resolve();
+    syncing = true;
+    return push(true).then(function (ok) {
+      syncing = false;
+      if (ok) FW.toast('已用本机数据覆盖云端');
+      return ok;
     });
   }
 
@@ -197,13 +257,37 @@
       area.innerHTML =
         '<span class="auth-state" id="authState">已同步</span>' +
         '<button class="auth-btn ghost" id="authSync">↻ 立即同步</button>' +
+        '<button class="auth-btn ghost" id="authSyncOpts">⚙ 同步选项</button>' +
         '<button class="auth-btn" id="authOut">退出(' + FW.esc(user.email || '用户') + ')</button>';
       document.getElementById('authSync').onclick = syncNow;
+      document.getElementById('authSyncOpts').onclick = openSyncMenu;
       document.getElementById('authOut').onclick = function () {
         if (dirty) push(); // 退出前尽量保存
         sb.auth.signOut().then(function () { user = null; setAuth(null); if (brand) brand.textContent = '本地数据'; FW.toast('已退出'); });
       };
     }
+  }
+
+  function openSyncMenu() {
+    var body =
+      '<p class="muted" style="font-size:12px;margin:0 0 12px">选择同步方式：</p>' +
+      '<div style="margin:10px 0">' +
+        '<button class="btn" id="smMerge" style="width:100%">↻ 双向合并同步（推荐）</button>' +
+        '<p class="muted" style="font-size:12px;margin:6px 0 0">拉取云端并合并本机独有数据，再推回云端。最安全，不会丢数据。</p>' +
+      '</div>' +
+      '<div style="margin:14px 0">' +
+        '<button class="btn ghost" id="smCloud" style="width:100%">☁ 以云端为准覆盖本机</button>' +
+        '<p class="muted" style="font-size:12px;margin:6px 0 0">丢弃本机独有数据，完全对齐云端。本机数据杂乱或与云端不一致时使用。</p>' +
+      '</div>' +
+      '<div style="margin:14px 0">' +
+        '<button class="btn ghost danger" id="smLocal" style="width:100%">💾 以本机为准覆盖云端</button>' +
+        '<p class="muted" style="font-size:12px;margin:6px 0 0">谨慎！用本机数据覆盖云端，其他设备独有数据将丢失。仅用于云端被污染时恢复。</p>' +
+      '</div>';
+    FW.openModal('同步选项', body, function () {
+      document.getElementById('smMerge').onclick = function () { FW.closeModal(); syncNow(); };
+      document.getElementById('smCloud').onclick = function () { FW.closeModal(); overwriteFromCloud(); };
+      document.getElementById('smLocal').onclick = function () { FW.closeModal(); forcePushLocal(); };
+    });
   }
 
   function openLogin() {
@@ -309,6 +393,8 @@
     pull: pull,
     syncNow: syncNow,
     afterUnlock: afterUnlock,
+    overwriteFromCloud: overwriteFromCloud,
+    forcePushLocal: forcePushLocal,
     // 供 ui.js 在登录态变化时刷新顶栏
     _refreshArea: renderAuthArea
   };
