@@ -618,6 +618,16 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .badge.done { background: #e6f7ec; color: #1f9d55; }
 .badge.warn { background: #fef3e0; color: #d98900; }
 .badge.danger { background: #fdeaea; color: var(--income); }
+/* 项目核算：盈利=红(收入色)/亏损=绿(支出色)，与全站金额配色一致 */
+.badge.ok { background: #fdeaea; color: var(--income); }
+.badge.bad { background: #e6f7ec; color: #1f9d55; }
+
+/* 项目核算：年度筛选下拉 */
+.pc-year-label { font-size: 13px; color: var(--muted); align-self: center; }
+.pc-year {
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  border-radius: var(--radius); padding: 8px 12px; font-size: 14px; min-width: 130px;
+}
 
 /* ===== 批量导入（微信账单 / 表格） ===== */
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
