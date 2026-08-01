@@ -168,7 +168,7 @@
     if (ov) ov.innerHTML = overviewHtml();
 
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+    ta.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
     document.getElementById('openBtn').onclick = openOpenings;
     document.getElementById('accMgrBtn').onclick = openAccManager;
     document.getElementById('budgetBtn').onclick = openBudgetForm;
@@ -176,6 +176,7 @@
     document.getElementById('addTxBtn').onclick = openForm;
     document.getElementById('expTxBtn').onclick = exportTable;
     document.getElementById('impBtn').onclick = openImport;
+    document.getElementById('dedupeBtn').onclick = openDedupe;
     document.getElementById('clearBtn').onclick = function () {
       if (!confirm('确定清空【当前账本】的全部内账流水吗？\n（含手动录入的，凭证照片也会一并删除，不可恢复！)\n注意：期初余额不会被清空。')) return;
       all().forEach(function (t) { if (t.photos && t.photos.length) { try { FW.db.deletePhotos(t.photos); } catch (e) {} } });
@@ -183,6 +184,57 @@
       render();
       FW.toast('已清空当前账本内账流水');
     };
+  }
+
+  /* 合并重复：把内容完全相同的流水（多为跨设备同步产生的“同笔不同 id”）合并为一条 */
+  function openDedupe() {
+    var list = all();
+    var groups = {};
+    list.forEach(function (t) {
+      var k = FW.db.contentKey(t);
+      if (!k) return;
+      (groups[k] = groups[k] || []).push(t);
+    });
+    var dups = Object.keys(groups).map(function (k) { return groups[k]; }).filter(function (g) { return g.length > 1; });
+    var total = dups.reduce(function (s, g) { return s + (g.length - 1); }, 0);
+    if (!dups.length) { FW.toast('未发现内容完全相同的重复流水 👍'); return; }
+    function keepOf(g) {
+      return g.slice().sort(function (a, b) {
+        return (b.photos && b.photos.length ? 1 : 0) - (a.photos && a.photos.length ? 1 : 0);
+      })[0];
+    }
+    function lbl(t) {
+      if (t.type === 'income') return '收入';
+      if (t.type === 'expense') return '支出';
+      if (t.type === 'refund') return '退款收入';
+      if (t.type === 'transfer') return '账户互转';
+      if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
+      return t.type || '';
+    }
+    var rows = '';
+    dups.forEach(function (g, i) {
+      var keep = keepOf(g);
+      rows += '<tr><td>' + (i + 1) + '</td><td>' + FW.esc(keep.date) + '</td><td>' + FW.esc(lbl(keep)) + '</td><td class="num">' + FW.fmtMoney(keep.amount) + '</td><td>' + FW.esc(keep.project || '') + '</td><td>' + FW.esc(keep.remark || '') + '</td><td>×' + g.length + '</td></tr>';
+    });
+    var body =
+      '<div class="muted" style="font-size:12px;margin-bottom:10px">检测到 <b>' + dups.length + '</b> 组、共 <b>' + total + '</b> 条内容完全相同的重复流水（常见于手机/电脑各录了一遍，或多设备同步后产生）。合并后每组仅保留 1 条（优先保留带凭证照片的那条），其余重复项会被移除。</div>' +
+      '<div style="max-height:340px;overflow:auto"><table class="tbl"><thead><tr><th>#</th><th>日期</th><th>类型</th><th>金额</th><th>项目</th><th>备注</th><th>重复数</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="form-actions"><button class="btn ghost" id="ddCancel">取消</button><button class="btn" id="ddGo">合并并移除 ' + total + ' 条重复</button></div>';
+    FW.openModal('合并重复流水', body, function () {
+      document.getElementById('ddCancel').onclick = FW.closeModal;
+      document.getElementById('ddGo').onclick = function () {
+        var removeIds = {};
+        dups.forEach(function (g) {
+          var keep = keepOf(g);
+          g.forEach(function (t) { if (t.id !== keep.id) removeIds[t.id] = true; });
+        });
+        var cleaned = list.filter(function (t) { return !removeIds[t.id]; });
+        FW.db.saveList(KEY, cleaned);
+        FW.closeModal();
+        render();
+        FW.toast('已合并，移除 ' + total + ' 条重复');
+      };
+    });
   }
 
   /* ---------- 概览面板（一眼可见，常驻顶部，全期累计） ---------- */

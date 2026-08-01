@@ -267,18 +267,65 @@
     });
   }
 
+  // 业务流水类键：跨设备同步时可能因「同笔不同 id」产生内容重复，需按内容指纹去重。
+  // 注意：账本(ledgers)等纯结构性数组不在列；其余均为「事务/记录类」列表（含按账本命名空间化的 internal_Lx 等）。
+  var TXN_KEYS = {
+    internal: 1, tax_vouchers: 1, tax_journals: 1, contacts: 1,
+    invoices: 1, contracts: 1, stock: 1, salary_records: 1
+  };
+  // 判断存储键是否属于事务类（支持「基键」或「基键_账本ID」两种形态）
+  function isTxnKey(k) {
+    if (TXN_KEYS[k]) return true;
+    for (var base in TXN_KEYS) {
+      if (k.length > base.length + 1 && k.substr(0, base.length + 1) === base + '_') return true;
+    }
+    return false;
+  }
+  // 视为「易变 / 同步元数据」的字段，计算内容指纹时忽略（这些字段不同不代表是不同一笔）
+  var VOLATILE = {
+    id: 1, _raw: 1, photos: 1, _status: 1, _inout: 1, ts: 1,
+    createdAt: 1, updatedAt: 1, syncedAt: 1, _cloud: 1, _local: 1
+  };
+  // 业务内容指纹：忽略易变字段后序列化，用于识别「同一笔在不同设备产生的重复记录」
+  function contentKey(rec) {
+    if (!rec || typeof rec !== 'object') return null;
+    var o = {};
+    Object.keys(rec).forEach(function (k) { if (!VOLATILE[k]) o[k] = rec[k]; });
+    try { return JSON.stringify(o); } catch (e) { return null; }
+  }
+  // 按内容指纹去重：内容完全相同的重复项（多为跨设备同笔）仅保留一条
+  function dedupeByContent(arr) {
+    if (!Array.isArray(arr)) return arr;
+    var seen = {}, out = [];
+    arr.forEach(function (x) {
+      var k = contentKey(x);
+      if (k && seen[k]) return;
+      if (k) seen[k] = 1;
+      out.push(x);
+    });
+    return out;
+  }
+
   // 返回 Promise；先还原文本数据，再还原照片凭证（保持 id 不变）
-  // merge=true 时：数组按 id 合并（云端优先覆盖同 id，本地独有项保留），用于跨设备同步避免互相覆盖
+  // merge=true 时：数组按 id 合并（云端优先覆盖同 id，本地独有项保留），用于跨设备同步避免互相覆盖；
+  //   同时 (a) 无 id 元素按内容去重，防止每次同步累积膨胀；(b) 事务类列表按内容指纹去重，消除跨设备同笔重复。
   function importAll(data, merge) {
     if (!data || !data.raw) throw new Error('文件格式不正确');
     function apply(k, v) {
       if (merge && Array.isArray(v) && v.length && typeof v[0] === 'object' && v[0] && ('id' in v[0])) {
         var localArr = (encMode ? (mem[k] || []) : lsRaw(k, [])) || [];
         if (!Array.isArray(localArr)) localArr = [];
-        var byId = {}, extra = [];
-        localArr.forEach(function (x) { if (x && x.id != null) byId[x.id] = x; else extra.push(x); });
-        v.forEach(function (x) { if (x && x.id != null) byId[x.id] = x; else extra.push(x); });
+        var byId = {}, extra = [], seenExtra = [];
+        function addExtra(x) {
+          if (x == null) return;
+          var jk = JSON.stringify(x);
+          if (seenExtra.indexOf(jk) >= 0) return; // 无 id 元素按内容去重，避免跨同步累积
+          seenExtra.push(jk); extra.push(x);
+        }
+        localArr.forEach(function (x) { if (x && x.id != null) byId[x.id] = x; else addExtra(x); });
+        v.forEach(function (x) { if (x && x.id != null) byId[x.id] = x; else addExtra(x); });
         v = Object.keys(byId).map(function (id) { return byId[id]; }).concat(extra);
+        if (isTxnKey(k)) v = dedupeByContent(v); // 跨设备同笔（不同 id）去重，仅需于事务类列表
       }
       if (encMode) { mem[k] = v; } else { lsWrite(k, v); }
     }
@@ -436,6 +483,7 @@
     savePhoto: savePhoto, getPhoto: getPhoto, deletePhoto: deletePhoto, deletePhotos: deletePhotos,
     getAllPhotos: getAllPhotos, putPhotoById: putPhotoById,
     exportAll: exportAll, importAll: importAll,
+    contentKey: contentKey, dedupeByContent: dedupeByContent,
     // 账本
     getLedgers: getLedgers, setLedgers: setLedgers,
     getCurrentLedger: getCurrentLedger, setCurrentLedger: setCurrentLedger,

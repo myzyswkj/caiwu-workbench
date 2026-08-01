@@ -18,6 +18,7 @@
   var user = null;     // 当前用户
   var dirty = false;   // 是否有未推送改动
   var suppress = false;// 拉取/导入期间抑制 dirty 标记
+  var syncing = false; // 是否正在同步（防止登录态回调并发触发多次重叠同步）
   var timer = null;
 
   function hasSupabase() { return !!(global.supabase && global.supabase.createClient); }
@@ -69,8 +70,10 @@
 
   // 完整双向同步：先拉（合并云端数据到本机），再推（把合并后的最新状态回传云端）
   function syncNow() {
+    if (syncing) return Promise.resolve(); // 已有同步在进行，避免重叠竞争导致重复
     if (!user) { FW.toast('请先登录'); return Promise.resolve(); }
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) { FW.toast('请先解锁加密再同步'); return Promise.resolve(); }
+    syncing = true;
     return pull().then(function () {
       return pushIfHasData();
     }).then(function () {
@@ -79,7 +82,7 @@
     }).catch(function (e) {
       markClean();
       FW.toast('同步失败：' + (e && e.message ? e.message : '未知错误'));
-    });
+    }).then(function (r) { syncing = false; return r; });
   }
 
   function onLogin() {
