@@ -110,5 +110,23 @@ setInternal([
 ]);
 ok('仅退款时 报表总收入 = 0（退款不在收入列）', approx(FW.reportsCalc.agg('', '').incomeTotal, 0));
 
+console.log('— 项目核算：二级分类（byCat2）聚合 —');
+setInternal([
+  { id: 'z1', date: '2026-03-01', type: 'expense', project: '项目A', amount: 1000, category: '百货项目 / 办公用品' },
+  { id: 'z2', date: '2026-03-02', type: 'expense', project: '项目A', amount: 2000, category: '百货项目 / 物流快递' },
+  { id: 'z3', date: '2026-03-03', type: 'expense', project: '项目A', amount: 500, category: '系统服务' },
+  { id: 'z4', date: '2026-03-04', type: 'refund', project: '项目A', amount: 100, category: '百货项目 / 办公用品' }
+]);
+var res2 = FW.projectCostCalc.compute('all');
+var rA = res2.rows.filter(function (r) { return r.project === '项目A'; })[0];
+ok('byCat2 存在且为对象', rA && typeof rA.byCat2 === 'object' && Object.keys(rA.byCat2).length > 0);
+ok('byCat2["百货项目 / 办公用品"] = 900（1000 - 100退款）', rA && approx(rA.byCat2['百货项目 / 办公用品'] || 0, 900));
+ok('byCat2["百货项目 / 物流快递"] = 2000', rA && approx(rA.byCat2['百货项目 / 物流快递'] || 0, 2000));
+ok('byCat2["系统服务"] = 500（无二级归"系统服务 / 其他"）', rA && ((rA.byCat2['系统服务'] && approx(rA.byCat2['系统服务'], 500)) || (rA.byCat2['系统服务 / 其他'] && approx(rA.byCat2['系统服务 / 其他'], 500))));
+// 一级分类合计应与 byCat 一致
+var cat1Total = (rA.byCat['百货项目'] || 0) + (rA.byCat['系统服务'] || 0);
+var cat2Sum = 0; Object.keys(rA.byCat2).forEach(function (k) { cat2Sum += Math.abs(rA.byCat2[k]); });
+ok('byCat2 各项绝对值之和 ≥ byCat 一级合计', cat2Sum >= cat1Total);
+
 console.log('\n结果：' + pass + ' 通过，' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

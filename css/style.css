@@ -715,6 +715,15 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .pc-detail-block { flex: 1 1 300px; min-width: 280px; }
 .pc-detail-block h5 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
 .pc-detail-block .chart-box { border: none; padding: 0; background: transparent; }
+/* 二级分类明细表 */
+.pc-cat2-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; border: 1px solid #e8e0d0; border-radius: 6px; overflow: hidden; }
+.pc-cat2-table thead th { background: #f4ecd8; color: #5a4a2a; font-weight: 600; padding: 7px 10px; border-bottom: 1px solid #e0d4bc; text-align: left; }
+.pc-cat2-table tbody td { padding: 5px 10px; border-bottom: 1px solid #f0e8d8; }
+.pc-cat2-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pc-cat2-table td.cat2-l1 { font-weight: 600; color: #2c4a6e; background: #f7f3eb; vertical-align: top; width: 35%; }
+.pc-cat2-table td.cat2-l2 { color: #555; padding-left: 16px; width: 40%; }
+.pc-cat2-table tr.cat2-subtotal td { background: #faf5ea; font-weight: 600; border-top: 1px dashed #d4c8a8; }
+.pc-cat2-table td.cat2-l1-total { text-align: right; padding-right: 10px; color: #7a6a3a; }
 
 /* 项目明细录入 */
 .form-section { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: #fffdf8; }

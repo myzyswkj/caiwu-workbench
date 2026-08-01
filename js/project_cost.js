@@ -23,6 +23,9 @@
   // 一级分类（"主 / 子" 取主）
   function cat1(t) { return ((t.category || '').split(' / ')[0] || '').trim() || '其他'; }
 
+  // 完整分类路径（保留 "一级 / 二级" 用于下钻）
+  function catFull(t) { return (t.category || '').trim() || '其他 / 其他'; }
+
   // 把一条工资记录拆成 {project, type, amount} 明细（type: base/bonus/commission；兼容新旧数据）
   function salaryComps(r) {
     var out = [];
@@ -58,7 +61,7 @@
 
     var map = {};
     function ensure(p) {
-      if (!map[p]) map[p] = { revenue: 0, flowCost: 0, laborCost: 0, byCat: {}, laborByType: { base: 0, bonus: 0, commission: 0 }, recoverable: 0, recoverList: [] };
+      if (!map[p]) map[p] = { revenue: 0, flowCost: 0, laborCost: 0, byCat: {}, byCat2: {}, laborByType: { base: 0, bonus: 0, commission: 0 }, recoverable: 0, recoverList: [] };
       return map[p];
     }
 
@@ -74,8 +77,8 @@
       if (!p) { unFlowCount++; unFlowAmt += a; return; }
       var d = ensure(p);
       if (t.type === 'income') d.revenue += a;
-      else if (t.type === 'expense') { d.flowCost += a; var c = cat1(t); d.byCat[c] = (d.byCat[c] || 0) + a; }
-      else if (t.type === 'refund') { d.flowCost -= a; var c2 = cat1(t); d.byCat[c2] = (d.byCat[c2] || 0) - a; }
+      else if (t.type === 'expense') { d.flowCost += a; var c = cat1(t); var cf = catFull(t); d.byCat[c] = (d.byCat[c] || 0) + a; d.byCat2[cf] = (d.byCat2[cf] || 0) + a; }
+      else if (t.type === 'refund') { d.flowCost -= a; var c2 = cat1(t); var cf2 = catFull(t); d.byCat[c2] = (d.byCat[c2] || 0) - a; d.byCat2[cf2] = (d.byCat2[cf2] || 0) - a; }
     });
 
     // 工资：底薪/奖金/提成按项目汇总；「未分类」部分进入未分配
@@ -119,7 +122,7 @@
       return {
         project: p, revenue: d.revenue, flowCost: d.flowCost, laborCost: d.laborCost,
         totalCost: totalCost, profit: profit, rate: rate, roi: roi, gain: profit >= 0,
-        rank: idx + 1, byCat: d.byCat, laborByType: d.laborByType, recoverable: d.recoverable || 0, recoverList: d.recoverList || []
+        rank: idx + 1, byCat: d.byCat, byCat2: d.byCat2, laborByType: d.laborByType, recoverable: d.recoverable || 0, recoverList: d.recoverList || []
       };
     });
 
@@ -327,6 +330,41 @@
     var cats = Object.keys(r.byCat).map(function (c) { return { label: c, value: r.byCat[c] }; }).sort(function (a, b) { return b.value - a.value; });
     h += '<div class="pc-detail-block"><h5>流水成本构成（按分类）</h5>';
     h += cats.length ? FW.barChart('', cats, { height: 180 }) : '<div class="muted">无</div>';
+
+    // 二级分类明细：按一级分组，展示 "一级 → 二级 → 金额"
+    var cat2Keys = Object.keys(r.byCat2 || {}).filter(function (k) { return r.byCat2[k] !== 0; });
+    if (cat2Keys.length) {
+      // 按一级分组
+      var grouped = {};
+      cat2Keys.forEach(function (full) {
+        var parts = full.split(' / ');
+        var lvl1 = (parts[0] || '').trim() || '其他';
+        var lvl2 = (parts.slice(1).join(' / ') || '').trim() || '其他';
+        if (!grouped[lvl1]) grouped[lvl1] = [];
+        grouped[lvl1].push({ full: full, sub: lvl2, val: r.byCat2[full] });
+      });
+      // 按一级的合计降序
+      var lvl1Order = Object.keys(grouped).map(function (l1) {
+        return { l1: l1, total: grouped[l1].reduce(function (s, x) { return s + x.val; }, 0), items: grouped[l1] };
+      }).sort(function (a, b) { return b.total - a.total; });
+
+      h += '<table class="pc-cat2-table"><thead><tr><th>一级分类</th><th>二级分类</th><th class="num">金额</th></tr></thead><tbody>';
+      lvl1Order.forEach(function (g) {
+        g.items.sort(function (a, b) { return Math.abs(b.val) - Math.abs(a.val); });
+        var rowSpan = g.items.length;
+        g.items.forEach(function (it, ii) {
+          h += '<tr>';
+          if (ii === 0) h += '<td rowspan="' + rowSpan + '" class="cat2-l1">' + FW.esc(g.l1) + '</td>';
+          h += '<td class="cat2-l2">' + FW.esc(it.sub) + '</td>';
+          h += '<td class="num ' + (it.val >= 0 ? 'amt-expense' : 'amt-recover') + '">' + FW.fmtMoney(it.val) + '</td></tr>';
+        });
+        // 一级小计行
+        h += '<tr class="cat2-subtotal"><td colspan="2" class="cat2-l1-total">「' + FW.esc(g.l1) + '」小计</td>';
+        h += '<td class="num"><b>' + FW.fmtMoney(g.total) + '</b></td></tr>';
+      });
+      h += '</tbody></table>';
+    }
+
     h += '</div>';
     var lt = [
       { label: '底薪', value: r.laborByType.base },
