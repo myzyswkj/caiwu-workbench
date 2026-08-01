@@ -9,9 +9,9 @@
 
   // ===== 数据说明 =====
   // salary_employees: { id, name, dept, remark }
-  // salary_records:   { id, empId, year, month, base(底薪), bonus(奖金合计), commission(提成合计),
-  //                     bonusItems:[{project,amount}], commissionItems:[{project,amount}], remark }
-  // 奖金/提成可按 项目/客户 分类记录；bonus/commission 为各 items 之和（兼容旧数据）
+  // salary_records:   { id, empId, year, month, base(底薪合计), bonus(奖金合计), commission(提成合计),
+  //                     baseItems:[{project,amount}], bonusItems:[{project,amount}], commissionItems:[{project,amount}], remark }
+  // 底薪/奖金/提成均可按 项目/客户 分类记录；base/bonus/commission 为各 items 之和（兼容旧数据）
   // 每笔金额 = 底薪 + 奖金 + 提成；每人累计 = 各月(底薪+奖金+提成)之和
 
   function getEmps() { return FW.db.getList('salary_employees'); }
@@ -24,17 +24,20 @@
     var base = num(r.base);
     var bonus = num(r.bonus);
     var commission = num(r.commission);
+    var baseItems = (r.baseItems || []).map(function (it) { return { project: (it.project || '').trim(), amount: num(it.amount) }; });
     var bonusItems = (r.bonusItems || []).map(function (it) { return { project: (it.project || '').trim(), amount: num(it.amount) }; });
     var commissionItems = (r.commissionItems || []).map(function (it) { return { project: (it.project || '').trim(), amount: num(it.amount) }; });
+    if (!baseItems.length && base > 0) baseItems = [{ project: '', amount: base }];
     if (!bonusItems.length && bonus > 0) bonusItems = [{ project: '', amount: bonus }];
     if (!commissionItems.length && commission > 0) commissionItems = [{ project: '', amount: commission }];
     if (r.base == null && r.bonus == null && r.commission == null && r.salary != null) {
-      base = num(r.salary); bonus = 0; commission = 0; bonusItems = []; commissionItems = [];
+      base = num(r.salary); bonus = 0; commission = 0; baseItems = []; bonusItems = []; commissionItems = [];
     }
     // 以明细为准回写合计，保证一致
+    if (baseItems.length) base = baseItems.reduce(function (s, it) { return s + it.amount; }, 0);
     if (bonusItems.length) bonus = bonusItems.reduce(function (s, it) { return s + it.amount; }, 0);
     if (commissionItems.length) commission = commissionItems.reduce(function (s, it) { return s + it.amount; }, 0);
-    return { empId: r.empId, year: r.year, month: r.month, base: base, bonus: bonus, commission: commission, bonusItems: bonusItems, commissionItems: commissionItems, remark: r.remark || '' };
+    return { empId: r.empId, year: r.year, month: r.month, base: base, bonus: bonus, commission: commission, baseItems: baseItems, bonusItems: bonusItems, commissionItems: commissionItems, remark: r.remark || '' };
   }
 
   function computeEmpYear(emp, recs, year) {
@@ -43,7 +46,7 @@
     var list = months.map(function (r) {
       var amount = r.base + r.bonus + r.commission;
       cumBase += r.base; cumBonus += r.bonus; cumCommission += r.commission; cumAmount += amount;
-      return { month: r.month, base: r.base, bonus: r.bonus, commission: r.commission, bonusItems: r.bonusItems, commissionItems: r.commissionItems, amount: amount, remark: r.remark };
+      return { month: r.month, base: r.base, baseItems: r.baseItems, bonus: r.bonus, commission: r.commission, bonusItems: r.bonusItems, commissionItems: r.commissionItems, amount: amount, remark: r.remark };
     });
     return { months: list, cumBase: cumBase, cumBonus: cumBonus, cumCommission: cumCommission, cumAmount: cumAmount };
   }
@@ -110,7 +113,7 @@
     // 子标签
     html += '<div class="tabs sal-tabs">' +
       '<button class="tab ' + (state.tab !== 'mind' ? 'active' : '') + '" data-tab="table">工资表</button>' +
-      '<button class="tab ' + (state.tab === 'mind' ? 'active' : '') + '" data-tab="mind">项目提成奖金脑图</button>' +
+      '<button class="tab ' + (state.tab === 'mind' ? 'active' : '') + '" data-tab="mind">项目工资脑图</button>' +
       '</div>';
 
     if (emps.length === 0) {
@@ -126,7 +129,7 @@
       return;
     }
 
-    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>、<strong>奖金</strong>与<strong>提成</strong>，三者分开记录；奖金与提成可按<strong>项目/客户</strong>分类（点格子编辑时分行填写）。右侧自动累计各项。切到「项目提成奖金脑图」可直观看到每个项目发了多少奖金与提成。</p>';
+    html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>、<strong>奖金</strong>与<strong>提成</strong>，三者分开记录；底薪、奖金与提成均可按<strong>项目/客户</strong>分类（点格子编辑时分行填写）。右侧自动累计各项。切到「项目工资脑图」可直观看到每个项目发了多少底薪、奖金与提成。</p>';
 
     if (state.tab === 'mind') html += drawMindView();
     else html += drawTableView(rows);
@@ -173,10 +176,11 @@
       for (var mo = 1; mo <= 12; mo++) {
         var m = byMonth[mo];
         if (m) {
+          var baseHint = (m.baseItems && m.baseItems.length > 1) ? ' (' + m.baseItems.length + '项)' : '';
           var bonusHint = (m.bonusItems && m.bonusItems.length > 1) ? ' (' + m.bonusItems.length + '项)' : '';
           var commHint = (m.commissionItems && m.commissionItems.length > 1) ? ' (' + m.commissionItems.length + '项)' : '';
           html += '<td class="cell-has" data-emp="' + emp.id + '" data-month="' + mo + '" title="点击编辑">' +
-            '<div class="cell-base">底 ' + FW.fmtMoney(m.base) + '</div>' +
+            '<div class="cell-base">底 ' + FW.fmtMoney(m.base) + baseHint + '</div>' +
             '<div class="cell-bonus">奖 ' + FW.fmtMoney(m.bonus) + bonusHint + '</div>' +
             '<div class="cell-comm">提 ' + FW.fmtMoney(m.commission) + commHint + '</div>' +
             '<div class="cell-amt">= ' + FW.fmtMoney(m.amount) + '</div></td>';
@@ -200,29 +204,32 @@
     if (!mind.projects.length) {
       return '<div class="empty-state">' +
         '<div class="empty-ico">🧠</div>' +
-        '<div class="empty-title">还没有按项目登记的奖金/提成</div>' +
-        '<div class="empty-sub">在「工资表」点任意格子编辑某月工资，奖金或提成可逐行填写项目（如 项目A、客户B）。登记后这里会以脑图展示每个项目发了多少奖金与提成。</div>' +
+        '<div class="empty-title">还没有按项目登记的底薪/奖金/提成</div>' +
+        '<div class="empty-sub">在「工资表」点任意格子编辑某月工资，底薪、奖金或提成可逐行填写项目（如 项目A、客户B）。登记后这里会以脑图展示每个项目发了多少底薪、奖金与提成。</div>' +
         '</div>';
     }
     var html = '';
     html += '<div class="mind-legend">' +
+      '<span class="lg-item"><i style="background:#C9A227"></i>底薪</span>' +
       '<span class="lg-item"><i style="background:#C8102E"></i>奖金</span>' +
       '<span class="lg-item"><i style="background:#1f9d55"></i>提成</span>' +
-      '<span class="muted" style="margin-left:8px">' + state.year + ' 全年 · 按项目统计奖金与提成发放</span></div>';
+      '<span class="muted" style="margin-left:8px">' + state.year + ' 全年 · 按项目统计底薪、奖金与提成发放</span></div>';
     html += mind.svg;
     html += '<div class="proj-sum-wrap"><table class="proj-sum-table"><thead><tr>' +
-      '<th>项目</th><th class="num">奖金</th><th class="num">提成</th><th class="num">合计</th></tr></thead><tbody>';
+      '<th>项目</th><th class="num">底薪</th><th class="num">奖金</th><th class="num">提成</th><th class="num">合计</th></tr></thead><tbody>';
     mind.projects.forEach(function (p) {
       var d = mind.projMap[p];
       html += '<tr><td>' + FW.esc(p) + '</td>' +
+        '<td class="num amt-income">' + FW.fmtMoney(d.base) + '</td>' +
         '<td class="num amt-income">' + FW.fmtMoney(d.bonus) + '</td>' +
         '<td class="num amt-expense">' + FW.fmtMoney(d.commission) + '</td>' +
-        '<td class="num">' + FW.fmtMoney(d.bonus + d.commission) + '</td></tr>';
+        '<td class="num">' + FW.fmtMoney(d.base + d.bonus + d.commission) + '</td></tr>';
     });
     html += '<tr class="proj-sum-total"><td>合计</td>' +
+      '<td class="num amt-income">' + FW.fmtMoney(mind.grandBase) + '</td>' +
       '<td class="num amt-income">' + FW.fmtMoney(mind.grandBonus) + '</td>' +
       '<td class="num amt-expense">' + FW.fmtMoney(mind.grandCommission) + '</td>' +
-      '<td class="num">' + FW.fmtMoney(mind.grandBonus + mind.grandCommission) + '</td></tr>';
+      '<td class="num">' + FW.fmtMoney(mind.grandBase + mind.grandBonus + mind.grandCommission) + '</td></tr>';
     html += '</tbody></table></div>';
     return html;
   }
@@ -234,33 +241,35 @@
     function add(items, type) {
       (items || []).forEach(function (it) {
         var p = (it.project || '').trim() || '未分类';
-        if (!projMap[p]) projMap[p] = { bonus: 0, commission: 0 };
+        if (!projMap[p]) projMap[p] = { base: 0, bonus: 0, commission: 0 };
         projMap[p][type] += num(it.amount);
       });
     }
     recs.forEach(function (r) {
       var n = normalizeRec(r);
+      add(n.baseItems, 'base');
       add(n.bonusItems, 'bonus');
       add(n.commissionItems, 'commission');
     });
     var projects = Object.keys(projMap);
-    var grandBonus = 0, grandCommission = 0;
-    projects.forEach(function (p) { grandBonus += projMap[p].bonus; grandCommission += projMap[p].commission; });
-    projects.sort(function (a, b) { return (projMap[b].bonus + projMap[b].commission) - (projMap[a].bonus + projMap[a].commission); });
+    var grandBase = 0, grandBonus = 0, grandCommission = 0;
+    projects.forEach(function (p) { grandBase += projMap[p].base; grandBonus += projMap[p].bonus; grandCommission += projMap[p].commission; });
+    projects.sort(function (a, b) { return (projMap[b].base + projMap[b].bonus + projMap[b].commission) - (projMap[a].base + projMap[a].bonus + projMap[a].commission); });
     var branches = projects.map(function (p) {
       var d = projMap[p];
       return {
-        label: p + '  ' + FW.fmtMoney(d.bonus + d.commission),
+        label: p + '  ' + FW.fmtMoney(d.base + d.bonus + d.commission),
         value: '',
         color: '#C9A227',
         children: [
+          { label: '底薪', value: FW.fmtMoney(d.base), color: '#C9A227' },
           { label: '奖金', value: FW.fmtMoney(d.bonus), color: '#C8102E' },
           { label: '提成', value: FW.fmtMoney(d.commission), color: '#1f9d55' }
         ]
       };
     });
-    var root = { label: year + '年 奖金+提成', value: '总 ' + FW.fmtMoney(grandBonus + grandCommission), color: '#3A0F14' };
-    return { svg: FW.mindMap({ root: root, branches: branches }), grandBonus: grandBonus, grandCommission: grandCommission, projMap: projMap, projects: projects };
+    var root = { label: year + '年 工资(底薪+奖金+提成)', value: '总 ' + FW.fmtMoney(grandBase + grandBonus + grandCommission), color: '#3A0F14' };
+    return { svg: FW.mindMap({ root: root, branches: branches }), grandBase: grandBase, grandBonus: grandBonus, grandCommission: grandCommission, projMap: projMap, projects: projects };
   }
 
   function statCard(label, val) {
@@ -274,8 +283,8 @@
     if (!emp) return;
     var recs = getRecs();
     var rec = recs.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
-    var base = rec ? num(rec.base) : '';
     var remark = rec ? (rec.remark || '') : '';
+    var recBaseItems = (rec && rec.baseItems && rec.baseItems.length) ? rec.baseItems : (rec && num(rec.base) > 0 ? [{ project: '', amount: num(rec.base) }] : []);
     var recBonusItems = (rec && rec.bonusItems && rec.bonusItems.length) ? rec.bonusItems : (rec && num(rec.bonus) > 0 ? [{ project: '', amount: num(rec.bonus) }] : []);
     var recCommItems = (rec && rec.commissionItems && rec.commissionItems.length) ? rec.commissionItems : (rec && num(rec.commission) > 0 ? [{ project: '', amount: num(rec.commission) }] : []);
 
@@ -294,7 +303,10 @@
 
     var body = '<div class="form">' +
       '<div class="form-row"><label>员工</label><div class="form-static">' + FW.esc(emp.name) + ' · ' + state.year + '年' + month + '月</div></div>' +
-      '<div class="form-row"><label>底薪</label><input id="mBase" type="number" step="0.01" value="' + (base === '' ? '' : base) + '" placeholder="如 8000"></div>' +
+      '<div class="form-section"><div class="form-sec-title">💰 底薪明细（可按项目分类）</div>' +
+        '<div id="baseItems" class="pi-list">' + rowsHtml(recBaseItems, '底薪') + '</div>' +
+        '<button type="button" class="btn sm" id="addBaseItem">＋ 添加底薪项</button>' +
+        '<div class="pi-total">底薪合计：<b id="baseTotal">' + sumHint(recBaseItems) + '</b></div></div>' +
       '<div class="form-section"><div class="form-sec-title">🏆 奖金明细（可按项目分类）</div>' +
         '<div id="bonusItems" class="pi-list">' + rowsHtml(recBonusItems, '奖金') + '</div>' +
         '<button type="button" class="btn sm" id="addBonusItem">＋ 添加奖金项</button>' +
@@ -347,25 +359,28 @@
         return items;
       }
 
+      bindList('baseItems', 'baseTotal');
       bindList('bonusItems', 'bonusTotal');
       bindList('commissionItems', 'commTotal');
+      makeAdd('addBaseItem', 'baseItems', 'baseTotal');
       makeAdd('addBonusItem', 'bonusItems', 'bonusTotal');
       makeAdd('addCommItem', 'commissionItems', 'commTotal');
 
       document.getElementById('mSave').onclick = function () {
-        var bs = document.getElementById('mBase').value;
+        var baseItems = collect('baseItems');
         var bonusItems = collect('bonusItems');
         var commissionItems = collect('commissionItems');
+        var base = baseItems.reduce(function (s, it) { return s + it.amount; }, 0);
         var bonus = bonusItems.reduce(function (s, it) { return s + it.amount; }, 0);
         var commission = commissionItems.reduce(function (s, it) { return s + it.amount; }, 0);
-        if ((bs === '' || isNaN(parseFloat(bs))) && bonus === 0 && commission === 0) {
+        if (base === 0 && bonus === 0 && commission === 0) {
           FW.toast('请至少填写底薪 / 奖金 / 提成 中的一项'); return;
         }
         var recs2 = getRecs();
         var exist = recs2.filter(function (r) { return r.empId === empId && r.year === state.year && r.month === month; })[0];
         var obj = {
           empId: empId, year: state.year, month: month,
-          base: bs === '' ? 0 : parseFloat(bs),
+          base: base, baseItems: baseItems,
           bonus: bonus, commission: commission,
           bonusItems: bonusItems, commissionItems: commissionItems,
           remark: document.getElementById('mRemark').value
@@ -383,7 +398,7 @@
         FW.closeModal();
         render();
       };
-      document.getElementById('mBase').focus();
+      var fb = document.getElementById('addBaseItem'); if (fb) fb.focus();
     });
   }
 
@@ -674,9 +689,10 @@
           var emp = byName[(rec.name || '').trim().toLowerCase()];
           if (!emp) return;
           var id = recId(emp.id, rec.year, rec.month);
+          var baseItems = rec.base > 0 ? [{ project: '', amount: rec.base }] : [];
           var bonusItems = rec.bonus > 0 ? [{ project: '', amount: rec.bonus }] : [];
           var commissionItems = rec.commission > 0 ? [{ project: '', amount: rec.commission }] : [];
-          FW.db.upsert('salary_records', { id: id, empId: emp.id, year: rec.year, month: rec.month, base: rec.base, bonus: rec.bonus, commission: rec.commission, bonusItems: bonusItems, commissionItems: commissionItems, remark: '' });
+          FW.db.upsert('salary_records', { id: id, empId: emp.id, year: rec.year, month: rec.month, base: rec.base, bonus: rec.bonus, commission: rec.commission, baseItems: baseItems, bonusItems: bonusItems, commissionItems: commissionItems, remark: '' });
         });
         FW.closeModal();
         FW.toast('已导入 ' + r.rows.length + ' 条，新建 ' + r.newEmps.length + ' 名员工');
@@ -694,13 +710,14 @@
   function exportCSV(rows) {
     var header = ['员工', '部门'];
     MONTHS.forEach(function (m) { header.push(m + '底薪', m + '奖金', m + '提成', m + '金额'); });
-    header.push('奖金明细(项目:金额)', '提成明细(项目:金额)', '累计底薪', '累计奖金', '累计提成', '累计金额');
+    header.push('底薪明细(项目:金额)', '奖金明细(项目:金额)', '提成明细(项目:金额)', '累计底薪', '累计奖金', '累计提成', '累计金额');
     var lines = [header.join(',')];
     rows.forEach(function (rw) {
       var byMonth = {};
       rw.calc.months.forEach(function (m) { byMonth[m.month] = m; });
-      var allBonus = [], allComm = [];
+      var allBase = [], allBonus = [], allComm = [];
       rw.calc.months.forEach(function (m) {
+        (m.baseItems || []).forEach(function (it) { allBase.push(it); });
         (m.bonusItems || []).forEach(function (it) { allBonus.push(it); });
         (m.commissionItems || []).forEach(function (it) { allComm.push(it); });
       });
@@ -709,7 +726,7 @@
         var m = byMonth[mo];
         line.push(m ? m.base : '', m ? m.bonus : '', m ? m.commission : '', m ? m.amount : '');
       }
-      line.push(detailOf(allBonus), detailOf(allComm), rw.calc.cumBase, rw.calc.cumBonus, rw.calc.cumCommission, rw.calc.cumAmount);
+      line.push(detailOf(allBase), detailOf(allBonus), detailOf(allComm), rw.calc.cumBase, rw.calc.cumBonus, rw.calc.cumCommission, rw.calc.cumAmount);
       lines.push(line.join(','));
     });
     var csv = lines.join('\r\n');

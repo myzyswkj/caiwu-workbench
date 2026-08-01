@@ -44,6 +44,7 @@ ok('累计奖金 = 2000', Math.abs(calc.cumBonus - 2000) < 0.001);
 ok('累计提成 = 13000', Math.abs(calc.cumCommission - 13000) < 0.001);
 ok('累计金额 = 31000', Math.abs(calc.cumAmount - 31000) < 0.001);
 ok('1月 金额 = 底+奖+提 = 15000', Math.abs(calc.months[0].amount - 15000) < 0.001 && calc.months[0].bonus === 2000 && calc.months[0].commission === 5000);
+ok('底薪>0 时规范出 baseItems(8000)', calc.months[0].baseItems.length === 1 && Math.abs(calc.months[0].baseItems[0].amount - 8000) < 0.001);
 
 console.log('--- 2) 旧数据兼容（无 commission 字段）---');
 const oldRecs = [

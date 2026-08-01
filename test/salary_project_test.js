@@ -52,12 +52,12 @@ function ok(name, cond) { if (cond) { pass++; console.log('  ✓ ' + name); } el
 
 // ---------- 准备数据 ----------
 var recs = [
-  { id: 'e1-2026-1', empId: 'e1', year: 2026, month: 1, base: 8000, bonus: 0, commission: 0,
-    bonusItems: [], commissionItems: [{ project: '项目A', amount: 2000 }, { project: '项目B', amount: 1000 }] },
-  { id: 'e1-2026-2', empId: 'e1', year: 2026, month: 2, base: 8000, bonus: 0, commission: 0,
-    bonusItems: [{ project: '项目A', amount: 3000 }], commissionItems: [{ project: '项目A', amount: 500 }] },
-  { id: 'e2-2026-3', empId: 'e2', year: 2026, month: 3, base: 9000, bonus: 0, commission: 0,
-    bonusItems: [{ project: '项目C', amount: 1500 }, { project: '项目A', amount: 500 }], commissionItems: [] }
+  { id: 'e1-2026-1', empId: 'e1', year: 2026, month: 1, base: 0, bonus: 0, commission: 0,
+    baseItems: [{ project: '项目A', amount: 8000 }], bonusItems: [], commissionItems: [{ project: '项目A', amount: 2000 }, { project: '项目B', amount: 1000 }] },
+  { id: 'e1-2026-2', empId: 'e1', year: 2026, month: 2, base: 0, bonus: 0, commission: 0,
+    baseItems: [{ project: '项目A', amount: 8000 }], bonusItems: [{ project: '项目A', amount: 3000 }], commissionItems: [{ project: '项目A', amount: 500 }] },
+  { id: 'e2-2026-3', empId: 'e2', year: 2026, month: 3, base: 0, bonus: 0, commission: 0,
+    baseItems: [{ project: '项目C', amount: 9000 }], bonusItems: [{ project: '项目C', amount: 1500 }, { project: '项目A', amount: 500 }], commissionItems: [] }
 ];
 FW.db.saveList('salary_records', recs);
 
@@ -70,6 +70,11 @@ ok('项目B 提成 = 1000', Math.abs(agg.projMap['项目B'].commission - 1000) <
 ok('项目B 奖金 = 0', Math.abs(agg.projMap['项目B'].bonus - 0) < 0.001);
 ok('项目C 奖金 = 1500', Math.abs(agg.projMap['项目C'].bonus - 1500) < 0.001);
 ok('项目C 提成 = 0', Math.abs(agg.projMap['项目C'].commission - 0) < 0.001);
+ok('项目A 底薪 = 8000+8000 = 16000', Math.abs(agg.projMap['项目A'].base - 16000) < 0.001);
+ok('项目B 底薪 = 0', Math.abs(agg.projMap['项目B'].base - 0) < 0.001);
+ok('项目C 底薪 = 9000', Math.abs(agg.projMap['项目C'].base - 9000) < 0.001);
+ok('总底薪 = 16000+9000 = 25000', Math.abs(agg.grandBase - 25000) < 0.001);
+ok('脑图含底薪叶子标签', agg.svg.indexOf('>底薪<') > -1);
 ok('总奖金 = 3500+1500 = 5000', Math.abs(agg.grandBonus - 5000) < 0.001);
 ok('总提成 = 2500+1000 = 3500', Math.abs(agg.grandCommission - 3500) < 0.001);
 ok('按合计降序，项目A（7000）排第一', agg.projects[0] === '项目A');
@@ -85,7 +90,8 @@ ok('脑图用主题色 #1f9d55（提成）', agg.svg.indexOf('#1f9d55') > -1);
 console.log('--- 2) 不同年份隔离 ---');
 FW.db.saveList('salary_records', recs.concat([{ id: 'e1-2025-1', empId: 'e1', year: 2025, month: 1, base: 8000, bonus: 0, commission: 0, bonusItems: [{ project: '旧项目', amount: 999 }], commissionItems: [] }]));
 var agg25 = Agg(2025);
-ok('2025 仅 1 个项目', agg25.projects.length === 1 && agg25.projects[0] === '旧项目');
+ok('2025 隔离：不含 2026 的项目(A/B/C)', agg25.projects.indexOf('项目A') < 0 && agg25.projects.indexOf('项目B') < 0 && agg25.projects.indexOf('项目C') < 0);
+ok('2025 含「旧项目」与未分类底薪', agg25.projects.indexOf('旧项目') >= 0 && agg25.projects.indexOf('未分类') >= 0 && agg25.projects.length === 2);
 ok('2026 聚合不受 2025 影响（仍 3 项）', Agg(2026).projects.length === 3);
 
 console.log('--- 3) 导入列识别：奖金/提成分别映射 ---');
@@ -110,6 +116,28 @@ var svg2 = FW.mindMap({
 ok('mindMap 生成 <div class="mindmap-box"><svg', /^<div class="mindmap-box"><svg /.test(svg2));
 ok('mindMap 含分支与叶子', svg2.indexOf('P1') > -1 && svg2.indexOf('>奖金<') > -1);
 ok('mindMap 含连接线 path', svg2.indexOf('<path') > -1);
+
+console.log('--- 6) 底薪按项目分类 + 脑图聚合 + 旧数据规范 ---');
+var baseOnly = [
+  { id: 'p1-2028-1', empId: 'p1', year: 2028, month: 1, base: 0, bonus: 0, commission: 0,
+    baseItems: [{ project: '项目甲', amount: 6000 }, { project: '项目乙', amount: 2000 }], bonusItems: [], commissionItems: [] },
+  { id: 'p1-2028-2', empId: 'p1', year: 2028, month: 2, base: 0, bonus: 0, commission: 0,
+    baseItems: [{ project: '项目甲', amount: 6000 }], bonusItems: [], commissionItems: [] }
+];
+FW.db.saveList('salary_records', baseOnly);
+var aggB = Agg(2028);
+ok('底薪聚合出 2 个项目（甲/乙）', aggB.projects.length === 2);
+ok('项目甲 底薪 = 6000+6000 = 12000', Math.abs(aggB.projMap['项目甲'].base - 12000) < 0.001);
+ok('项目乙 底薪 = 2000', Math.abs(aggB.projMap['项目乙'].base - 2000) < 0.001);
+ok('脑图含「底薪」叶子标签', aggB.svg.indexOf('>底薪<') > -1);
+ok('脑图根节点含「工资」字样', aggB.svg.indexOf('工资') > -1);
+ok('脑图用主题金色 #C9A227（底薪）', aggB.svg.indexOf('#C9A227') > -1);
+
+console.log('--- 6b) 旧 base 数值规范为单条底薪明细 ---');
+var legacy = [{ id: 'lg-2028-5', empId: 'lg', year: 2028, month: 5, base: 7500, bonus: 0, commission: 0 }];
+var cLegacy = Calc.computeEmpYear({ id: 'lg' }, legacy, 2028);
+ok('旧 base 规范为 1 条底薪明细(7500)', cLegacy.months[0].baseItems.length === 1 && Math.abs(cLegacy.months[0].baseItems[0].amount - 7500) < 0.001);
+ok('旧 base 规范后底薪合计不变 = 7500', Math.abs(cLegacy.months[0].base - 7500) < 0.001);
 
 console.log('\n工资项目化/脑图 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);
