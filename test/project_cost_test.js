@@ -155,5 +155,15 @@ var ltSum = d.laborTypes.reduce(function (s, x) { return s + x.value; }, 0);
 ok('工资成本构成合计 = 34000（底薪21000+奖金5000+提成8000）', approx(ltSum, 34000));
 ok('工资成本构成含 底薪/奖金/提成 三项', d.laborTypes.length === 3);
 
+console.log('--- 6) 项目筛选 filterRows ---');
+ok('filterRows 默认不过滤 = 4 个', C.filterRows(d.rows, '', 'all').length === 4);
+ok('关键词「项目A」精确命中 1 个', (function () { var f = C.filterRows(d.rows, '项目A', 'all'); return f.length === 1 && f[0].project === '项目A'; })());
+ok('关键词「项目」命中全部 4 个', C.filterRows(d.rows, '项目', 'all').length === 4);
+ok('关键词「zzz」命中 0 个', C.filterRows(d.rows, 'zzz', 'all').length === 0);
+ok('关键词大小写不敏感（项目a → 项目A）', C.filterRows(d.rows, '项目a', 'all').length === 1);
+ok('仅盈利 = 4 个（当前样例均盈利）', C.filterRows(d.rows, '', 'profit').length === 4);
+ok('仅亏损 = 0 个', C.filterRows(d.rows, '', 'loss').length === 0);
+ok('关键词 + 仅盈利 组合：项目A 且盈利 = 1 个', (function () { var f = C.filterRows(d.rows, '项目A', 'profit'); return f.length === 1 && f[0].profit >= 0; })());
+
 console.log('\n项目核算 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);

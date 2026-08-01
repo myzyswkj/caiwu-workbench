@@ -192,34 +192,71 @@
     return Object.keys(set).sort();
   }
 
-  var state = { year: 'all', expanded: {} };
+  var state = { year: 'all', expanded: {}, kw: '', pnl: 'all' };
 
-  function render() {
-    var data = compute(state.year);
-    var years = getYears();
+  // 项目筛选（关键词匹配项目名 + 盈亏过滤）；纯函数，便于测试与外部复用
+  function filterRows(rows, kw, pnl) {
+    kw = (kw || '').trim().toLowerCase();
+    pnl = pnl || 'all';
+    return (rows || []).filter(function (r) {
+      if (kw && (r.project || '').toLowerCase().indexOf(kw) < 0) return false;
+      if (pnl === 'profit' && r.profit < 0) return false;
+      if (pnl === 'loss' && r.profit >= 0) return false;
+      return true;
+    });
+  }
 
+  function render() { buildTop(); buildBody(); }
+
+  // 顶部操作区（年度 / 搜索 / 盈亏筛选 / 导出 / 校正）——独立构建，避免搜索输入时整页重渲导致输入框失焦
+  function buildTop() {
     var top = document.getElementById('topActions');
-    if (top) {
-      top.innerHTML =
-        '<label class="pc-year-label">统计年度</label>' +
-        '<select id="pcYear" class="pc-year">' +
-        '<option value="all"' + (state.year === 'all' ? ' selected' : '') + '>全部年度</option>' +
-        years.map(function (y) { return '<option value="' + y + '"' + (state.year === y ? ' selected' : '') + '>' + y + ' 年</option>'; }).join('') +
-        '</select>' +
-        '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
-        '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
-      document.getElementById('pcYear').onchange = function () { state.year = this.value; render(); };
-      document.getElementById('pcExport').onclick = function () { exportCSV(data); };
-      document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
-    }
+    if (!top) return;
+    var years = getYears();
+    top.innerHTML =
+      '<label class="pc-year-label">统计年度</label>' +
+      '<select id="pcYear" class="pc-year">' +
+      '<option value="all"' + (state.year === 'all' ? ' selected' : '') + '>全部年度</option>' +
+      years.map(function (y) { return '<option value="' + y + '"' + (state.year === y ? ' selected' : '') + '>' + y + ' 年</option>'; }).join('') +
+      '</select>' +
+      '<input id="pcSearch" class="pc-search" type="search" placeholder="搜索项目名" value="' + FW.esc(state.kw) + '">' +
+      '<select id="pcPnl" class="pc-year">' +
+      '<option value="all"' + (state.pnl === 'all' ? ' selected' : '') + '>全部盈亏</option>' +
+      '<option value="profit"' + (state.pnl === 'profit' ? ' selected' : '') + '>仅盈利</option>' +
+      '<option value="loss"' + (state.pnl === 'loss' ? ' selected' : '') + '>仅亏损</option>' +
+      '</select>' +
+      '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
+      '<button class="btn ghost" id="pcExportX">⬇ 导出Excel</button>' +
+      '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
+    document.getElementById('pcYear').onchange = function () { state.year = this.value; buildBody(); };
+    document.getElementById('pcSearch').oninput = function () { state.kw = this.value; buildBody(); };
+    document.getElementById('pcPnl').onchange = function () { state.pnl = this.value; buildBody(); };
+    document.getElementById('pcExport').onclick = function () { var v = getView(); exportCSV(v.rows, v.data); };
+    document.getElementById('pcExportX').onclick = function () { var v = getView(); exportXLSX(v.rows, v.data); };
+    document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
+  }
 
+  // 计算当前视图数据（含筛选）
+  function getView() {
+    var data = compute(state.year);
+    var rows = filterRows(data.rows, state.kw, state.pnl);
+    return { data: data, rows: rows };
+  }
+
+  function buildBody() {
+    var v = getView();
+    var data = v.data, rows = v.rows;
+    var filterNote = (state.kw || state.pnl !== 'all') ?
+      '<div class="pc-filter-note">已筛选显示 <b>' + rows.length + '</b> 个项目（筛选仅作用于项目列表与对比图；上方 KPI / 成本结构 / 趋势为全部项目汇总）。</div>' : '';
     var html = '<div class="salary-wrap">';
     html += statRow(data);
     html += recoverNote(data);
     html += unallocHtml(data);
-    html += chartHtml(data);
+    html += chartHtml(data, rows);
+    html += profitRateHtml(rows);
     html += trendHtml(data);
-    html += tableHtml(data);
+    html += filterNote;
+    html += tableHtml(rows);
     html += '</div>';
     var c = document.getElementById('content'); if (c) c.innerHTML = html;
 
@@ -231,7 +268,7 @@
         if (!tr) return;
         var p = tr.getAttribute('data-p');
         if (state.expanded[p]) delete state.expanded[p]; else state.expanded[p] = true;
-        render();
+        buildBody();
       };
     }
   }
@@ -283,13 +320,14 @@
 
   function fmtRoi(v) { return isFinite(v) ? v.toFixed(2) : '∞'; }
 
-  function chartHtml(data) {
-    if (!data.rows.length) return '';
-    var labels = data.rows.map(function (r) { return r.project; });
+  function chartHtml(data, rows) {
+    rows = rows || data.rows;
+    if (!rows.length) return '';
+    var labels = rows.map(function (r) { return r.project; });
     var series = [
-      { name: '收入', color: '#C8102E', values: data.rows.map(function (r) { return r.revenue; }) },
-      { name: '总成本', color: '#1f9d55', values: data.rows.map(function (r) { return r.totalCost; }) },
-      { name: '利润', color: '#C9A227', values: data.rows.map(function (r) { return r.profit; }) }
+      { name: '收入', color: '#C8102E', values: rows.map(function (r) { return r.revenue; }) },
+      { name: '总成本', color: '#1f9d55', values: rows.map(function (r) { return r.totalCost; }) },
+      { name: '利润', color: '#C9A227', values: rows.map(function (r) { return r.profit; }) }
     ];
     var chartW = Math.max(440, labels.length * 74 + 70);
     var title = (state.year === 'all' ? '各项目 收入/成本/利润（全部年度）' : '各项目 收入/成本/利润（' + state.year + ' 年）');
@@ -317,6 +355,62 @@
     return h;
   }
 
+  // 各项目利润率横向对比条（红=盈利 绿=亏损，按利润率降序）
+  function profitRateHtml(rows) {
+    if (!rows || !rows.length) return '';
+    var maxAbs = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.rate); }).concat([1]));
+    var items = rows.slice().sort(function (a, b) { return b.rate - a.rate; });
+    var bars = items.map(function (r) {
+      var w = (Math.abs(r.rate) / maxAbs * 100).toFixed(1);
+      var color = r.rate >= 0 ? '#C8102E' : '#1f9d55';
+      var sign = r.rate >= 0 ? '+' : '';
+      return '<div class="pc-rate-row">' +
+        '<span class="pc-rate-name" title="' + FW.esc(r.project) + '">' + FW.esc(FW.clip(r.project, 8)) + '</span>' +
+        '<span class="pc-rate-track"><span class="pc-rate-fill" style="width:' + w + '%;background:' + color + '"></span></span>' +
+        '<span class="pc-rate-val" style="color:' + color + '">' + sign + r.rate.toFixed(1) + '%</span>' +
+        '</div>';
+    }).join('');
+    return '<div class="pc-section-title">各项目利润率对比（红=盈利 绿=亏损）</div><div class="pc-rate-list">' + bars + '</div>';
+  }
+
+  // 利润形成瀑布图（返回 SVG 片段，由调用方包裹标题）；收入 − 流水成本 + 应收回款项 − 工资成本 = 利润
+  function profitWaterfall(r) {
+    var w = 340, h = 230, padL = 44, padB = 30, padT = 16, padR = 12;
+    var steps = [
+      { label: '收入', val: r.revenue, kind: 'inc' },
+      { label: '流水成本', val: -r.flowCost, kind: 'dec' },
+      { label: '应收回款项', val: r.recoverable, kind: 'rec' },
+      { label: '工资成本', val: -r.laborCost, kind: 'dec' },
+      { label: '利润', val: r.profit, kind: 'tot' }
+    ];
+    var run = 0, tops = [], bots = [], levels = [];
+    steps.forEach(function (s) {
+      var level;
+      if (s.kind === 'tot') { tops.push(Math.max(s.val, 0)); bots.push(Math.min(s.val, 0)); level = s.val; }
+      else { var a = run, b = run + s.val; tops.push(Math.max(a, b)); bots.push(Math.min(a, b)); level = b; }
+      levels.push(level); run = level;
+    });
+    var hi = Math.max.apply(null, tops.concat([1]));
+    var lo = Math.min.apply(null, bots.concat([0]));
+    var range = (hi - lo) || 1;
+    function Y(v) { return padT + (h - padB - padT) * (1 - (v - lo) / range); }
+    var n = steps.length, gw = (w - padL - padR) / n, bw = Math.min(gw * 0.62, 30);
+    var col = { inc: '#C8102E', dec: '#1f9d55', rec: '#2f6bff', tot: r.profit >= 0 ? '#C8102E' : '#1f9d55' };
+    var svg = '<svg class="chart-svg" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">';
+    svg += '<line x1="' + padL + '" y1="' + Y(0).toFixed(1) + '" x2="' + (w - padR) + '" y2="' + Y(0).toFixed(1) + '" stroke="#e6e9f0"/>';
+    steps.forEach(function (s, idx) {
+      var x = padL + gw * idx + (gw - bw) / 2;
+      var yt = Y(tops[idx]), yb = Y(bots[idx]);
+      var hgt = Math.max(Math.abs(yb - yt), 1.5);
+      svg += '<rect x="' + x.toFixed(1) + '" y="' + yt.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" rx="2" fill="' + col[s.kind] + '" opacity="0.9"/>';
+      if (idx < n - 1) { var nx = padL + gw * (idx + 1) + (gw - bw) / 2; svg += '<line x1="' + (x + bw).toFixed(1) + '" y1="' + Y(levels[idx]).toFixed(1) + '" x2="' + nx.toFixed(1) + '" y2="' + Y(levels[idx]).toFixed(1) + '" stroke="#c7cedb" stroke-dasharray="3 2"/>'; }
+      svg += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (yt - 4).toFixed(1) + '" font-size="8.5" text-anchor="middle" fill="#41506a">' + FW.shortMoney(s.val) + '</text>';
+      svg += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (h - padB + 13).toFixed(1) + '" font-size="9" text-anchor="middle" fill="#7a869a">' + FW.esc(FW.clip(s.label, 6)) + '</text>';
+    });
+    svg += '</svg>';
+    return svg;
+  }
+
   // 逐月趋势
   function trendHtml(data) {
     if (!data.monthly.labels.length) return '';
@@ -334,6 +428,8 @@
   // 下钻明细
   function detailHtml(r) {
     var h = '<tr class="pc-detail-row"><td colspan="11"><div class="pc-detail">';
+    h += '<div class="pc-detail-block"><h5>利润形成（瀑布图）</h5>' + profitWaterfall(r) +
+      '<div class="muted" style="font-size:11px;margin-top:4px">收入 − 流水成本 + 应收回款项 − 工资成本 = 利润（应收回款项为预付未用完、从成本中扣除的可收回项）</div></div>';
     var cats = Object.keys(r.byCat).map(function (c) { return { label: c, value: r.byCat[c] }; }).sort(function (a, b) { return b.value - a.value; });
     h += '<div class="pc-detail-block"><h5>流水成本构成（按分类）</h5>';
     h += cats.length ? FW.barChart('', cats, { height: 180 }) : '<div class="muted">无</div>';
@@ -440,10 +536,11 @@
     return h;
   }
 
-  function exportCSV(data) {
+  function exportCSV(rows, data) {
+    if (!rows || !rows.length) { FW.toast('没有可导出的项目'); return; }
     var header = ['排名', '项目', '收入', '流水成本', '应收回款项', '工资成本', '总成本', '利润', '利润率(%)', '投入产出比', '盈亏'];
     var lines = [header.join(',')];
-    data.rows.forEach(function (r) {
+    rows.forEach(function (r) {
       lines.push([
         r.rank, r.project, r.revenue, r.flowCost, (r.recoverable || 0), r.laborCost, r.totalCost, r.profit,
         r.rate.toFixed(1), fmtRoi(r.roi), r.profit >= 0 ? '盈利' : '亏损'
@@ -462,6 +559,39 @@
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     FW.toast('已导出 CSV');
+  }
+
+  // 导出真正的 Excel（.xlsx）：金额列为数值，便于财务直接求和/筛选
+  function exportXLSX(rows, data) {
+    if (!rows || !rows.length) { FW.toast('没有可导出的项目'); return; }
+    if (!window.XLSX) { FW.toast('Excel 导出组件未加载'); return; }
+    var x = window.XLSX;
+    var aoa = [['排名', '项目', '收入', '流水成本', '应收回款项', '工资成本', '总成本', '利润', '利润率(%)', '投入产出比', '盈亏']];
+    rows.forEach(function (r) {
+      aoa.push([
+        r.rank, r.project, r.revenue, r.flowCost, (r.recoverable || 0), r.laborCost, r.totalCost, r.profit,
+        Number(r.rate.toFixed(2)), r.roi === Infinity ? '∞' : Number(r.roi.toFixed(2)), r.profit >= 0 ? '盈利' : '亏损'
+      ]);
+    });
+    aoa.push([
+      '', '合计', data.tot.revenue, data.tot.flowCost, data.tot.recoverable, data.tot.laborCost, data.tot.totalCost, data.tot.profit,
+      data.avgRate === Infinity ? '—' : Number(data.avgRate.toFixed(2)), data.avgRoi === Infinity ? '∞' : Number(data.avgRoi.toFixed(2)), ''
+    ]);
+    var wb = x.utils.book_new();
+    var ws = x.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [
+      { wch: 6 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 8 }
+    ];
+    x.utils.book_append_sheet(wb, ws, '项目核算');
+    var out = x.write(wb, { bookType: 'xlsx', type: 'array' });
+    var blob = new Blob([out], { type: 'application/octet-stream' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '项目成本利润核算_' + (state.year === 'all' ? '全部年度' : state.year) + '.xlsx';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    FW.toast('已导出 Excel');
   }
 
   // 批量校正：把按净额记的收入，补填被扣除的支出（已扣支出）
@@ -504,13 +634,13 @@
           if (num(rec.deduct) !== dv) { rec.deduct = dv; FW.db.upsert('internal', rec); n++; }
         });
         FW.closeModal();
-        render();
+        buildBody();
         FW.toast(n ? ('已校正 ' + n + ' 笔收入') : '无变更');
       };
     });
   }
 
-  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector };
+  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows };
 
   FW.modules = FW.modules || {};
   FW.modules.projectCost = { title: '项目核算', render: render };
