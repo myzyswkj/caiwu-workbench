@@ -324,6 +324,24 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .dq-title { font-weight: 700; font-size: 14px; }
 .dq-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
+/* 首页：各账户余额 / 各项目盈亏 */
+.dash-acct-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.dash-acct-tile { background: var(--bg, #f6f8fc); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: .15s; }
+.dash-acct-tile:hover { border-color: var(--primary); transform: translateY(-1px); }
+.dash-acct-tile .da-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.dash-acct-tile .da-bal { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dash-acct-tile.total { background: var(--primary-soft, #eef2ff); border-color: var(--primary); }
+.dash-acct-tile.total .da-name { color: var(--primary); font-weight: 600; }
+.dash-pnl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dash-pnl-table th, .dash-pnl-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+.dash-pnl-table thead th { background: #f6f8fc; color: var(--muted); font-weight: 600; }
+.dash-pnl-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.dash-pnl-table tbody tr { cursor: pointer; }
+.dash-pnl-table tbody tr:hover { background: var(--primary-soft, #f5f7ff); }
+.pnl-income { color: #C8102E; font-weight: 600; }
+.pnl-expense { color: #1f9d55; font-weight: 600; }
+.dash-more { margin-top: 10px; font-size: 12px; color: var(--muted); text-align: right; }
+
 .todo-sec { margin-bottom: 10px; }
 .todo-h { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .todo-item { display: inline-block; margin: 0 8px 8px 0; font-size: 13px; }

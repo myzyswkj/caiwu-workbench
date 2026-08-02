@@ -48,6 +48,42 @@
     return '<table><thead><tr><th>日期</th><th>项目</th><th>分类</th><th class="num">金额</th></tr></thead><tbody>' + trs + '</tbody></table>';
   }
 
+  // 各账户余额（资金层，含期初）——复用 internalCalc.accountBalances
+  function accountsHtml() {
+    if (!FW.internalCalc || !FW.internalCalc.accountBalances) return '';
+    var balances = FW.internalCalc.accountBalances(); // [{name, bal}] 全部累计
+    if (!balances.length) return '';
+    var total = balances.reduce(function (s, x) { return s + (Number(x.bal) || 0); }, 0);
+    var tiles = balances.map(function (x) {
+      var v = Number(x.bal) || 0;
+      return '<div class="dash-acct-tile" data-mod="internal"><div class="da-name">' + FW.esc(x.name) + '</div><div class="da-bal">' + FW.fmtMoney(v) + '</div></div>';
+    }).join('');
+    tiles += '<div class="dash-acct-tile total"><div class="da-name">资金总计</div><div class="da-bal">' + FW.fmtMoney(total) + '</div></div>';
+    return '<div class="card dash-acct-card" data-mod="internal"><h3>各账户余额 <span class="sub">点击进入登记内账</span></h3><div class="dash-acct-grid">' + tiles + '</div></div>';
+  }
+
+  // 各项目盈亏（利润层，全部年度汇总）——复用 projectCostCalc.compute
+  function projectPnlHtml() {
+    if (!FW.projectCostCalc || !FW.projectCostCalc.compute) return '';
+    var data = FW.projectCostCalc.compute('all');
+    var rows = (data.rows || []).slice().sort(function (a, b) { return b.profit - a.profit; });
+    if (!rows.length) return '';
+    var top = rows.slice(0, 8);
+    var trs = top.map(function (r) {
+      var pcls = r.profit >= 0 ? 'pnl-income' : 'pnl-expense';
+      var badge = r.profit >= 0 ? '<span class="badge ok">盈利</span>' : '<span class="badge bad">亏损</span>';
+      var rate = r.rate != null && isFinite(r.rate) ? r.rate.toFixed(1) + '%' : '—';
+      return '<tr data-mod="projectCost"><td>' + FW.esc(r.project) + '</td>' +
+        '<td class="num">' + FW.fmtMoney(r.revenue) + '</td>' +
+        '<td class="num ' + pcls + '">' + FW.fmtMoney(r.profit) + '</td>' +
+        '<td class="num">' + rate + '</td>' +
+        '<td>' + badge + '</td></tr>';
+    }).join('');
+    var more = rows.length > top.length ? '<div class="dash-more">共 ' + rows.length + ' 个项目，点击查看全部 →</div>' : '';
+    return '<div class="card" data-mod="projectCost"><h3>各项目盈亏 <span class="sub">按利润排序 · 点击查看项目核算</span></h3>' +
+      '<table class="dash-pnl-table"><thead><tr><th>项目</th><th class="num">收入</th><th class="num">利润</th><th class="num">利润率</th><th>状态</th></tr></thead><tbody>' + trs + '</tbody></table>' + more + '</div>';
+  }
+
   function render() {
     var c = document.getElementById('content');
     var now = new Date();
@@ -91,6 +127,9 @@
         quick('📝', '备忘录', '待办与提醒', 'memo') +
       '</div>' +
 
+      accountsHtml() +
+      projectPnlHtml() +
+
       '<div class="card" style="margin-top:18px"><h3>待办与提醒 <span class="sub">' + todoCount + ' 项临近</span></h3>' +
         (overdue.length ? '<div class="todo-sec"><div class="todo-h">已逾期</div>' + overdue.map(todoItem).join('') + '</div>' : '') +
         (upcoming.length ? '<div class="todo-sec"><div class="todo-h">未来 7 天</div>' + upcoming.map(todoItem).join('') + '</div>' : '') +
@@ -101,7 +140,8 @@
 
     c.innerHTML = html;
 
-    FW.qa('#content .dash-quick-card').forEach(function (el) {
+    // 通用跳转：带 data-mod 的元素（快速入口 / 账户余额 / 项目盈亏）点击进入对应模块
+    FW.qa('#content [data-mod]').forEach(function (el) {
       el.onclick = function () {
         var nav = document.querySelector('#moduleNav .nav-item[data-module="' + el.dataset.mod + '"]');
         if (nav) nav.click();
