@@ -277,12 +277,23 @@
 
   function render() { buildTop(); buildBody(); }
 
-  // 顶部操作区（年度 / 搜索 / 盈亏筛选 / 导出 / 校正）——独立构建，避免搜索输入时整页重渲导致输入框失焦
+  // 顶部操作区（仅保留导出 / 校正按钮；筛选控件下移至排名表上方）
   function buildTop() {
     var top = document.getElementById('topActions');
     if (!top) return;
-    var years = getYears();
     top.innerHTML =
+      '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
+      '<button class="btn ghost" id="pcExportX">⬇ 导出Excel</button>' +
+      '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
+    document.getElementById('pcExport').onclick = function () { var v = getView(); exportCSV(v.rows, v.data); };
+    document.getElementById('pcExportX').onclick = function () { var v = getView(); exportXLSX(v.rows, v.data); };
+    document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
+  }
+
+  // 筛选行 HTML（年度 / 搜索 / 盈亏 / 成本率口径 / 剔除）——插入在排名表正上方
+  function filterBarHtml() {
+    var years = getYears();
+    return '<div id="pcFilterBar" class="pc-filter-bar">' +
       '<label class="pc-year-label">统计年度</label>' +
       '<select id="pcYear" class="pc-year">' +
       '<option value="all"' + (state.year === 'all' ? ' selected' : '') + '>全部年度</option>' +
@@ -297,16 +308,8 @@
       '<span class="pc-costtype-label">成本率口径</span>' +
       '<select id="pcCostType" class="pc-year"><option value="">总成本（默认）</option></select>' +
       '<select id="pcCostType2" class="pc-year" disabled><option value="">全部二级</option></select>' +
-      '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"> 剔除所选成本类</label>' +
-      '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
-      '<button class="btn ghost" id="pcExportX">⬇ 导出Excel</button>' +
-      '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
-    document.getElementById('pcYear').onchange = function () { state.year = this.value; buildBody(); };
-    document.getElementById('pcSearch').oninput = function () { state.kw = this.value; buildBody(); };
-    document.getElementById('pcPnl').onchange = function () { state.pnl = this.value; buildBody(); };
-    document.getElementById('pcExport').onclick = function () { var v = getView(); exportCSV(v.rows, v.data); };
-    document.getElementById('pcExportX').onclick = function () { var v = getView(); exportXLSX(v.rows, v.data); };
-    document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
+      '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"' + (state.costExcl ? ' checked' : '') + '> 剔除所选成本类</label>' +
+      '</div>';
   }
 
   // 计算当前视图数据（含筛选 + 单量/单产补全）
@@ -325,7 +328,8 @@
     html += statRow(data);
     html += recoverNote(data);
     html += unallocHtml(data);
-    // 排名数据表置于图表上方（用户要求先看到排名，再看作图分析）
+    // 筛选行 + 排名数据表置于图表上方
+    html += filterBarHtml();
     html += filterNote;
     html += tableHtml(rows, data);
     html += chartHtml(data, rows);
@@ -334,7 +338,15 @@
     html += '</div>';
     var c = document.getElementById('content'); if (c) c.innerHTML = html;
 
-    // 成本率口径下拉（一级 + 二级联动）；独立于表格渲染，避免下拉重建导致选择丢失
+    // 筛选行控件事件绑定（年度 / 搜索 / 盈亏）
+    var yearEl = document.getElementById('pcYear');
+    if (yearEl) yearEl.onchange = function () { state.year = this.value; buildBody(); };
+    var searchEl = document.getElementById('pcSearch');
+    if (searchEl) searchEl.oninput = function () { state.kw = this.value; buildBody(); };
+    var pnlEl = document.getElementById('pcPnl');
+    if (pnlEl) pnlEl.onchange = function () { state.pnl = this.value; buildBody(); };
+
+    // 成本率口径下拉（一级 + 二级联动）
     var ctSel = document.getElementById('pcCostType');
     if (ctSel) {
       var l1set = {};

@@ -809,6 +809,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .pc-excl-label { font-size: 13px; color: var(--muted, #7a869a); align-self: center; margin-left: 2px; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none; }
 .pc-excl-label input { margin: 0; cursor: pointer; }
 .pc-excl-label:disabled { opacity: .45; cursor: not-allowed; }
+/* 筛选行：排名表上方的独立筛选条 */
+.pc-filter-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  background: #f8f9fb; border: 1px solid #e2e6ee; border-radius: 10px;
+  padding: 10px 14px; margin: 12px 0 10px;
+}
 .pc-filter-note {
   font-size: 12px; color: #7a869a; background: #f6f8fc; border: 1px solid #e6e9f0;
   border-radius: 8px; padding: 8px 12px; margin: 10px 0;
