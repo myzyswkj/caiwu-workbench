@@ -320,16 +320,17 @@
     var v = getView();
     var data = v.data, rows = v.rows;
     var filterNote = (state.kw || state.pnl !== 'all') ?
-      '<div class="pc-filter-note">已筛选显示 <b>' + rows.length + '</b> 个项目（筛选仅作用于项目列表与对比图；上方 KPI / 成本结构 / 趋势为全部项目汇总）。</div>' : '';
+      '<div class="pc-filter-note">已筛选显示 <b>' + rows.length + '</b> 个项目（筛选仅作用于项目列表与下方对比图；上方 KPI 卡片为全部项目汇总）。</div>' : '';
     var html = '<div class="salary-wrap">';
     html += statRow(data);
     html += recoverNote(data);
     html += unallocHtml(data);
+    // 排名数据表置于图表上方（用户要求先看到排名，再看作图分析）
+    html += filterNote;
+    html += tableHtml(rows, data);
     html += chartHtml(data, rows);
     html += profitRateHtml(rows);
     html += trendHtml(data);
-    html += filterNote;
-    html += tableHtml(rows, data);
     html += '</div>';
     var c = document.getElementById('content'); if (c) c.innerHTML = html;
 
