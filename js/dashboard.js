@@ -48,15 +48,19 @@
     return '<table><thead><tr><th>日期</th><th>项目</th><th>分类</th><th class="num">金额</th></tr></thead><tbody>' + trs + '</tbody></table>';
   }
 
-  // 各账户余额（资金层，含期初）——复用 internalCalc.accountBalances
+  // 各账户余额（资金层，含期初）——复用 internalCalc.accountBalancesTree（树状：一级 + 二级）
   function accountsHtml() {
-    if (!FW.internalCalc || !FW.internalCalc.accountBalances) return '';
-    var balances = FW.internalCalc.accountBalances(); // [{name, bal}] 全部累计
-    if (!balances.length) return '';
-    var total = balances.reduce(function (s, x) { return s + (Number(x.bal) || 0); }, 0);
-    var tiles = balances.map(function (x) {
-      var v = Number(x.bal) || 0;
-      return '<div class="dash-acct-tile" data-mod="internal"><div class="da-name">' + FW.esc(x.name) + '</div><div class="da-bal">' + FW.fmtMoney(v) + '</div></div>';
+    if (!FW.internalCalc || !FW.internalCalc.accountBalancesTree) return '';
+    var tree = FW.internalCalc.accountBalancesTree(); // [{name, bal, children:[{name, bal}]}]
+    if (!tree.length) return '';
+    var total = 0;
+    var tiles = tree.map(function (p) {
+      total += (Number(p.bal) || 0);
+      var subs = (p.children || []).map(function (c) {
+        return '<div class="da-sub"><span class="da-sub-name">' + FW.esc(c.name.split(' / ').slice(1).join(' / ')) + '</span><span class="da-sub-bal">' + FW.fmtMoney(c.bal) + '</span></div>';
+      }).join('');
+      var subHtml = subs ? '<div class="da-subs">' + subs + '</div>' : '';
+      return '<div class="dash-acct-tile" data-mod="internal"><div class="da-name">' + FW.esc(p.name) + '</div><div class="da-bal">' + FW.fmtMoney(p.bal) + '</div>' + subHtml + '</div>';
     }).join('');
     tiles += '<div class="dash-acct-tile total"><div class="da-name">资金总计</div><div class="da-bal">' + FW.fmtMoney(total) + '</div></div>';
     return '<div class="card dash-acct-card" data-mod="internal"><h3>各账户余额 <span class="sub">点击进入登记内账</span></h3><div class="dash-acct-grid">' + tiles + '</div></div>';

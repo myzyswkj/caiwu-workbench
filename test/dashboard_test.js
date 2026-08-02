@@ -45,14 +45,17 @@ window.FW.toast = function () {};
 window.FW.openModal = function () {};
 window.FW.closeModal = function () {};
 
-// 桩：账户余额（internalCalc）
+// 桩：账户余额（internalCalc，树状）
 window.FW.internalCalc = {
-  accountBalances: function () {
+  accountBalancesTree: function () {
     return [
-      { name: '现金', bal: 12000 },
-      { name: '银行卡', bal: 580000 },
-      { name: '支付宝', bal: 34000 },
-      { name: '微信', bal: 21000 }
+      { name: '银行卡', bal: 612000, children: [
+        { name: '银行卡 / 工行', bal: 580000 },
+        { name: '银行卡 / 招行', bal: 32000 }
+      ] },
+      { name: '现金', bal: 12000, children: [] },
+      { name: '支付宝', bal: 34000, children: [] },
+      { name: '微信', bal: 21000, children: [] }
     ];
   }
 };
@@ -84,6 +87,7 @@ try {
 ok('含「各账户余额」区块', html.indexOf('各账户余额') >= 0);
 ok('含「资金总计」汇总', html.indexOf('资金总计') >= 0);
 ok('含账户「银行卡」', html.indexOf('银行卡') >= 0);
+ok('含二级账户「工行」（嵌套显示）', html.indexOf('工行') >= 0);
 ok('含「各项目盈亏」区块', html.indexOf('各项目盈亏') >= 0);
 ok('含项目「项目A」', html.indexOf('项目A') >= 0);
 ok('含盈利/亏损徽标', html.indexOf('盈利') >= 0 && html.indexOf('亏损') >= 0);
@@ -91,7 +95,7 @@ ok('含利润率 %', html.indexOf('%') >= 0);
 ok('输出不含 NaN/undefined/[object Object]', html.indexOf('NaN') < 0 && html.indexOf('undefined') < 0 && html.indexOf('[object Object]') < 0);
 
 // 空数据分支：无账户 / 无项目时不应崩溃且不应输出区块
-window.FW.internalCalc.accountBalances = function () { return []; };
+window.FW.internalCalc.accountBalancesTree = function () { return []; };
 window.FW.projectCostCalc.compute = function () { return { rows: [] }; };
 let html2 = '';
 try {

@@ -62,12 +62,12 @@ FW.modules.internal.render();
 // 触发「账户管理」弹窗
 document.getElementById('accMgrBtn').onclick();
 
-// 在弹窗里把「微信」改名为「微信支付」
-var inputs = FW.qa('.acc-mgr-name');
-var weChatInput = inputs.filter(function (i) { return (i.getAttribute('data-old') || '') === '微信'; })[0];
-assert.ok(weChatInput, '弹窗中存在初始名为「微信」的输入');
+// 在弹窗里把「微信」改名为「微信支付」（新版：一级账户输入 .acc-mgr-pname，oninput 实时更新）
+var inputs = FW.qa('.acc-mgr-pname');
+var weChatInput = inputs.filter(function (i) { return (i.value || '') === '微信'; })[0];
+assert.ok(weChatInput, '弹窗中存在初始名为「微信」的一级账户输入');
 weChatInput.value = '微信支付';
-weChatInput.onchange(); // 记录 pendingRenames
+weChatInput.oninput(); // 实时更新账户树状态
 
 // 点击保存
 document.getElementById('accMgrSave').onclick();

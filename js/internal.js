@@ -16,17 +16,42 @@
   var BKEY = 'internal_budget';
   var CATKEY = 'internal_cats';
   var DEFAULT_CATS = ['办公用品', '差旅费', '餐饮招待', '工资薪酬', '房租物业', '交通出行', '广告宣传', '材料采购', '设备购置', '税费', '利息收入', '其他收入', '其他支出'];
+  var SEP = ' / ';   // 账户层级分隔符（与分类一致）
   var DEFAULT_ACCTS = ['现金', '银行卡', '支付宝', '微信', '对公账户', '其他'];
-  var ACCT_KEY = 'internal_accounts';   // 自定义账户列表（按账本隔离）
+  var ACCT_KEY = 'internal_accounts';   // 自定义账户列表（按账本隔离，二级结构：[{name, children:[name]}])
 
-  // 动态获取账户列表（从 db 读取，无则用默认值）
-  function getAccounts() {
+  // 账户一级/二级拆分
+  function acct1(name) { return (name || '').split(SEP)[0]; }
+  function acct2(name) { return (name || '').split(SEP).slice(1).join(SEP); }
+
+  // 账户树（一级 + 二级）；兼容旧数据 [{name}] 无 children 的情况
+  function getAccountTree() {
     var list = FW.db.getList(ACCT_KEY);
-    if (!list.length) return DEFAULT_ACCTS.slice();
-    return list.map(function (a) { return a.name || ''; }).filter(Boolean);
+    if (!list.length) return DEFAULT_ACCTS.map(function (n) { return { name: n, children: [] }; });
+    return list.map(function (a) {
+      var kids = (a.children || []).map(function (c) { return (typeof c === 'string') ? c : (c && c.name) || ''; }).filter(Boolean);
+      return { name: a.name || '', children: kids };
+    }).filter(function (a) { return a.name; });
   }
-  function saveAccounts(names) {
-    FW.db.saveList(ACCT_KEY, names.map(function (n) { return { name: n }; }));
+  // 扁平账户名（一级 +「一级 / 二级」），供下拉/筛选/余额定位使用
+  function getAccounts() {
+    var out = [];
+    getAccountTree().forEach(function (a) {
+      out.push(a.name);
+      (a.children || []).forEach(function (c) { out.push(a.name + SEP + c); });
+    });
+    return out;
+  }
+  function saveAccounts(tree) {
+    // 兼容旧调用方：支持 [字符串] 或 [{name, children:[字符串|{name}]}]
+    var arr = (tree || []).map(function (a) {
+      if (typeof a === 'string') return { name: a.trim(), children: [] };
+      return {
+        name: (a.name || '').trim(),
+        children: (a.children || []).map(function (c) { return (typeof c === 'string') ? c.trim() : (c && c.name || '').trim(); }).filter(Boolean)
+      };
+    }).filter(function (a) { return a.name; });
+    FW.db.saveList(ACCT_KEY, arr);
   }
   // 兼容旧代码中直接引用 ACCTS 的地方（余额统计/期初等）
   var ACCTS = getAccounts();
@@ -80,6 +105,12 @@
   function inRange(t, from, to) { return (!from || t.date >= from) && (!to || t.date <= to); }
 
   function filteredRows() { return filterRows(state.filter); }
+  // 账户匹配：筛选值为二级完整名则精确匹配；为一级名则匹配其下所有二级
+  function accMatch(fa, ta) {
+    if (!fa || !ta) return false;
+    if (fa.indexOf(SEP) >= 0) return fa === ta;
+    return acct1(fa) === acct1(ta);
+  }
   function filterRows(f) {
     return all().filter(function (t) {
       if (f.project && t.project !== f.project) return false;
@@ -87,8 +118,8 @@
       if (f.category2 && cat2Name(t) !== f.category2) return false;
       if (f.account) {
         var accMatch = (t.type === 'transfer')
-          ? (t.fromAccount === f.account || t.toAccount === f.account)
-          : (t.account === f.account);
+          ? (accMatch(f.account, t.fromAccount) || accMatch(f.account, t.toAccount))
+          : accMatch(f.account, t.account);
         if (!accMatch) return false;
       }
       if (f.type && t.type !== f.type) return false;
@@ -107,7 +138,8 @@
   /* ============================================================
    * 核心计算（逻辑通的关键）
    * ============================================================ */
-  // 账户余额分解：期初 / 本期收支 / 本期往来 / 余额
+  // 账户余额分解：返回树状结构 [{name, opening, flow, move, bal, children:[{name,...,bal}]}]
+  // 一级账户余额 = 其直接流水 + 各二级子账户余额之和
   function accountBreakdown(upto) {
     var open = {}, flow = {}, move = {};
     getOpenings().forEach(function (o) { if (o.account) open[o.account] = (open[o.account] || 0) + (Number(o.amount) || 0); });
@@ -125,20 +157,46 @@
         if (t.account) move[t.account] = (move[t.account] || 0) + s * a;
       }
     });
-    var keys = {};
-    [open, flow, move].forEach(function (mm) { Object.keys(mm).forEach(function (k) { if (k) keys[k] = 1; }); });
-    var ordered = [], seen = {};
-    ACCTS.forEach(function (k) { if (keys[k]) { ordered.push(k); seen[k] = 1; } });
-    Object.keys(keys).forEach(function (k) { if (!seen[k]) ordered.push(k); });
-    return ordered.map(function (k) {
-      var o = open[k] || 0, f = flow[k] || 0, mv = move[k] || 0;
-      return { name: k, opening: o, flow: f, move: mv, bal: o + f + mv };
+    // 按完整账户名聚合期初/收支/往来
+    var byFull = {};
+    function bump(name, part, val) { if (!name) return; if (!byFull[name]) byFull[name] = { opening: 0, flow: 0, move: 0 }; byFull[name][part] += val; }
+    Object.keys(open).forEach(function (k) { bump(k, 'opening', open[k]); });
+    Object.keys(flow).forEach(function (k) { bump(k, 'flow', flow[k]); });
+    Object.keys(move).forEach(function (k) { bump(k, 'move', move[k]); });
+    // 归并到一级 / 二级
+    var prim = {};
+    Object.keys(byFull).forEach(function (fn) {
+      var p1 = acct1(fn), p2 = acct2(fn);
+      if (!prim[p1]) prim[p1] = { direct: { opening: 0, flow: 0, move: 0 }, subs: {} };
+      var tgt = p2 ? (prim[p1].subs[p2] || (prim[p1].subs[p2] = { opening: 0, flow: 0, move: 0 })) : prim[p1].direct;
+      var src = byFull[fn];
+      tgt.opening += src.opening; tgt.flow += src.flow; tgt.move += src.move;
+    });
+    var order = [], seenP = {};
+    ACCTS.forEach(function (k) { var p1 = acct1(k); if (prim[p1] && !seenP[p1]) { seenP[p1] = 1; order.push(p1); } });
+    Object.keys(prim).forEach(function (p1) { if (!seenP[p1]) { seenP[p1] = 1; order.push(p1); } });
+    return order.map(function (p1) {
+      var pr = prim[p1];
+      var children = Object.keys(pr.subs).map(function (p2) {
+        var s = pr.subs[p2];
+        return { name: p1 + SEP + p2, opening: s.opening, flow: s.flow, move: s.move, bal: s.opening + s.flow + s.move };
+      });
+      var directBal = pr.direct.opening + pr.direct.flow + pr.direct.move;
+      var subBal = children.reduce(function (a, c) { return a + c.bal; }, 0);
+      return { name: p1, opening: pr.direct.opening, flow: pr.direct.flow, move: pr.direct.move, bal: directBal + subBal, children: children };
     });
   }
-  // 账户余额（供报表中心复用，含期初，有序数组）
+  // 账户余额（扁平，供报表中心复用）：返回各叶子账户 [{name, bal}]
   function accountBalances(upto) {
-    return accountBreakdown(upto).map(function (x) { return { name: x.name, bal: x.bal }; });
+    var out = [];
+    accountBreakdown(upto).forEach(function (p) {
+      if (p.children.length) p.children.forEach(function (c) { out.push({ name: c.name, bal: c.bal }); });
+      else out.push({ name: p.name, bal: p.bal });
+    });
+    return out;
   }
+  // 账户余额（树状，供首页看板复用）：返回 [{name, bal, children:[{name, bal}]}]
+  function accountBalancesTree(upto) { return accountBreakdown(upto); }
   // 区间经营结余（仅收入-支出）
   function netProfit(from, to) {
     return all().reduce(function (s, t) {
@@ -293,7 +351,7 @@
     var projOpts = '<option value="">全部项目</option>' + projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
     var catOpts = '<option value="">全部分类</option>' + cats().map(function (c) { return '<option' + (c.name === f.category ? ' selected' : '') + '>' + FW.esc(c.name) + '</option>'; }).join('');
     var cat2OptsF = cat2OptsForFilter(f.category, f.category2);
-    var accOpts = '<option value="">全部账户</option>' + ACCTS.map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
+    var accOpts = accOptsAll(f.account);
     document.getElementById('inBody').innerHTML =
       '<div id="budgetCard">' + budgetBannerHtml() + '</div>' +
       '<div id="txStats" class="stat-row"></div>' +
@@ -684,75 +742,99 @@
 
   /* ---------- 账户管理（自定义增删改排序） ---------- */
   function openAccManager() {
-    var list = getAccounts().slice();
-    var pendingRenames = {};   // oldName -> newName（编辑时累积，保存时应用）
+    // 账户树 + 稳定 id（用于改名时按 id 映射历史流水，避免删除导致的下标错位）
+    var _idc = 0;
+    function withIds(t) {
+      return t.map(function (p) {
+        return { id: 'p' + (_idc++), name: p.name, children: (p.children || []).map(function (c) { return { id: 'c' + (_idc++), name: c }; }) };
+      });
+    }
+    var tree = withIds(getAccountTree());
+    var oldTree = JSON.parse(JSON.stringify(tree));
+
     function renderList() {
-      return list.map(function (name, i) {
-        return '<div class="acc-mgr-row" data-idx="' + i + '">' +
-          '<span class="acc-mgr-handle" title="拖拽排序">☰</span>' +
-          '<input class="acc-mgr-name" value="' + FW.esc(name) + '" data-old="' + FW.esc(name) + '" placeholder="账户名称">' +
-          '<button class="btn ghost acc-mgr-del" data-idx="' + i + '" title="删除" ' + (list.length <= 1 ? 'disabled style="opacity:.4;cursor:not-allowed"' : '') + '>✕</button>' +
-          '</div>';
+      return tree.map(function (p, i) {
+        var subs = (p.children || []).map(function (c, j) {
+          return '<div class="acc-sub-row">' +
+            '<input class="acc-mgr-cname" data-pi="' + i + '" data-ci="' + j + '" value="' + FW.esc(c.name) + '" placeholder="二级账户名">' +
+            '<button class="btn ghost acc-sub-del" data-pi="' + i + '" data-ci="' + j + '" title="删除二级">✕</button>' +
+            '</div>';
+        }).join('');
+        return '<div class="acc-mgr-prim" data-pi="' + i + '">' +
+          '<div class="acc-mgr-prow">' +
+            '<span class="acc-mgr-handle" title="拖拽排序">☰</span>' +
+            '<input class="acc-mgr-pname" data-pi="' + i + '" value="' + FW.esc(p.name) + '" placeholder="一级账户名称">' +
+            '<button class="btn ghost acc-sub-add" data-pi="' + i + '" title="添加二级账户">＋ 二级</button>' +
+            '<button class="btn ghost acc-mgr-pdel" data-pi="' + i + '" title="删除该账户"' + (tree.length <= 1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : '') + '>✕</button>' +
+          '</div>' +
+          '<div class="acc-mgr-children">' + subs + '</div>' +
+        '</div>';
       }).join('');
     }
     function renderBody() {
-      return '<div class="muted" style="font-size:12px;margin-bottom:10px">自定义账户名称后，新增流水、期初余额、筛选等处都会使用新名称。改名时可选择同步更新历史流水（默认保留旧名）。至少保留 1 个账户。</div>' +
+      return '<div class="muted" style="font-size:12px;margin-bottom:10px">支持「一级 / 二级」账户（如 银行卡 / 工商、招商）。记账、期初、筛选、余额看板都会按层级展示。改名时可选择同步更新历史流水（默认保留旧名）。至少保留 1 个一级账户。</div>' +
         '<div id="accMgrList">' + renderList() + '</div>' +
-        '<button class="btn ghost" id="accMgrAdd">＋ 添加账户</button>' +
+        '<button class="btn ghost" id="accMgrAdd">＋ 添加一级账户</button>' +
         '<div class="form-actions" style="margin-top:12px"><button class="btn ghost" id="accMgrCancel">取消</button><button class="btn" id="accMgrSave">保存</button></div>';
     }
     FW.openModal('账户管理', renderBody(), function () {
       function rebind() {
         document.getElementById('accMgrList').innerHTML = renderList();
-        // 删除按钮
-        FW.qa('.acc-mgr-del').forEach(function (btn) {
-          btn.onclick = function () {
-            if (list.length <= 1) { FW.toast('至少保留一个账户'); return; }
-            var idx = +this.dataset.idx;
-            list.splice(idx, 1);
-            rebind();
-          };
+        FW.qa('.acc-mgr-pname').forEach(function (inp) {
+          inp.oninput = function () { tree[+this.dataset.pi].name = this.value; };
         });
-        // 名称编辑回车或失焦时更新，并记录改名（用于同步历史）
-        FW.qa('.acc-mgr-name').forEach(function (inp, i) {
-          inp.onchange = function () {
-            var newVal = (this.value || '').trim();
-            var oldVal = this.getAttribute('data-old') || '';
-            if (oldVal && newVal && oldVal !== newVal) {
-              pendingRenames[oldVal] = newVal;
-              this.setAttribute('data-old', newVal);
-            }
-            list[i] = newVal || list[i];
+        FW.qa('.acc-mgr-cname').forEach(function (inp) {
+          inp.oninput = function () { tree[+this.dataset.pi].children[+this.dataset.ci].name = this.value; };
+        });
+        FW.qa('.acc-sub-add').forEach(function (btn) {
+          btn.onclick = function () { tree[+this.dataset.pi].children.push({ id: 'c' + (_idc++), name: '' }); rebind(); };
+        });
+        FW.qa('.acc-sub-del').forEach(function (btn) {
+          btn.onclick = function () { var i = +this.dataset.pi, j = +this.dataset.ci; tree[i].children.splice(j, 1); rebind(); };
+        });
+        FW.qa('.acc-mgr-pdel').forEach(function (btn) {
+          btn.onclick = function () {
+            if (tree.length <= 1) { FW.toast('至少保留一个一级账户'); return; }
+            tree.splice(+this.dataset.pi, 1); rebind();
           };
         });
       }
-      // 添加
       document.getElementById('accMgrAdd').onclick = function () {
-        list.push('新账户' + (list.length + 1));
+        tree.push({ id: 'p' + (_idc++), name: '新账户' + (tree.length + 1), children: [] });
         rebind();
       };
-      // 取消 / 保存
       document.getElementById('accMgrCancel').onclick = FW.closeModal;
       document.getElementById('accMgrSave').onclick = function () {
-        // 收集最终名称，去重去空
-        var names = [];
-        var seen = {};
-        FW.qa('.acc-mgr-name').forEach(function (inp) {
-          var n = (inp.value || '').trim();
-          if (n && !seen[n]) { seen[n] = true; names.push(n); }
+        // 清洗：去空、去重（一级 + 二级）
+        var clean = tree.filter(function (p) { return (p.name || '').trim(); }).map(function (p) {
+          return { name: p.name.trim(), children: (p.children || []).map(function (c) { return (c.name || '').trim(); }).filter(Boolean) };
         });
-        if (!names.length) { FW.toast('至少需要一个账户'); return; }
+        var seenP = {};
+        clean = clean.filter(function (p) { if (seenP[p.name]) return false; seenP[p.name] = true; return true; });
+        clean.forEach(function (p) { var s = {}; p.children = p.children.filter(function (c) { if (s[c]) return false; s[c] = true; return true; }); });
+        if (!clean.length) { FW.toast('至少需要一个账户'); return; }
 
-        // 收集改名（old->new）：旧名已从列表中消失、新名仍在
-        var finalSet = {};
-        names.forEach(function (n) { finalSet[n] = 1; });
+        // 改名映射：按 id 比对 old/new 全名（一级改名会带动二级前缀）
+        var oById = {}, nById = {};
+        oldTree.forEach(function (p) { oById[p.id] = p; });
+        tree.forEach(function (p) { nById[p.id] = p; });
         var renames = [];
-        Object.keys(pendingRenames).forEach(function (oldN) {
-          var newN = pendingRenames[oldN];
-          if (oldN !== newN && finalSet[newN] && !finalSet[oldN]) renames.push({ old: oldN, new: newN });
+        Object.keys(nById).forEach(function (id) {
+          var np = nById[id], op = oById[id];
+          if (!op) return;
+          if (np.name !== op.name && np.name.trim()) renames.push({ old: op.name, new: np.name.trim() });
+          var oc = {}, nc = {};
+          (op.children || []).forEach(function (c) { oc[c.id] = c; });
+          (np.children || []).forEach(function (c) { nc[c.id] = c; });
+          Object.keys(nc).forEach(function (cid) {
+            var nch = nc[cid], och = oc[cid];
+            if (!och || !nch.name.trim()) return;
+            var ofn = op.name + SEP + och.name, nfn = np.name.trim() + SEP + nch.name.trim();
+            if (ofn !== nfn) renames.push({ old: ofn, new: nfn });
+          });
         });
 
-        // 统计受影响的流水条数（普通账户 + 互转双侧）
+        var map = {}; renames.forEach(function (r) { map[r.old] = r.new; });
         var affected = 0;
         if (renames.length) {
           FW.db.getList(KEY).forEach(function (t) {
@@ -762,7 +844,6 @@
           });
         }
 
-        // 用户确认后才同步历史流水（默认保留旧名）
         var sync = false;
         if (affected > 0 && confirm('以下账户已改名：\n' + renames.map(function (r) { return '· ' + r.old + ' → ' + r.new; }).join('\n') +
           '\n\n是否同步更新 ' + affected + ' 条历史流水中的账户名？\n（取消则保留历史记录中的旧名称）')) {
@@ -779,20 +860,33 @@
           FW.db.saveList(KEY, txns);
         }
 
-        saveAccounts(names);
+        saveAccounts(clean);
         refreshAccts();
         FW.closeModal(); render();
-        FW.toast('已更新 ' + names.length + ' 个账户' + (sync ? '，并同步 ' + affected + ' 条历史' : ''));
+        FW.toast('已更新 ' + clean.length + ' 个一级账户' + (sync ? '，并同步 ' + affected + ' 条历史' : ''));
       };
       rebind();
     });
   }
 
   /* ---------- 分类 / 账户 辅助 ---------- */
-  function accOpts(sel) {
-    var accounts = getAccounts();  // 每次实时读取，确保自定义账户/同步后立即生效
-    return accounts.map(function (a) { return '<option ' + (a === sel ? 'selected' : '') + '>' + a + '</option>'; }).join('');
+  // 两级账户下拉：一级作为 optgroup，二级作为选项；一级自身也可直接选中（汇总）
+  function accOptsHtml(sel) {
+    var tree = getAccountTree();
+    return tree.map(function (a) {
+      if (a.children && a.children.length) {
+        var opts = '<option value="' + FW.esc(a.name) + '"' + (a.name === sel ? ' selected' : '') + '>' + FW.esc(a.name) + '（汇总）</option>';
+        opts += a.children.map(function (c) {
+          var fn = a.name + SEP + c;
+          return '<option value="' + FW.esc(fn) + '"' + (fn === sel ? ' selected' : '') + '>' + FW.esc(c) + '</option>';
+        }).join('');
+        return '<optgroup label="' + FW.esc(a.name) + '">' + opts + '</optgroup>';
+      }
+      return '<option value="' + FW.esc(a.name) + '"' + (a.name === sel ? ' selected' : '') + '>' + FW.esc(a.name) + '</option>';
+    }).join('');
   }
+  function accOpts(sel) { return accOptsHtml(sel); }
+  function accOptsAll(sel) { return '<option value="">全部账户</option>' + accOptsHtml(sel); }
   function cat1Opts(sel) {
     return '<option value="">（不选）</option>' + cats().map(function (c) { return '<option ' + (c.name === sel ? 'selected' : '') + '>' + FW.esc(c.name) + '</option>'; }).join('');
   }
@@ -1801,8 +1895,9 @@
 
   /* ---------- 暴露计算接口（供报表中心复用，保证逻辑一致） ---------- */
   FW.internalCalc = {
-    accountBalances: accountBalances,        // (upto) -> [{name,bal}] 含期初
-    accountBreakdown: accountBreakdown,      // (upto) -> [{name,opening,flow,move,bal}]
+    accountBalances: accountBalances,        // (upto) -> [{name,bal}] 含期初（扁平叶子）
+    accountBalancesTree: accountBalancesTree, // (upto) -> [{name,bal,children:[{name,bal}]}] 树状（首页看板用）
+    accountBreakdown: accountBreakdown,      // (upto) -> 树状 [{name,opening,flow,move,bal,children}]
     openingsTotal: openingsTotal,            // () -> 期初合计
     getOpeningsTotal: openingsTotal,         // 别名（报表用）
     netProfit: netProfit,                    // (from,to) -> 区间经营结余
