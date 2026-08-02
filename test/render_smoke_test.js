@@ -57,18 +57,16 @@ try { eval(pcCode); } catch (e) { console.log('PC_LOAD_ERROR:', e.message); proc
 let renderedHtml = '';
 try {
   window.FW.modules.projectCost.render();
-  // 拆分后：分析区 / 筛选条 / 排名表区 分别在独立容器内
-  renderedHtml = (domEls['pcAnalysis'].innerHTML || '') + (domEls['pcFilter'].innerHTML || '') + (domEls['pcTableWrap'].innerHTML || '');
+  renderedHtml = domEls['content'].innerHTML;
   ok('render() 不抛错', true);
 } catch (e) {
   ok('render() 不抛错', false);
   console.log('    RENDER_ERROR: ' + e.stack);
 }
 ok('渲染产出非空', renderedHtml.length > 1000);
-ok('含项目汇总表 proj-sum-table', (domEls['pcTableWrap'].innerHTML || '').indexOf('proj-sum-table') >= 0);
-ok('含利润率对比条 pc-rate-list', (domEls['pcAnalysis'].innerHTML || '').indexOf('pc-rate-list') >= 0);
-ok('含图表 chart-svg', (domEls['pcAnalysis'].innerHTML || '').indexOf('chart-svg') >= 0);
-ok('筛选条含搜索框 pc-search', (domEls['pcFilter'].innerHTML || '').indexOf('pc-search') >= 0);
+ok('含项目汇总表 proj-sum-table', renderedHtml.indexOf('proj-sum-table') >= 0);
+ok('含利润率对比条 pc-rate-list', renderedHtml.indexOf('pc-rate-list') >= 0);
+ok('含图表 chart-svg', renderedHtml.indexOf('chart-svg') >= 0);
 ok('输出不含 NaN/undefined/[object Object]', renderedHtml.indexOf('NaN') < 0 && renderedHtml.indexOf('undefined') < 0 && renderedHtml.indexOf('[object Object]') < 0);
 
 // 展开下钻：触发 detailHtml + profitWaterfall
@@ -77,7 +75,7 @@ try {
   var tbl = domEls['pcTable'];
   if (tbl && tbl.onclick) {
     tbl.onclick({ target: { tagName: 'TD', closest: function (sel) { if (sel === '.pc-qty-cell') return null; return { getAttribute: function () { return '项目A'; } }; } } });
-    drillHtml = domEls['pcTableWrap'].innerHTML;
+    drillHtml = domEls['content'].innerHTML;
     ok('展开下钻不抛错', true);
   } else {
     ok('展开下钻不抛错', false);

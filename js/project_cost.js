@@ -275,36 +275,19 @@
     return data.tot.revenue > 0 ? basis / data.tot.revenue * 100 : 0;
   }
 
-  function render() {
-    // 内容骨架：分析区 + 稳定的筛选条 + 排名表区；筛选条不被输入重渲，保证搜索框不失焦
-    var c = document.getElementById('content');
-    if (c) c.innerHTML = '<div id="pcAnalysis" class="salary-wrap"></div><div id="pcFilter"></div><div id="pcTableWrap"></div>';
-    buildTop();
-    buildFilter();
-    buildBody();
-  }
+  function render() { buildTop(); buildBody(); }
 
-  // 顶部操作区（仅导出 / 校正等动作按钮，置于页面最上方栏）
+  // 顶部操作区（年度 / 搜索 / 盈亏筛选 / 导出 / 校正）——独立构建，避免搜索输入时整页重渲导致输入框失焦
   function buildTop() {
     var top = document.getElementById('topActions');
     if (!top) return;
+    var years = getYears();
     top.innerHTML =
-      '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
-      '<button class="btn ghost" id="pcExportX">⬇ 导出Excel</button>' +
-      '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
-    document.getElementById('pcExport').onclick = function () { var v = getView(); exportCSV(v.rows, v.data); };
-    document.getElementById('pcExportX').onclick = function () { var v = getView(); exportXLSX(v.rows, v.data); };
-    document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
-  }
-
-  // 筛选条（年度 / 搜索 / 盈亏 / 成本率口径 / 剔除）—— 稳定构建一次，置于排名数据上方；搜索输入只重渲分析区与表区，不重建本筛选条
-  function buildFilter() {
-    var box = document.getElementById('pcFilter');
-    if (!box) return;
-    box.innerHTML =
-      '<span class="pc-filter-title">筛选</span>' +
       '<label class="pc-year-label">统计年度</label>' +
-      '<select id="pcYear" class="pc-year"><option value="all"' + (state.year === 'all' ? ' selected' : '') + '>全部年度</option></select>' +
+      '<select id="pcYear" class="pc-year">' +
+      '<option value="all"' + (state.year === 'all' ? ' selected' : '') + '>全部年度</option>' +
+      years.map(function (y) { return '<option value="' + y + '"' + (state.year === y ? ' selected' : '') + '>' + y + ' 年</option>'; }).join('') +
+      '</select>' +
       '<input id="pcSearch" class="pc-search" type="search" placeholder="搜索项目名" value="' + FW.esc(state.kw) + '">' +
       '<select id="pcPnl" class="pc-year">' +
       '<option value="all"' + (state.pnl === 'all' ? ' selected' : '') + '>全部盈亏</option>' +
@@ -314,11 +297,16 @@
       '<span class="pc-costtype-label">成本率口径</span>' +
       '<select id="pcCostType" class="pc-year"><option value="">总成本（默认）</option></select>' +
       '<select id="pcCostType2" class="pc-year" disabled><option value="">全部二级</option></select>' +
-      '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"> 剔除所选成本类</label>';
-    // 搜索 / 盈亏 / 年度 的事件在此绑定一次（元素稳定，不会被输入重渲清除）
+      '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"> 剔除所选成本类</label>' +
+      '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
+      '<button class="btn ghost" id="pcExportX">⬇ 导出Excel</button>' +
+      '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
     document.getElementById('pcYear').onchange = function () { state.year = this.value; buildBody(); };
     document.getElementById('pcSearch').oninput = function () { state.kw = this.value; buildBody(); };
     document.getElementById('pcPnl').onchange = function () { state.pnl = this.value; buildBody(); };
+    document.getElementById('pcExport').onclick = function () { var v = getView(); exportCSV(v.rows, v.data); };
+    document.getElementById('pcExportX').onclick = function () { var v = getView(); exportXLSX(v.rows, v.data); };
+    document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
   }
 
   // 计算当前视图数据（含筛选 + 单量/单产补全）
@@ -331,22 +319,19 @@
   function buildBody() {
     var v = getView();
     var data = v.data, rows = v.rows;
-    // 分析区（KPI / 成本结构 / 趋势等，随筛选刷新）
-    var aEl = document.getElementById('pcAnalysis');
-    if (aEl) aEl.innerHTML = statRow(data) + recoverNote(data) + unallocHtml(data) + chartHtml(data, rows) + profitRateHtml(rows) + trendHtml(data);
-    // 排名数据区：筛选提示 + 排名表（随筛选刷新）；置于筛选条下方
     var filterNote = (state.kw || state.pnl !== 'all') ?
       '<div class="pc-filter-note">已筛选显示 <b>' + rows.length + '</b> 个项目（筛选仅作用于项目列表与对比图；上方 KPI / 成本结构 / 趋势为全部项目汇总）。</div>' : '';
-    var tw = document.getElementById('pcTableWrap');
-    if (tw) tw.innerHTML = filterNote + tableHtml(rows, data);
-
-    // 年度下拉（稳定元素，仅刷新选项，事件在 buildFilter 绑定）
-    var yrSel = document.getElementById('pcYear');
-    if (yrSel) {
-      var years = getYears();
-      yrSel.innerHTML = '<option value="all"' + (state.year === 'all' ? ' selected' : '') + '>全部年度</option>' +
-        years.map(function (y) { return '<option value="' + y + '"' + (state.year === y ? ' selected' : '') + '>' + y + ' 年</option>'; }).join('');
-    }
+    var html = '<div class="salary-wrap">';
+    html += statRow(data);
+    html += recoverNote(data);
+    html += unallocHtml(data);
+    html += chartHtml(data, rows);
+    html += profitRateHtml(rows);
+    html += trendHtml(data);
+    html += filterNote;
+    html += tableHtml(rows, data);
+    html += '</div>';
+    var c = document.getElementById('content'); if (c) c.innerHTML = html;
 
     // 成本率口径下拉（一级 + 二级联动）；独立于表格渲染，避免下拉重建导致选择丢失
     var ctSel = document.getElementById('pcCostType');
