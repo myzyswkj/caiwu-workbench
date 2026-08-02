@@ -58,7 +58,7 @@
     opts = opts || {};
     var w = 320, h = 220, padL = 42, padB = 28, padT = 14, padR = 10;
     var max = Math.max.apply(null, items.map(function (i) { return i.value; }).concat([1]));
-    var color = opts.color || '#2f6bff';
+    var color = opts.color || '#2C7A6B';
     var n = items.length || 1;
     var bw = (w - padL - padR) / n * 0.62;
     var gap = (w - padL - padR) / n;
@@ -98,7 +98,7 @@
     for (var ti = 0; ti <= ticks; ti++) {
       var val = max * ti / ticks;
       var yy = (h - padB) - (h - padB - padT) * (val / max);
-      svg += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (w - padR) + '" y2="' + yy.toFixed(1) + '" stroke="#eef1f7"/>';
+      svg += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (w - padR) + '" y2="' + yy.toFixed(1) + '" stroke="#e8eeea"/>';
       svg += '<text x="' + (padL - 6) + '" y="' + (yy + 3).toFixed(1) + '" font-size="9" text-anchor="end" fill="#9aa6bd">' + FW.shortMoney(val) + '</text>';
     }
     // X ���基线
@@ -187,7 +187,7 @@
     for (var ti = 0; ti <= ticks; ti++) {
       var val = lo + range * ti / ticks;
       var yy = y(val);
-      svg += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (w - padR) + '" y2="' + yy.toFixed(1) + '" stroke="#eef1f7"/>';
+      svg += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (w - padR) + '" y2="' + yy.toFixed(1) + '" stroke="#e8eeea"/>';
       svg += '<text x="' + (padL - 6) + '" y="' + (yy + 3).toFixed(1) + '" font-size="9" text-anchor="end" fill="#9aa6bd">' + FW.shortMoney(val) + '</text>';
     }
     var labels = series[0].points.map(function (p) { return p.label; });

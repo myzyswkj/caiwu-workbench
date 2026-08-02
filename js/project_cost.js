@@ -542,9 +542,9 @@
     var range = (hi - lo) || 1;
     function Y(v) { return padT + (h - padB - padT) * (1 - (v - lo) / range); }
     var n = steps.length, gw = (w - padL - padR) / n, bw = Math.min(gw * 0.62, 30);
-    var col = { inc: '#C8102E', dec: '#1f9d55', rec: '#2f6bff', tot: r.profit >= 0 ? '#C8102E' : '#1f9d55' };
+    var col = { inc: '#C8102E', dec: '#1f9d55', rec: '#2C7A6B', tot: r.profit >= 0 ? '#C8102E' : '#1f9d55' };
     var svg = '<svg class="chart-svg" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">';
-    svg += '<line x1="' + padL + '" y1="' + Y(0).toFixed(1) + '" x2="' + (w - padR) + '" y2="' + Y(0).toFixed(1) + '" stroke="#e6e9f0"/>';
+    svg += '<line x1="' + padL + '" y1="' + Y(0).toFixed(1) + '" x2="' + (w - padR) + '" y2="' + Y(0).toFixed(1) + '" stroke="#dde6e1"/>';
     steps.forEach(function (s, idx) {
       var x = padL + gw * idx + (gw - bw) / 2;
       var yt = Y(tops[idx]), yb = Y(bots[idx]);
