@@ -220,6 +220,7 @@
     ensureCats();
     var c = document.getElementById('content');
     c.innerHTML =
+      '<div id="inToolbar" class="toolbar"></div>' +
       '<div id="inOverview"></div>' +
       '<div id="inBody"></div>';
     drawBody();
@@ -227,23 +228,29 @@
     var ov = document.getElementById('inOverview');
     if (ov) ov.innerHTML = overviewHtml();
 
+    // 顶栏只保留主操作「＋ 新增流水」；其余次级操作下放到内容区顶部工具条（避免 9 个按钮在窄屏被裁切）
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn" id="addTxBtn">＋ 新增流水</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
-    document.getElementById('openBtn').onclick = openOpenings;
-    document.getElementById('accMgrBtn').onclick = openAccManager;
-    document.getElementById('budgetBtn').onclick = openBudgetForm;
-    document.getElementById('catBtn').onclick = openCatManager;
+    ta.innerHTML = '<button class="btn" id="addTxBtn">＋ 新增流水</button>';
     document.getElementById('addTxBtn').onclick = openForm;
-    document.getElementById('expTxBtn').onclick = exportTable;
-    document.getElementById('impBtn').onclick = openImport;
-    document.getElementById('dedupeBtn').onclick = openDedupe;
-    document.getElementById('clearBtn').onclick = function () {
-      if (!confirm('确定清空【当前账本】的全部内账流水吗？\n（含手动录入的，凭证照片也会一并删除，不可恢复！)\n注意：期初余额不会被清空。')) return;
-      all().forEach(function (t) { if (t.photos && t.photos.length) { try { FW.db.deletePhotos(t.photos); } catch (e) {} } });
-      FW.db.saveList(KEY, []);
-      render();
-      FW.toast('已清空当前账本内账流水');
-    };
+
+    var tb = document.getElementById('inToolbar');
+    if (tb) {
+      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+      document.getElementById('openBtn').onclick = openOpenings;
+      document.getElementById('accMgrBtn').onclick = openAccManager;
+      document.getElementById('budgetBtn').onclick = openBudgetForm;
+      document.getElementById('catBtn').onclick = openCatManager;
+      document.getElementById('impBtn').onclick = openImport;
+      document.getElementById('expTxBtn').onclick = exportTable;
+      document.getElementById('dedupeBtn').onclick = openDedupe;
+      document.getElementById('clearBtn').onclick = function () {
+        if (!confirm('确定清空【当前账本】的全部内账流水吗？\n（含手动录入的，凭证照片也会一并删除，不可恢复！)\n注意：期初余额不会被清空。')) return;
+        all().forEach(function (t) { if (t.photos && t.photos.length) { try { FW.db.deletePhotos(t.photos); } catch (e) {} } });
+        FW.db.saveList(KEY, []);
+        render();
+        FW.toast('已清空当前账本内账流水');
+      };
+    }
   }
 
   /* 合并重复：把内容完全相同的流水（多为跨设备同步产生的“同笔不同 id”）合并为一条 */
