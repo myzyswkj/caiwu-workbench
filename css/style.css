@@ -26,7 +26,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
   background: var(--bg);
   color: var(--text);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.62;
 }
 
@@ -206,9 +206,9 @@ body {
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; background: #f4f7f5; }
-tbody tr:nth-child(even) td { background: #FAFBFA; }
-tbody tr:hover td { background: #EFF5F1; }
-tbody tr:hover { background: #f4f7f5; }
+tbody tr:nth-child(even) td { background: #E7EFEA; }
+tbody tr:hover td { background: #D9E8DF; }
+tbody tr:hover { background: #D9E8DF; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .tag { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; background: var(--primary-soft); color: var(--primary); }
 .tag.income { background: #fdeaec; color: var(--income); }
