@@ -364,8 +364,8 @@
       '<div id="budgetCard">' + budgetBannerHtml() + '</div>' +
       '<div id="txStats" class="stat-row"></div>' +
       '<div class="card">' +
-        '<div class="toolbar">' +
-          '<div class="field"><input id="fKw" placeholder="搜索备注/项目" value="' + FW.esc(f.kw) + '"></div>' +
+      '<div class="toolbar filter-bar">' +
+        '<div class="field"><input id="fKw" placeholder="搜索备注/项目" value="' + FW.esc(f.kw) + '"></div>' +
           '<div class="field"><select id="fProj">' + projOpts + '</select></div>' +
           '<div class="field"><select id="fCat">' + catOpts + '</select></div>' +
           '<div class="field"><select id="fCat2">' + cat2OptsF + '</select></div>' +
