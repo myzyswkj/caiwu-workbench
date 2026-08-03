@@ -574,6 +574,31 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .bank-preview { margin-top: 14px; max-height: 36vh; overflow: auto; }
 .bank-preview table { font-size: 13px; }
 
+/* ===== 导出下拉菜单 ===== */
+.exp-menu-wrap { position: relative; display: inline-block; }
+.exp-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 120; min-width: 190px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.exp-menu .em-hint { font-size: 12px; color: var(--muted); padding: 4px 12px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.exp-menu button { text-align: left; background: transparent; border: none; border-radius: 7px; padding: 9px 12px; font-size: 14px; color: var(--text); cursor: pointer; }
+.exp-menu button:hover { background: var(--bg); }
+
+/* ===== 流水打印 / 分享视图（给老板看） ===== */
+.flow-print { padding: 8px 4px; }
+.flow-print h2 { font-size: 20px; margin: 0 0 2px; color: var(--text); }
+.flow-print .fp-sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+.flow-print .fp-kpis { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
+.flow-print .fp-kpi { font-size: 13px; color: var(--muted); }
+.flow-print .fp-kpi b { display: block; font-size: 17px; margin-top: 2px; color: var(--text); }
+.flow-print .fp-kpi b.income { color: var(--income); }
+.flow-print .fp-kpi b.expense { color: var(--expense); }
+.flow-print table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.flow-print th, .flow-print td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
+.flow-print thead th { background: var(--bg); color: var(--text); font-weight: 600; }
+.flow-print td.num { text-align: right; white-space: nowrap; }
+.flow-print .income { color: var(--income); }
+.flow-print .expense { color: var(--expense); }
+.flow-print .refund { color: #0d9488; }
+.flow-print .neutral { color: var(--muted); }
+
 /* ===== 打印（仅显示凭证纸 / 账表） ===== */
 @media print {
   body * { visibility: hidden; }

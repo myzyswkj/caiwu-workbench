@@ -235,13 +235,31 @@
 
     var tb = document.getElementById('inToolbar');
     if (tb) {
-      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
       document.getElementById('openBtn').onclick = openOpenings;
       document.getElementById('accMgrBtn').onclick = openAccManager;
       document.getElementById('budgetBtn').onclick = openBudgetForm;
       document.getElementById('catBtn').onclick = openCatManager;
       document.getElementById('impBtn').onclick = openImport;
-      document.getElementById('expTxBtn').onclick = exportTable;
+      var expBtn = document.getElementById('expTxBtn');
+      var expMenu = document.getElementById('expTxMenu');
+      if (expBtn && expMenu) {
+        expBtn.onclick = function (e) { e.stopPropagation(); expMenu.style.display = (expMenu.style.display === 'none' ? 'block' : 'none'); };
+        expMenu.querySelectorAll('button[data-fmt]').forEach(function (b) {
+          b.onclick = function (e) {
+            e.stopPropagation();
+            expMenu.style.display = 'none';
+            var fmt = b.getAttribute('data-fmt');
+            if (fmt === 'xlsx') exportXLSX();
+            else if (fmt === 'print') openPrintView();
+            else exportTable();
+          };
+        });
+        if (!state._menuBound) {
+          document.addEventListener('click', function () { var m = document.getElementById('expTxMenu'); if (m) m.style.display = 'none'; });
+          state._menuBound = true;
+        }
+      }
       document.getElementById('dedupeBtn').onclick = openDedupe;
       document.getElementById('clearBtn').onclick = function () {
         if (!confirm('确定清空【当前账本】的全部内账流水吗？\n（含手动录入的，凭证照片也会一并删除，不可恢复！)\n注意：期初余额不会被清空。')) return;
@@ -2023,17 +2041,17 @@
     FW.toast('已删除 ' + ids.length + ' 条流水');
   }
 
+  function typeLabel(t) {
+    if (t.type === 'income') return '收入';
+    if (t.type === 'expense') return '支出';
+    if (t.type === 'refund') return '退款收入';
+    if (t.type === 'transfer') return '账户互转';
+    if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
+    return t.type || '';
+  }
   function exportTable() {
     var rows = filteredRows();
     if (!rows.length) { FW.toast('没有可导出的流水'); return; }
-    function typeLabel(t) {
-      if (t.type === 'income') return '收入';
-      if (t.type === 'expense') return '支出';
-      if (t.type === 'refund') return '退款收入';
-      if (t.type === 'transfer') return '账户互转';
-      if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
-      return t.type || '';
-    }
     var head = ['日期', '类型', '项目', '分类', '账户', '金额', '已扣支出', '实际收入', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
     var data = rows.map(function (t) {
       var dv = (t.type === 'income' && t.deduct > 0) ? t.deduct : 0;
@@ -2048,6 +2066,102 @@
     a.download = '内账流水_' + FW.today() + '.csv';
     a.click();
     FW.toast('已导出 ' + rows.length + ' 笔流水（CSV）');
+  }
+
+  // 导出真正的 Excel（.xlsx）：金额列为数值，便于老板在 WPS/Excel 直接求和、筛选
+  function exportXLSX() {
+    var rows = filteredRows();
+    if (!rows.length) { FW.toast('没有可导出的流水'); return; }
+    if (!window.XLSX) { FW.toast('Excel 导出组件未加载，请刷新页面后重试'); return; }
+    var x = window.XLSX;
+    var head = ['日期', '类型', '项目', '分类', '账户', '金额', '已扣支出', '实际收入', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
+    var aoa = [head];
+    var sumInc = 0, sumExp = 0;
+    rows.forEach(function (t) {
+      var dv = (t.type === 'income' && t.deduct > 0) ? t.deduct : 0;
+      var amt = Number(t.amount) || 0;
+      if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) sumInc += amt;
+      else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) sumExp += amt;
+      aoa.push([
+        t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), amt, dv, dv ? (t.amount + dv) : '',
+        (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '',
+        (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'
+      ]);
+    });
+    // 合计行
+    aoa.push(['', '合计（' + rows.length + ' 笔）', '', '', '', sumInc - sumExp, '', '', '收入 ' + FW.fmtMoney(sumInc) + ' ／ 支出 ' + FW.fmtMoney(sumExp), '', '', '', '']);
+    var wb = x.utils.book_new();
+    var ws = x.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
+      { wch: 24 }, { wch: 8 }, { wch: 18 }, { wch: 12 }, { wch: 12 }
+    ];
+    x.utils.book_append_sheet(wb, ws, '内账流水');
+    var out = x.write(wb, { bookType: 'xlsx', type: 'array' });
+    var blob = new Blob([out], { type: 'application/octet-stream' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = '内账流水_' + FW.today() + '.xlsx';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    FW.toast('已导出 Excel（' + rows.length + ' 笔）');
+  }
+
+  // 打印 / 转 PDF：打开一个格式化、带期间与汇总的「流水明细表」，老板可直接看或打印/存 PDF
+  function ledgerName() {
+    try {
+      var id = FW.db.getCurrentLedger();
+      var list = FW.db.getLedgers() || [];
+      var l = list.filter(function (xx) { return xx.id === id; })[0];
+      return (l && l.name) ? l.name : '默认账套';
+    } catch (e) { return '当前账套'; }
+  }
+  function openPrintView() {
+    var rows = filteredRows();
+    if (!rows.length) { FW.toast('没有可打印的流水'); return; }
+    var f = state.filter;
+    var rng = (f.from || f.to) ? ((f.from || '…') + ' 至 ' + (f.to || '…')) : '全部期间';
+    var scope = [];
+    if (f.account) scope.push('账户：' + f.account);
+    if (f.project) scope.push('项目：' + f.project);
+    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本' }[f.type] || f.type));
+    if (f.kw) scope.push('关键词：' + f.kw);
+    var inc = 0, exp = 0;
+    rows.forEach(function (t) {
+      var a = Number(t.amount) || 0;
+      if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) inc += a;
+      else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) exp += a;
+    });
+    function amtCell(t) {
+      var a = Number(t.amount) || 0;
+      var cls = 'num', sign = '';
+      if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) { cls += ' income'; sign = '+'; }
+      else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) { cls += ' expense'; sign = '−'; }
+      else { cls += ' neutral'; }
+      return '<td class="' + cls + '">' + sign + FW.fmtMoney(a) + '</td>';
+    }
+    var html =
+      '<div class="flow-print print-area">' +
+        '<h2>内账流水明细</h2>' +
+        '<div class="fp-sub">账套：' + FW.esc(ledgerName()) + '　|　期间：' + FW.esc(rng) + (scope.length ? '　|　' + FW.esc(scope.join('，')) : '') + '　|　导出日期：' + FW.today() + '</div>' +
+        '<div class="fp-kpis">' +
+          '<div class="fp-kpi">笔数<b>' + rows.length + '</b></div>' +
+          '<div class="fp-kpi">收入合计<b class="income">' + FW.fmtMoney(inc) + '</b></div>' +
+          '<div class="fp-kpi">支出合计<b class="expense">' + FW.fmtMoney(exp) + '</b></div>' +
+          '<div class="fp-kpi">净额（收入−支出）<b>' + FW.fmtMoney(inc - exp) + '</b></div>' +
+        '</div>' +
+        '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th>备注</th><th>凭证</th></tr></thead><tbody>' +
+        rows.map(function (t) {
+          return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + FW.esc(t.project || '') + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td><td>' + (t.photos ? t.photos.length : 0) + '</td></tr>';
+        }).join('') +
+        '</tbody></table>' +
+      '</div>' +
+      '<div class="form-actions no-print" style="margin-top:14px"><button class="btn" id="fpPrint">🖨 打印 / 保存为 PDF</button><button class="btn ghost" id="fpClose">关闭</button></div>';
+    FW.openModal('内账流水 · 打印预览', html, function (body) {
+      var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
+      var pb = body.querySelector('#fpPrint'); if (pb) pb.onclick = function () { window.print(); };
+      var cb = body.querySelector('#fpClose'); if (cb) cb.onclick = FW.closeModal;
+    });
   }
 
   /* ---------- 预算横幅 ---------- */
