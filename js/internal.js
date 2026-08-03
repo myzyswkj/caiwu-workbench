@@ -346,11 +346,25 @@
   }
 
   function drawBody() {
+    // 切换 tab 时同步顶栏操作区：报表中心覆盖为打印/导出，其余恢复为「新增流水」
+    var ta = document.getElementById('topActions');
+    if (state.tab !== 'reports' && ta) {
+      ta.innerHTML = '<button class="btn" id="addTxBtn">＋ 新增流水</button>';
+      var ab = document.getElementById('addTxBtn'); if (ab) ab.onclick = openForm;
+    }
     if (state.tab === 'list') drawList();
     else if (state.tab === 'calendar') drawCalendar();
     else if (state.tab === 'fund') drawFund();
     else if (state.tab === 'reconcile') drawReconcile();
+    else if (state.tab === 'reports') drawReportsTab();
     else drawStat();
+  }
+
+  function drawReportsTab() {
+    var host = document.getElementById('inBody');
+    if (!host) return;
+    if (!FW.renderReports) { host.innerHTML = '<div class="empty">报表模块未加载</div>'; return; }
+    FW.renderReports(host);
   }
 
   /* ---------- 流水明细 ---------- */
@@ -2158,7 +2172,8 @@
       { key: 'calendar', label: '收支日历' },
       { key: 'stat', label: '统计分析' },
       { key: 'fund', label: '资金变动明细' },
-      { key: 'reconcile', label: '银行对账' }
+      { key: 'reconcile', label: '银行对账' },
+      { key: 'reports', label: '报表中心' }
     ],
     getTab: function () { return state.tab; },
     setTab: function (k) { state.tab = k; drawBody(); if (window.FW.nav) FW.nav.refreshSubNav(); },

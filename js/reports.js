@@ -13,6 +13,7 @@
   var ACCT_ORDER = ['现金', '银行卡', '支付宝', '微信', '对公账户', '其他'];
 
   var state = { tab: 'pl', from: '', to: '' };
+  var repHost = null; // 当前渲染宿主容器（嵌入内账时为 #inBody，独立运行时为 #content）
 
   function rowsAll() { return FW.db.getList(KEY); }
   function inRange(t, from, to) { return (!from || t.date >= from) && (!to || t.date <= to); }
@@ -209,17 +210,26 @@
     else if (kind === 'quarter') { var q = Math.floor(m / 3) * 3; state.from = y + '-' + p(q + 1) + '-01'; state.to = y + '-' + p(q + 3) + '-' + new Date(y, q + 3, 0).getDate(); }
     else if (kind === 'year') { state.from = y + '-01-01'; state.to = y + '-12-31'; }
     else if (kind === 'all') { state.from = ''; state.to = ''; }
-    render();
+    render(repHost);
   }
 
-  /* ---------- 主渲染 ---------- */
-  function render() {
+  /* ---------- 主渲染（可嵌入内账模块：传入宿主容器） ---------- */
+  function render(container) {
     if (!state.from && !state.to) setRange('year');
-    var c = document.getElementById('content');
+    repHost = container || document.getElementById('content');
+    var c = repHost;
     var hasData = rowsAll().length > 0; // 含收入/支出/账户互转/股本资金任意一种即可生成报表（资金状况表依赖互转与股本余额）
+    var subTabs = [
+      { key: 'pl', label: '利润表' },
+      { key: 'fund', label: '资金状况' },
+      { key: 'cash', label: '现金流量表' }
+    ].map(function (t) {
+      return '<button class="tab-item' + (state.tab === t.key ? ' active' : '') + '" data-rt="' + t.key + '">' + t.label + '</button>';
+    }).join('');
     c.innerHTML =
       '<div class="card" style="margin-bottom:14px"><div class="toolbar">' +
-        '<span style="font-size:13px;color:var(--muted);align-self:center">统计期间：</span>' +
+        '<div class="tabs" id="repSubTabs">' + subTabs + '</div>' +
+        '<span style="font-size:13px;color:var(--muted);align-self:center;margin-left:auto">统计期间：</span>' +
         '<button class="btn ghost sm" data-r="month">本月</button>' +
         '<button class="btn ghost sm" data-r="quarter">本季</button>' +
         '<button class="btn ghost sm" data-r="year">本年</button>' +
@@ -232,12 +242,22 @@
 
     // 顶部操作区：打印 / 导出
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="repPrint">🖨 打印</button><button class="btn ghost" id="repCsv">⬇ 导出CSV</button>';
-    document.getElementById('repPrint').onclick = function () { window.print(); };
-    document.getElementById('repCsv').onclick = exportCsv;
+    if (ta) ta.innerHTML = '<button class="btn ghost" id="repPrint">🖨 打印</button><button class="btn ghost" id="repCsv">⬇ 导出CSV</button>';
+    if (document.getElementById('repPrint')) document.getElementById('repPrint').onclick = function () { window.print(); };
+    if (document.getElementById('repCsv')) document.getElementById('repCsv').onclick = exportCsv;
 
-    // 事件
+    // 报表二级 tabs（利润表/资金状况/现金流量表）切换
+    FW.qa('#repSubTabs [data-rt]').forEach(function (b) {
+      b.onclick = function () {
+        state.tab = b.dataset.rt;
+        FW.qa('#repSubTabs .tab-item').forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+        drawBody();
+      };
+    });
+    // 统计期间快捷按钮
     FW.qa('#content [data-r]').forEach(function (b) { b.onclick = function () { setRange(b.dataset.r); }; });
+    // 自定义起止日期
     var gf = document.getElementById('repFrom'), gt = document.getElementById('repTo');
     if (gf) gf.onchange = function () { state.from = this.value; drawBody(); };
     if (gt) gt.onchange = function () { state.to = this.value; drawBody(); };
@@ -326,6 +346,9 @@
     accountBalances: accountBalances,
     classify: classify
   };
+
+  // 暴露渲染入口：供「登记内账」模块以子 tab 形式嵌入报表中心（传入宿主容器）
+  FW.renderReports = render;
 
   FW.modules = FW.modules || {};
   FW.modules.reports = {
