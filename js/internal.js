@@ -117,10 +117,10 @@
       if (f.category && cat1Name(t) !== f.category) return false;
       if (f.category2 && cat2Name(t) !== f.category2) return false;
       if (f.account) {
-        var accMatch = (t.type === 'transfer')
+        var matched = (t.type === 'transfer')
           ? (accMatch(f.account, t.fromAccount) || accMatch(f.account, t.toAccount))
           : accMatch(f.account, t.account);
-        if (!accMatch) return false;
+        if (!matched) return false;
       }
       if (f.type && t.type !== f.type) return false;
       if (f.from && t.date < f.from) return false;
