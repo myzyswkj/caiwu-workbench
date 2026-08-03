@@ -2235,14 +2235,14 @@
         '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true) + '</div>' +
         '<div class="fp-note">注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
         '<h4 class="fp-h4">流水明细</h4>' +
-        '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>' +
+        '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>' +
         rows.map(function (t, i) {
           var np = (t.photos || []).filter(Boolean).length;
           var vcell = '<td class="fp-vcell" data-vi="' + i + '">' +
             '<span class="fp-vn">' + (np ? np + ' 张' : '—') + '</span>' +
             '<span class="fp-vbox">' + (np ? '<span class="fp-vload">加载中…</span>' : '<span class="fp-vnone">—</span>') + '</span>' +
           '</td>';
-          return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + FW.esc(t.project || '') + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>' + vcell + '</tr>';
+          return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + FW.esc(t.project || '') + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td class="fp-rb">' + FW.esc(t.reimburser || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>' + vcell + '</tr>';
         }).join('') +
         '</tbody></table>' +
       '</div>' +

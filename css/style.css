@@ -614,6 +614,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .flow-print .refund { color: #0d9488; }
 .flow-print .neutral { color: var(--muted); }
 .flow-print .fp-inc { font-size: 13px; color: var(--text); display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
+/* 报销人：姓名不折行，列宽压到最小，避免挤占备注与凭证列 */
+.flow-print .fp-rb { white-space: nowrap; width: 1%; }
 /* 凭证图片直接落在每笔流水所在行右侧的「凭证」列 */
 .flow-print .fp-vth { width: 210px; }
 .flow-print td.fp-vcell { padding: 5px 6px; vertical-align: top; }
