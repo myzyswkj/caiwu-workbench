@@ -1007,7 +1007,7 @@
           var rremark = rgoods + (rnote ? (rgoods ? ' · ' : '') + rnote : '');
           var rpay = (f[cPay] || '').trim();
           var raccount = /银行卡|信用卡/.test(rpay) ? '银行卡' : '微信';
-          rows.push({ date: rdt, type: 'refund', amount: ramt, project: rparty, remark: rremark, account: raccount, _status: status, _inout: inout });
+          rows.push({ date: rdt, type: 'refund', amount: ramt, project: '', party: rparty, remark: rremark, account: raccount, _status: status, _inout: inout });
           continue;
         }
         skipped++; continue;
@@ -1025,7 +1025,7 @@
       var remark = goods + (note ? (goods ? ' · ' : '') + note : '');
       var pay = (f[cPay] || '').trim();
       var account = /银行卡|信用卡/.test(pay) ? '银行卡' : '微信';
-      rows.push({ date: dt, type: inout === '收入' ? 'income' : 'expense', amount: amt, project: party, remark: remark, account: account, _status: status, _inout: inout });
+      rows.push({ date: dt, type: inout === '收入' ? 'income' : 'expense', amount: amt, project: '', party: party, remark: remark, account: account, _status: status, _inout: inout });
     }
     return { ok: true, rows: rows, skipped: skipped };
   }
@@ -1093,7 +1093,7 @@
       }
       var dt = normDate(f[map.dateCol]);
       if (!dt) { skipped++; continue; }
-      rows.push({ date: dt, type: type, amount: amt, project: (map.partyCol > -1 ? (f[map.partyCol] || '').trim() : ''), remark: (map.remarkCol > -1 ? (f[map.remarkCol] || '').trim() : ''), account: '微信', _raw: f });
+      rows.push({ date: dt, type: type, amount: amt, project: '', party: (map.partyCol > -1 ? (f[map.partyCol] || '').trim() : ''), remark: (map.remarkCol > -1 ? (f[map.remarkCol] || '').trim() : ''), account: '微信', _raw: f });
     }
     return { ok: true, rows: rows, skipped: skipped };
   }
@@ -1106,7 +1106,7 @@
     var n = 0;
     rows.forEach(function (r) {
       var rec = {
-        id: FW.db.uid('t_'), date: r.date, type: r.type, project: r.project || '',
+        id: FW.db.uid('t_'), date: r.date, type: r.type, project: r.project || '', party: r.party || '',
         amount: Number(r.amount), remark: r.remark || '', photos: [],
         category: '', account: r.account || '微信', fromAccount: '', toAccount: '', equityDir: 'in'
       };
@@ -1125,7 +1125,7 @@
           '<td>' + FW.esc(r.date) + '</td>' +
           '<td class="' + cls + '">' + (r.type === 'income' ? '收入' : r.type === 'refund' ? '退款收入' : '支出') + '</td>' +
           '<td class="num ' + cls + '">' + FW.fmtMoney(r.amount) + '</td>' +
-          '<td>' + FW.esc(r.project || '—') + '</td>' +
+          '<td>' + FW.esc(r.party || '—') + '</td>' +
           '<td>' + FW.esc(r.remark || '—') + '</td>' +
           '<td>' + FW.esc(r.account || '—') + '</td>' +
         '</tr>';
@@ -1133,7 +1133,7 @@
       var cnt = s.chosen.filter(Boolean).length;
       var body =
         '<div class="muted" style="font-size:12px;margin-bottom:8px">共解析 <b>' + s.rows.length + '</b> 笔' + (skipped ? '，跳过 ' + skipped + ' 笔（退款 / 不计收支 / 无法识别）' : '') + '。勾选要导入的，取消的将被忽略。</div>' +
-        '<div style="max-height:46vh;overflow:auto"><table id="impPrevTable"><thead><tr><th><input type="checkbox" id="impAll" checked></th><th>日期</th><th>类型</th><th class="num">金额</th><th>对方/项目</th><th>备注</th><th>账户</th></tr></thead><tbody>' + trs + '</tbody></table></div>' +
+        '<div style="max-height:46vh;overflow:auto"><table id="impPrevTable"><thead><tr><th><input type="checkbox" id="impAll" checked></th><th>日期</th><th>类型</th><th class="num">金额</th><th>对方单位/个人</th><th>备注</th><th>账户</th></tr></thead><tbody>' + trs + '</tbody></table></div>' +
         '<div class="form-actions"><button class="btn ghost" id="impPrevCancel">取消</button><button class="btn" id="impDo">确认导入 <span id="impCnt">' + cnt + '</span> 笔</button></div>';
       FW.openModal('确认导入', body, function () {
         FW.qa('#impPrevTable .pc').forEach(function (cb) {
@@ -1432,7 +1432,7 @@
     if (!targets.length) return;
     var n = 0;
     targets.forEach(function (b) {
-      var rec = { id: FW.db.uid('t_'), date: b.date, type: b.type, project: b.party || '', amount: Number(b.amount), remark: b.summary || '', photos: [], category: '', account: bankImport.account, fromAccount: '', toAccount: '', equityDir: 'in' };
+      var rec = { id: FW.db.uid('t_'), date: b.date, type: b.type, project: '', party: b.party || '', amount: Number(b.amount), remark: b.summary || '', photos: [], category: '', account: bankImport.account, fromAccount: '', toAccount: '', equityDir: 'in' };
       FW.db.upsert(KEY, rec); n++;
       var pos = bankImport.rows.indexOf(b); if (pos > -1) bankImport.rows.splice(pos, 1);
     });

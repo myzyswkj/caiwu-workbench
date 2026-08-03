@@ -79,10 +79,12 @@ assert.strictEqual(result.rows.length, 2, '应有 2 条有效记录（第 3 条"
 assert.strictEqual(result.skipped, 1, '应跳过 1 条');
 assert.strictEqual(result.rows[0].type, 'income', '第 1 条应为收入');
 assert.strictEqual(result.rows[0].amount, 100.0, '第 1 条金额=100');
-assert.strictEqual(result.rows[0].project, '张三', '第 1 条对方=张三');
+assert.strictEqual(result.rows[0].party, '张三', '第 1 条对方=张三（应写入 party，不再误入 project）');
+assert.strictEqual(result.rows[0].project, '', '第 1 条 project 应为空');
 assert.strictEqual(result.rows[1].type, 'expense', '第 2 条应为支出');
 assert.strictEqual(result.rows[1].amount, 35.5, '第 2 条金额=35.5');
-assert.strictEqual(result.rows[1].project, '美团', '第 2 条对方=美团');
+assert.strictEqual(result.rows[1].party, '美团', '第 2 条对方=美团（应写入 party）');
+assert.strictEqual(result.rows[1].project, '', '第 2 条 project 应为空');
 
 // ---- 7. 验证 csvSplit 能正确处理转换后的 CSV ----
 var splitResult = FW.internalImport.csvSplit(csvText.split('\r\n')[0]);

@@ -55,7 +55,7 @@ var csvText = rowsToCsv(rowsArr);
 var res = FW.internalImport.parseWeChatBill(csvText);
 
 console.log('解析结果: ok=' + res.ok + ', rows=' + res.rows.length + ', skipped=' + res.skipped);
-res.rows.forEach(function (r, i) { console.log('  [' + i + '] ' + r.date + ' ' + r.type + ' ' + r.amount + ' ' + r.project); });
+res.rows.forEach(function (r, i) { console.log('  [' + i + '] ' + r.date + ' ' + r.type + ' ' + r.amount + ' ' + r.party); });
 
 // 断言
 assert.strictEqual(res.ok, true, '解析成功');
@@ -63,13 +63,13 @@ assert.strictEqual(res.ok, true, '解析成功');
 assert.strictEqual(res.rows.length, 3, '应有 3 条有效（退款行被跳过）');
 assert.strictEqual(res.skipped, 1, '应跳过 1 条退款');
 
-// 关键：支出金额必须为正数（修复前为 -35.5 / -50）
-var meituan = res.rows.find(function (r) { return r.project === '美团'; });
-var chaoshi = res.rows.find(function (r) { return r.project === '超市'; });
+// 关键：支出金额必须为正数（修复前为 -35.5 / -50）；"交易对方"应写入 party，而非误入 project
+var meituan = res.rows.find(function (r) { return r.party === '美团'; });
+var chaoshi = res.rows.find(function (r) { return r.party === '超市'; });
 assert.ok(meituan && meituan.type === 'expense' && meituan.amount === 35.5, '美团(-35.5) 应为正数支出 35.5，实际 ' + JSON.stringify(meituan));
 assert.ok(chaoshi && chaoshi.type === 'expense' && chaoshi.amount === 50.0, '超市(-50) 应为正数支出 50，实际 ' + JSON.stringify(chaoshi));
 
-var zhangsan = res.rows.find(function (r) { return r.project === '张三'; });
+var zhangsan = res.rows.find(function (r) { return r.party === '张三'; });
 assert.ok(zhangsan && zhangsan.type === 'income' && zhangsan.amount === 100.0, '张三(100) 应为正数收入 100');
 
 // 汇总校验：收入100，支出85.5（不应被负数抵消）
