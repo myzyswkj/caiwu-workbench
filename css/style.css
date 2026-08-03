@@ -431,6 +431,20 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .tcout-ok { background: #eafaf0; color: #1f7a3d; border: 1px solid #bfe6cd; }
 .tcout-warn { background: #fff6e6; color: #a8650b; border: 1px solid #f4d79a; }
 .tcout-info { background: #F7ECCF; color: #9A7B12; border: 1px solid #E4CE8E; }
+.tcout-danger { background: #fdeaea; color: #C8102E; border: 1px solid #f1bcbc; }
+
+/* ===== 小规模升一般纳税人预警 ===== */
+.sg-bar { height: 18px; border-radius: 9px; background: #e8eeea; overflow: hidden; margin: 10px 0 6px; }
+.sg-bar > span { display: block; height: 100%; border-radius: 9px; transition: width .3s; }
+.sg-bar.safe > span { background: #1F9D55; }
+.sg-bar.warn > span { background: #C9A227; }
+.sg-bar.danger > span { background: #C8102E; }
+.sg-progress-tip { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.sg-stat-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.sg-stat { flex: 1; min-width: 130px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }
+.sg-stat .v { font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--text); }
+.sg-stat .l { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.sg-quick { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
 
 /* ===== 凭证模板库 ===== */
 .tpl-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; }
