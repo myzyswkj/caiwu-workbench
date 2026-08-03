@@ -36,4 +36,21 @@ assert.strictEqual(levelOf(2500000, 3000000), 'warn', '自定义阈值下250/300
 // 10. 自定义阈值：300万，310万 -> danger
 assert.strictEqual(levelOf(3100000, 3000000), 'danger', '自定义阈值下310万为应办登记');
 
+// 11. 两种口径区间（复制 currentRange / baseLabel 纯逻辑）
+function fmt(d) { var p = function (n) { return n < 10 ? '0' + n : '' + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+function rangeOf(m) {
+  if (m === 'year') { var d = new Date(); var from = new Date(d.getFullYear(), 0, 1); return { from: fmt(from), to: fmt(d), label: '自然年累计' }; }
+  var d2 = new Date(); var start = new Date(d2.getFullYear(), d2.getMonth() - 11, 1); return { from: fmt(start), to: fmt(d2), label: '连续12个月滚动' };
+}
+var yr = rangeOf('year');
+assert.strictEqual(yr.from.slice(5), '01-01', '自然年累计应从当年1月1日起算');
+assert.strictEqual(yr.label, '自然年累计', 'year 口径名为自然年累计');
+var rl = rangeOf('roll12');
+assert.strictEqual(rl.label, '连续12个月滚动', 'roll12 口径名为连续12个月滚动');
+// 滚动起点应为当前月前推11个月（同年则月份差11）
+(function () {
+  var d = new Date(); var expect = new Date(d.getFullYear(), d.getMonth() - 11, 1);
+  assert.strictEqual(rl.from, fmt(expect), '连续12个月起点=当前月前推11个月当月1号');
+})();
+
 console.log('ALL_OK');

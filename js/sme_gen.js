@@ -2,6 +2,9 @@
  * 小规模升一般纳税人预警（知识工具子模块）
  * 政策口径：年应征增值税销售额（连续不超过12个月）超过 500 万元，
  *           应当办理一般纳税人登记（财税〔2018〕33号等）。
+ * 本模块支持两种口径：
+ *   - 连续12个月滚动（政策标准口径）
+ *   - 自然年累计（当年1月1日 ~ 今天）
  * 说明：本工具仅作阈值预警与筹划提示，具体认定以主管税务机关规定为准。
  * ============================================================ */
 (function (global) {
@@ -11,37 +14,66 @@
   // 强制登记阈值（年应征增值税销售额，不含税），可编辑
   var DEFAULT_THRESHOLD = 5000000;
 
+  // 计算口径：'roll12' = 连续12个月滚动；'year' = 自然年累计
+  var mode = 'roll12';
+
   function num(v) { var n = Number(v); return isNaN(n) ? 0 : n; }
   function fmt(d) {
     var p = function (n) { return n < 10 ? '0' + n : '' + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   }
-  // 滚动12个月窗口：从 12 个月前当月 1 号 到 今天
+
+  // 连续12个月窗口：从 12 个月前当月 1 号 到 今天
   function rollingRange() {
     var d = new Date();
     var start = new Date(d.getFullYear(), d.getMonth() - 11, 1);
-    return { from: fmt(start), to: fmt(d) };
+    return { from: fmt(start), to: fmt(d), label: '连续12个月滚动' };
   }
 
-  // 从发票台账取「销项不含税销售额」（滚动12个月）
+  // 当前口径对应的统计区间与名称
+  function currentRange() {
+    if (mode === 'year') {
+      var d = new Date();
+      var from = new Date(d.getFullYear(), 0, 1);
+      return { from: fmt(from), to: fmt(d), label: '自然年累计' };
+    }
+    return rollingRange();
+  }
+  // 口径简称（用于文案）
+  function baseLabel() {
+    return mode === 'year' ? '自然年累计' : '滚动12个月';
+  }
+
+  // 从发票台账取「销项不含税销售额」（按当前口径）
   function salesFromInvoices() {
     try {
-      var r = rollingRange();
+      var r = currentRange();
       var rows = (FW.db.getList('invoices') || []).filter(function (t) { return t.date >= r.from && t.date <= r.to; });
       var sum = rows.filter(function (t) { return t.direction === 'out'; })
         .reduce(function (a, t) { return a + Number(t.amount || 0); }, 0);
       return Math.round(sum);
     } catch (e) { return null; }
   }
-  // 从内账取「收入」（滚动12个月，近似，含未开票）
+  // 从内账取「收入」（按当前口径，近似，含未开票）
   function salesFromInternal() {
     try {
-      var r = rollingRange();
+      var r = currentRange();
       var rows = (FW.db.getList('internal') || []).filter(function (t) { return t.date >= r.from && t.date <= r.to; });
       var sum = rows.filter(function (t) { return t.type === 'income'; })
         .reduce(function (a, t) { return a + Number(t.amount || 0); }, 0);
       return Math.round(sum);
     } catch (e) { return null; }
+  }
+
+  // 口径切换：更新标题副文案、输入框标签，并重算
+  function applyMode() {
+    var sub = document.getElementById('sgSub');
+    if (sub) sub.textContent = baseLabel() + '不含税销售额 · 阈值 500 万';
+    var lbl = document.getElementById('sgSalesLabel');
+    if (lbl) lbl.textContent = baseLabel() + '不含税销售额（元）';
+    var ph = document.getElementById('sg_sales');
+    if (ph) ph.placeholder = mode === 'year' ? '如：2600000' : '如：3800000';
+    compute();
   }
 
   function compute() {
@@ -67,21 +99,22 @@
       monthsTxt = '填写「当前月销售额」可估算预计触线时间。';
     }
 
+    var bl = baseLabel();
     var advice = [];
     if (level === 'safe') {
-      advice.push({ cls: 'tcout-ok', text: '✅ 当前滚动12个月销售额占阈值 ' + pct + '%，距强制登记标准较远，仍可享受小规模纳税人免税等优惠。' });
+      advice.push({ cls: 'tcout-ok', text: '✅ 当前' + bl + '销售额占阈值 ' + pct + '%，距强制登记标准较远，仍可享受小规模纳税人免税等优惠。' });
     } else if (level === 'warn') {
-      advice.push({ cls: 'tcout-warn', text: '⚠️ 已占强制登记阈值 ' + pct + '%（≥80%），进入「关注区」。注意：连续12个月口径滚动计算，临近标准时应提前规划开票与业务节奏（但不得通过不开票、少开票隐瞒销售）。' });
+      advice.push({ cls: 'tcout-warn', text: '⚠️ 已占强制登记阈值 ' + pct + '%（≥80%），进入「关注区」。注意：' + bl + '口径滚动计算，临近标准时应提前规划开票与业务节奏（但不得通过不开票、少开票隐瞒销售）。' });
     } else {
-      advice.push({ cls: 'tcout-danger', text: '🚨 滚动12个月销售额已达 ' + pct + '%（超过 500 万元），按政策应当办理一般纳税人登记。登记后：可抵扣进项、可开专票；但不再享受小规模免税、按税率（13%/9%/6%）计税、核算要求提高、一般不可随意转回。' });
+      advice.push({ cls: 'tcout-danger', text: '🚨 ' + bl + '销售额已达 ' + pct + '%（超过 500 万元），按政策应当办理一般纳税人登记。登记后：可抵扣进项、可开专票；但不再享受小规模免税、按税率（13%/9%/6%）计税、核算要求提高、一般不可随意转回。' });
     }
 
     var html =
-      '<div class="card"><h3>预警结论</h3>' +
+      '<div class="card"><h3>预警结论 <span class="sub">' + bl + '</span></h3>' +
         '<div class="sg-bar ' + level + '"><span style="width:' + barPct.toFixed(1) + '%"></span></div>' +
         '<div class="sg-progress-tip">已占强制登记阈值 <b>' + pct + '%</b> · ' + gapTxt + '</div>' +
         '<div class="sg-stat-row">' +
-          '<div class="sg-stat"><div class="v">' + FW.fmtMoney(sales) + '</div><div class="l">滚动12个月不含税销售额</div></div>' +
+          '<div class="sg-stat"><div class="v">' + FW.fmtMoney(sales) + '</div><div class="l">' + bl + '不含税销售额</div></div>' +
           '<div class="sg-stat"><div class="v">' + FW.fmtMoney(threshold) + '</div><div class="l">强制登记阈值</div></div>' +
           '<div class="sg-stat"><div class="v">' + pct + '%</div><div class="l">占比</div></div>' +
         '</div>' +
@@ -101,10 +134,14 @@
 
     var c = document.getElementById('content');
     c.innerHTML =
-      '<div class="card"><h3>小规模纳税人升一般纳税人预警 <span class="sub">连续12个月不含税销售额 · 阈值 500 万</span></h3>' +
-        '<p class="muted" style="margin:0 0 12px">依据政策：年应征增值税销售额（连续不超过12个月）超过 <b>500 万元</b>，应当办理一般纳税人登记。填下方销售额即可实时预警；也可一键从发票台账或内账取数。</p>' +
+      '<div class="card"><h3>小规模纳税人升一般纳税人预警 <span class="sub" id="sgSub">连续12个月不含税销售额 · 阈值 500 万</span></h3>' +
+        '<p class="muted" style="margin:0 0 12px">依据政策：年应征增值税销售额（连续不超过12个月）超过 <b>500 万元</b>，应当办理一般纳税人登记。可切换下方「计算口径」，两种口径均实时预警；也可一键从发票台账或内账取数（取数按所选口径统计）。</p>' +
+        '<div class="sg-mode">' +
+          '<label class="sg-mode-opt"><input type="radio" name="sg_mode" value="roll12" checked> 连续12个月滚动</label>' +
+          '<label class="sg-mode-opt"><input type="radio" name="sg_mode" value="year"> 自然年累计</label>' +
+        '</div>' +
         '<div class="form-grid">' +
-          '<div class="field"><label>滚动12个月不含税销售额（元）</label><input id="sg_sales" type="number" step="0.01" min="0" value="3800000" placeholder="如：3800000"></div>' +
+          '<div class="field"><label id="sgSalesLabel">滚动12个月不含税销售额（元）</label><input id="sg_sales" type="number" step="0.01" min="0" value="3800000" placeholder="如：3800000"></div>' +
           '<div class="field"><label>当前月销售额（元，估算触线用）</label><input id="sg_month" type="number" step="0.01" min="0" value="360000" placeholder="如：360000"></div>' +
           '<div class="field"><label>强制登记阈值（元）</label><input id="sg_threshold" type="number" step="0.01" min="0" value="' + DEFAULT_THRESHOLD + '"></div>' +
         '</div>' +
@@ -120,17 +157,23 @@
       el.addEventListener('input', compute);
       el.addEventListener('change', compute);
     });
+    // 口径切换
+    Array.prototype.forEach.call(document.getElementsByName('sg_mode'), function (r) {
+      r.addEventListener('change', function () {
+        if (r.checked) { mode = r.value; applyMode(); }
+      });
+    });
     document.getElementById('sgFromInv').onclick = function () {
       var v = salesFromInvoices();
       if (v == null) { FW.toast('取数失败：未找到发票台账数据'); return; }
       document.getElementById('sg_sales').value = v; compute();
-      FW.toast('已从发票台账(销项)取滚动12个月不含税销售额 ' + FW.fmtMoney(v));
+      FW.toast('已从发票台账(销项)取' + baseLabel() + '不含税销售额 ' + FW.fmtMoney(v));
     };
     document.getElementById('sgFromInt').onclick = function () {
       var v = salesFromInternal();
       if (v == null) { FW.toast('取数失败：未找到内账数据'); return; }
       document.getElementById('sg_sales').value = v; compute();
-      FW.toast('已从内账(收入)取滚动12个月销售额 ' + FW.fmtMoney(v));
+      FW.toast('已从内账(收入)取' + baseLabel() + '销售额 ' + FW.fmtMoney(v));
     };
     compute();
   }

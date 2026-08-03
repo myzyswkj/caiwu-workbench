@@ -445,6 +445,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .sg-stat .v { font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--text); }
 .sg-stat .l { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .sg-quick { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+/* 口径切换（连续12个月滚动 / 自然年累计） */
+.sg-mode { display: inline-flex; gap: 0; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.sg-mode-opt { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 14px; cursor: pointer; user-select: none; color: var(--text); border-right: 1px solid var(--border); }
+.sg-mode-opt:last-child { border-right: none; }
+.sg-mode-opt input { accent-color: var(--info); margin: 0; }
+.sg-mode-opt:has(input:checked) { background: var(--info); color: #fff; font-weight: 600; }
+.sg-mode-opt:has(input:checked) input { accent-color: #fff; }
 
 /* ===== 凭证模板库 ===== */
 .tpl-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; }
