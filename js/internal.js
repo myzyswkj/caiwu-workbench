@@ -235,7 +235,7 @@
 
     var tb = document.getElementById('inToolbar');
     if (tb) {
-      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="xlsxpic">🖼 Excel（含凭证图）</button><button data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
       document.getElementById('openBtn').onclick = openOpenings;
       document.getElementById('accMgrBtn').onclick = openAccManager;
       document.getElementById('budgetBtn').onclick = openBudgetForm;
@@ -250,7 +250,8 @@
             e.stopPropagation();
             expMenu.style.display = 'none';
             var fmt = b.getAttribute('data-fmt');
-            if (fmt === 'xlsx') exportXLSX();
+            if (fmt === 'xlsx') exportXLSX(false);
+            else if (fmt === 'xlsxpic') exportXLSX(true);
             else if (fmt === 'print') openPrintView();
             else exportTable();
           };
@@ -2129,13 +2130,95 @@
     FW.toast('已导出 ' + rows.length + ' 笔流水（CSV）');
   }
 
+  // ===== Excel 凭证图片嵌入 =====
+  var XPIC_STORE_MAX = 700;  // 写进 Excel 的图片最大边（px）：兼顾放大看清与文件体积
+  var XPIC_DISP_H = 96;      // 表格中显示高度（px）
+  var XPIC_DISP_MAXW = 220;  // 超宽图的宽度上限（px）
+  var XPIC_ROW_HPT = 78;     // 带图行的行高（pt）≈ 104px，给 96px 图留余量
+
+  // 缩放并转 JPEG：凭证原图常有几 MB，直接嵌入会让 Excel 体积失控
+  function shrinkPhotoForXlsx(dataUrl) {
+    return new Promise(function (res) {
+      var im = new Image();
+      im.onload = function () {
+        var w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+        if (!w || !h) { res(null); return; }
+        var sc = Math.min(1, XPIC_STORE_MAX / Math.max(w, h));
+        var cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc));
+        try {
+          var cv = document.createElement('canvas');
+          cv.width = cw; cv.height = ch;
+          var ctx = cv.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch); // 透明 PNG 转 JPEG 会发黑，先铺白底
+          ctx.drawImage(im, 0, 0, cw, ch);
+          res({ dataUrl: cv.toDataURL('image/jpeg', 0.82), w: w, h: h });
+        } catch (e) { res(null); }
+      };
+      im.onerror = function () { res(null); };
+      im.src = dataUrl;
+    });
+  }
+
+  function dataUrlToBytes(d) {
+    var i = String(d || '').indexOf(',');
+    if (i < 0) return null;
+    try {
+      var bin = atob(d.slice(i + 1));
+      var u = new Uint8Array(bin.length);
+      for (var k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+      return u;
+    } catch (e) { return null; }
+  }
+
+  // 按「行下标」归集凭证图（与打印视图同口径，流水无 id 也不会串行）
+  function collectPicsByRow(rows) {
+    var tasks = [];
+    rows.forEach(function (t, ri) {
+      (t.photos || []).filter(Boolean).forEach(function (pid) {
+        tasks.push(FW.db.getPhoto(pid)
+          .then(function (d) { return d ? shrinkPhotoForXlsx(d) : null; })
+          .then(function (r) {
+            if (!r) return null;
+            var bytes = dataUrlToBytes(r.dataUrl);
+            return bytes ? { ri: ri, bytes: bytes, w: r.w, h: r.h } : null;
+          })
+          .catch(function () { return null; }));
+      });
+    });
+    return Promise.all(tasks).then(function (list) {
+      var map = {};
+      list.forEach(function (r) {
+        if (!r) return;
+        if (!map[r.ri]) map[r.ri] = [];
+        map[r.ri].push(r);
+      });
+      return map;
+    });
+  }
+
   // 导出真正的 Excel（.xlsx）：金额列为数值，便于老板在 WPS/Excel 直接求和、筛选
-  function exportXLSX() {
+  function exportXLSX(withPics) {
     var rows = filteredRows();
     if (!rows.length) { FW.toast('没有可导出的流水'); return; }
     if (!window.XLSX) { FW.toast('Excel 导出组件未加载，请刷新页面后重试'); return; }
+    if (!withPics) { buildXLSX(rows, null); return; }
+    if (!window.FWXlsxPic) { FW.toast('凭证嵌入组件未加载，请刷新页面后重试'); return; }
+    var total = rows.reduce(function (s, t) { return s + (t.photos || []).filter(Boolean).length; }, 0);
+    if (!total) { FW.toast('所选流水没有凭证图片，已按普通 Excel 导出'); buildXLSX(rows, null); return; }
+    FW.toast('正在处理 ' + total + ' 张凭证图片，请稍候…');
+    collectPicsByRow(rows).then(function (picMap) {
+      buildXLSX(rows, picMap);
+    }).catch(function () {
+      FW.toast('凭证图片处理失败，已导出不含图片的 Excel');
+      buildXLSX(rows, null);
+    });
+  }
+
+  function buildXLSX(rows, picMap) {
     var x = window.XLSX;
+    var withPics = !!(picMap && Object.keys(picMap).length);
     var head = ['日期', '类型', '项目', '分类', '账户', '金额', '已扣支出', '实际收入', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
+    if (withPics) head.push('凭证图');
     var aoa = [head];
     var sumInc = 0, sumExp = 0;
     rows.forEach(function (t) {
@@ -2143,20 +2226,39 @@
       var amt = Number(t.amount) || 0;
       if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) sumInc += amt;
       else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) sumExp += amt;
-      aoa.push([
+      var line = [
         t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), amt, dv, dv ? (t.amount + dv) : '',
         (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '',
         (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'
-      ]);
+      ];
+      if (withPics) line.push('');
+      aoa.push(line);
     });
     // 合计行
-    aoa.push(['', '合计（' + rows.length + ' 笔）', '', '', '', sumInc - sumExp, '', '', '收入 ' + FW.fmtMoney(sumInc) + ' ／ 支出 ' + FW.fmtMoney(sumExp), '', '', '', '']);
+    var totalLine = ['', '合计（' + rows.length + ' 笔）', '', '', '', sumInc - sumExp, '', '', '收入 ' + FW.fmtMoney(sumInc) + ' ／ 支出 ' + FW.fmtMoney(sumExp), '', '', '', ''];
+    if (withPics) totalLine.push('');
+    aoa.push(totalLine);
     var wb = x.utils.book_new();
     var ws = x.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [
+    var cols = [
       { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
       { wch: 24 }, { wch: 8 }, { wch: 18 }, { wch: 12 }, { wch: 12 }
     ];
+    // 凭证图列：图片自该列起向右铺开（右侧无数据，不会遮挡）
+    var pics = [];
+    if (withPics) {
+      cols.push({ wch: 32 });
+      var rowsMeta = [{}];
+      rows.forEach(function (t, ri) { rowsMeta.push(picMap[ri] ? { hpt: XPIC_ROW_HPT } : {}); });
+      ws['!rows'] = rowsMeta;
+      pics = window.FWXlsxPic.layoutRowPics(picMap, {
+        col: head.length - 1,   // 凭证图列（最后一列），图片自此向右铺开
+        rowBase: 1,             // 第 0 行是表头
+        dispH: XPIC_DISP_H,
+        maxW: XPIC_DISP_MAXW
+      });
+    }
+    ws['!cols'] = cols;
     x.utils.book_append_sheet(wb, ws, '内账流水');
     // 第二张表：按账户收支（老板视角），含开始余额与剩余余额
     var f = state.filter;
@@ -2175,14 +2277,24 @@
     var ws2 = x.utils.aoa_to_sheet(accAoa);
     ws2['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 16 }];
     x.utils.book_append_sheet(wb, ws2, '按账户收支');
-    var out = x.write(wb, { bookType: 'xlsx', type: 'array' });
-    var blob = new Blob([out], { type: 'application/octet-stream' });
+    var u8 = new Uint8Array(x.write(wb, { bookType: 'xlsx', type: 'array' }));
+    // SheetJS 社区版不支持写图，这里把凭证图注入到它生成的 zip 包里
+    var picCount = 0;
+    if (pics.length) {
+      var injected = window.FWXlsxPic.injectPics(u8, 'xl/worksheets/sheet1.xml', pics);
+      if (injected) { u8 = injected; picCount = pics.length; }
+      else FW.toast('凭证嵌入失败，已导出不含图片的 Excel');
+    }
+    var blob = new Blob([u8], { type: 'application/octet-stream' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
-    a.href = url; a.download = '内账流水_' + FW.today() + '.xlsx';
+    a.href = url;
+    a.download = '内账流水' + (picCount ? '_含凭证' : '') + '_' + FW.today() + '.xlsx';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-    FW.toast('已导出 Excel（' + rows.length + ' 笔）');
+    FW.toast(picCount
+      ? ('已导出 Excel（' + rows.length + ' 笔，含 ' + picCount + ' 张凭证图）')
+      : ('已导出 Excel（' + rows.length + ' 笔）'));
   }
 
   // 打印 / 转 PDF：打开一个格式化、带期间与汇总的「流水明细表」，老板可直接看或打印/存 PDF
