@@ -207,8 +207,8 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; background: #f4f7f5; }
 tbody tr:nth-child(even) td { background: #E7EFEA; }
-tbody tr:hover td { background: #D9E8DF; }
-tbody tr:hover { background: #D9E8DF; }
+tbody tr:hover td { background: #C2D9CD; }
+tbody tr:hover { background: #C2D9CD; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .tag { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; background: var(--primary-soft); color: var(--primary); }
 .tag.income { background: #fdeaec; color: var(--income); }
