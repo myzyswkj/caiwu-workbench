@@ -611,7 +611,9 @@ td.photo-cell { vertical-align: top; }
 .flow-print .expense { color: var(--expense); }
 .flow-print .refund { color: #0d9488; }
 .flow-print .neutral { color: var(--muted); }
-.flow-print .fp-inc { font-size: 13px; color: var(--text); display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
+/* 注意：打印工具栏在 .flow-print 容器之外，这里不能加 .flow-print 前缀 */
+.fp-inc { font-size: 13px; color: var(--text); display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
+.fp-tip { margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.6; }
 /* 报销人：姓名不折行，列宽压到最小，避免挤占备注与凭证列 */
 .flow-print .fp-rb { white-space: nowrap; width: 1%; }
 /* 凭证图片直接落在每笔流水所在行右侧的「凭证」列 */
@@ -634,10 +636,17 @@ td.photo-cell { vertical-align: top; }
 .flow-print tbody tr { page-break-inside: avoid; }
 
 /* ===== 打印（仅显示凭证纸 / 账表） ===== */
+/* 页边距设为 0：浏览器没有空隙可画页眉页脚，网址 / 日期 / 页码就不会出现在 PDF 上。
+   实际留白改由 .print-area 自身的 padding 提供，观感不变。 */
+/* 不写 size，保留用户在打印窗口自选纸张与横/纵向的自由（明细表列多时常需横向） */
+@page { margin: 0; }
+
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
-  .print-area { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; border: none; padding: 0; margin: 0; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; box-sizing: border-box; box-shadow: none; border: none; padding: 11mm 10mm; margin: 0; }
+  /* 长表格跨页时表头每页重复，顺带避免第二页起内容贴到纸张顶边 */
+  .print-area table thead { display: table-header-group; }
   .no-print { display: none !important; }
   .flow-print img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .modal-mask { position: static; background: #fff; display: block !important; }

@@ -2249,7 +2249,8 @@
         '<label class="fp-inc">凭证图大小 <select id="fpVSize"><option value="vsz-s">小</option><option value="vsz-m" selected>中</option><option value="vsz-l">大</option></select></label>' +
         '<button class="btn" id="fpPrint">🖨 打印 / 保存为 PDF</button>' +
         '<button class="btn ghost" id="fpClose">关闭</button>' +
-      '</div>';
+      '</div>' +
+      '<div class="fp-tip no-print">已自动去掉页眉页脚（网址 / 日期 / 页码）。若个别浏览器仍显示，请在打印窗口「更多设置」中取消勾选「页眉和页脚」。</div>';
     FW.openModal('内账流水 · 打印预览', html, function (body) {
       var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
       var pb = body.querySelector('#fpPrint'); if (pb) pb.onclick = function () { setTimeout(function () { window.print(); }, 60); };
