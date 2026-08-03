@@ -475,7 +475,7 @@
   }
 
   function tableHtml(rows) {
-    var colCount = (state.selMode ? 1 : 0) + 10;
+    var colCount = (state.selMode ? 1 : 0) + 11;
     var trs = rows.map(function (t) {
       var m = typeMeta(t);
       var affects = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
