@@ -614,13 +614,24 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .flow-print .refund { color: #0d9488; }
 .flow-print .neutral { color: var(--muted); }
 .flow-print .fp-inc { font-size: 13px; color: var(--text); display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
-.flow-print .fp-loading { color: var(--muted); font-size: 13px; padding: 8px 0; }
-.flow-print #fpVouchers { margin-top: 4px; }
-.flow-print .fp-voucher { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; page-break-inside: avoid; }
-.flow-print .fp-v-cap { font-size: 13px; color: var(--text); margin-bottom: 8px; font-weight: 600; }
-.flow-print .fp-v-imgs { display: flex; flex-wrap: wrap; gap: 10px; }
-.flow-print .fp-v-img { border: 1px solid var(--border); border-radius: 6px; padding: 4px; background: #fff; }
-.flow-print .fp-v-img img { display: block; max-width: 260px; max-height: 320px; object-fit: contain; }
+/* 凭证图片直接落在每笔流水所在行右侧的「凭证」列 */
+.flow-print .fp-vth { width: 210px; }
+.flow-print td.fp-vcell { padding: 5px 6px; vertical-align: top; }
+.flow-print .fp-vbox { display: flex; flex-wrap: wrap; gap: 5px; }
+.flow-print .fp-vbox img { display: block; border: 1px solid var(--border); border-radius: 4px; background: #fff; object-fit: contain; }
+.flow-print .fp-vn { display: none; color: var(--muted); font-size: 12px; }
+.flow-print .fp-vload, .flow-print .fp-vnone { color: var(--muted); font-size: 12px; }
+.flow-print.vsz-s .fp-vth { width: 150px; }
+.flow-print.vsz-s .fp-vbox img { max-width: 62px; max-height: 62px; }
+.flow-print.vsz-m .fp-vbox img { max-width: 98px; max-height: 104px; }
+.flow-print.vsz-l .fp-vth { width: 340px; }
+.flow-print.vsz-l .fp-vbox img { max-width: 158px; max-height: 178px; }
+/* 关闭凭证图片：该列只留张数，表格更紧凑 */
+.flow-print.no-voucher .fp-vbox { display: none; }
+.flow-print.no-voucher .fp-vn { display: inline; }
+.flow-print.no-voucher .fp-vth { width: 56px; }
+/* 避免某一行的凭证图被分页切断 */
+.flow-print tbody tr { page-break-inside: avoid; }
 
 /* ===== 打印（仅显示凭证纸 / 账表） ===== */
 @media print {
