@@ -669,14 +669,42 @@
     });
     return map;
   }
-  function statTableRows(map, fmtKey) {
+  // 日期减一天（YYYY-MM-DD）
+  function prevDay(d) {
+    if (!d) return '';
+    var dt = new Date(d + 'T00:00:00');
+    dt.setDate(dt.getDate() - 1);
+    return dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
+  }
+  // 取截至 upto 的扁平账户余额表：name -> bal
+  function balMapAt(upto) {
+    var m = {};
+    accountBalances(upto).forEach(function (x) { m[x.name] = x.bal; });
+    return m;
+  }
+  // 筛选开始前的账户余额：设了 f.from 则取截至 from 前一天；否则取期初（无任何流水前）
+  function startBalanceMap(f) {
+    if (f && f.from) return balMapAt(prevDay(f.from));
+    var m = {};
+    getOpenings().forEach(function (o) { if (o.account) m[o.account] = (m[o.account] || 0) + (Number(o.amount) || 0); });
+    return m;
+  }
+  function statTableRows(map, fmtKey, balMaps) {
     var keys = Object.keys(map).sort(function (a, b) { return (map[b].income + map[b].expense) - (map[a].income + map[a].expense); });
     if (!keys.length) return '<div class="empty">暂无数据</div>';
+    var head = '<th>' + fmtKey + '</th>';
+    if (balMaps) head += '<th class="num">开始余额</th>';
+    head += '<th class="num">收入</th><th class="num">支出</th><th class="num">净额</th>';
+    if (balMaps) head += '<th class="num">剩余余额</th>';
     var trs = keys.map(function (k) {
       var v = map[k];
-      return '<tr><td>' + FW.esc(k) + '</td><td class="num income">' + FW.fmtMoney(v.income) + '</td><td class="num expense">' + FW.fmtMoney(v.expense) + '</td><td class="num"><b>' + FW.fmtMoney(v.income - v.expense) + '</b></td></tr>';
+      var cells = '<td>' + FW.esc(k) + '</td>';
+      if (balMaps) cells += '<td class="num">' + FW.fmtMoney(balMaps.start[k] || 0) + '</td>';
+      cells += '<td class="num income">' + FW.fmtMoney(v.income) + '</td><td class="num expense">' + FW.fmtMoney(v.expense) + '</td><td class="num"><b>' + FW.fmtMoney(v.income - v.expense) + '</b></td>';
+      if (balMaps) cells += '<td class="num"><b>' + FW.fmtMoney(balMaps.end[k] || 0) + '</b></td>';
+      return '<tr>' + cells + '</tr>';
     }).join('');
-    return '<table><thead><tr><th>' + fmtKey + '</th><th class="num">收入</th><th class="num">支出</th><th class="num">净额</th></tr></thead><tbody>' + trs + '</tbody></table>';
+    return '<table><thead><tr>' + head + '</tr></thead><tbody>' + trs + '</tbody></table>';
   }
   function drawStatTable(s, byProj, byMonth, byDay, byCat, byAcc) {
     var el = document.getElementById('statTable');
@@ -2111,19 +2139,22 @@
       { wch: 24 }, { wch: 8 }, { wch: 18 }, { wch: 12 }, { wch: 12 }
     ];
     x.utils.book_append_sheet(wb, ws, '内账流水');
-    // 第二张表：按账户收支（老板视角）
+    // 第二张表：按账户收支（老板视角），含开始余额与剩余余额
+    var f = state.filter;
     var accMap = buildAccMap(rows);
+    var startBal = startBalanceMap(f), endBal = balMapAt(f.to || FW.today());
     var accKeys = Object.keys(accMap).sort(function (a, b) { return (accMap[b].income + accMap[b].expense) - (accMap[a].income + accMap[a].expense); });
-    var accAoa = [['账户', '收入', '支出', '净额（收入−支出）']];
-    var accSumInc = 0, accSumExp = 0;
+    var accAoa = [['账户', '开始余额', '收入', '支出', '净额（收入−支出）', '剩余余额']];
+    var accSumInc = 0, accSumExp = 0, accSumStart = 0, accSumEnd = 0;
     accKeys.forEach(function (k) {
       var v = accMap[k];
-      accAoa.push([k, v.income, v.expense, v.income - v.expense]);
-      accSumInc += v.income; accSumExp += v.expense;
+      var s = startBal[k] || 0, e = endBal[k] || 0;
+      accAoa.push([k, s, v.income, v.expense, v.income - v.expense, e]);
+      accSumInc += v.income; accSumExp += v.expense; accSumStart += s; accSumEnd += e;
     });
-    accAoa.push(['合计（' + accKeys.length + ' 账户）', accSumInc, accSumExp, accSumInc - accSumExp]);
+    accAoa.push(['合计（' + accKeys.length + ' 账户）', accSumStart, accSumInc, accSumExp, accSumInc - accSumExp, accSumEnd]);
     var ws2 = x.utils.aoa_to_sheet(accAoa);
-    ws2['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 18 }];
+    ws2['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 16 }];
     x.utils.book_append_sheet(wb, ws2, '按账户收支');
     var out = x.write(wb, { bookType: 'xlsx', type: 'array' });
     var blob = new Blob([out], { type: 'application/octet-stream' });
@@ -2180,7 +2211,8 @@
         '</div>' +
         // 按账户收支维度：老板看流水时通常最关心"每个账户赚了/花了多少"
         '<h4 class="fp-h4">按账户（收支维度）</h4>' +
-        statTableRows(buildAccMap(rows), '账户') +
+        '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }) + '</div>' +
+        '<div class="fp-note">注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）；剩余余额 = 开始余额 + 收入 − 支出 + 互转/股本净变动。</div>' +
         '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th>备注</th><th>凭证</th></tr></thead><tbody>' +
         rows.map(function (t) {
           return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + FW.esc(t.project || '') + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td><td>' + (t.photos ? t.photos.length : 0) + '</td></tr>';

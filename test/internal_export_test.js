@@ -69,4 +69,69 @@ assert.strictEqual(Object.keys(acc).length, 2, '互转不产生新账户');
 // 净额与老板视觉一致
 assert.strictEqual((acc['LULU私户'].income - acc['LULU私户'].expense).toFixed(2), (200000 - 162284.14 + 5000).toFixed(2), 'LULU私户 净额 = 收入 - (支出 - 退款)');
 
+// ===== prevDay：日期减一天（YYYY-MM-DD） =====
+function prevDay(d) {
+  if (!d) return '';
+  var dt = new Date(d + 'T00:00:00');
+  dt.setDate(dt.getDate() - 1);
+  var p = function (n) { return n < 10 ? '0' + n : '' + n; };
+  return dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate());
+}
+assert.strictEqual(prevDay('2026-08-03'), '2026-08-02', '普通日减一');
+assert.strictEqual(prevDay('2026-08-01'), '2026-07-31', '月初减一跨月');
+assert.strictEqual(prevDay('2026-01-01'), '2025-12-31', '年初减一跨年');
+assert.strictEqual(prevDay('2026-03-01'), '2026-02-28', '平年2月末');
+assert.strictEqual(prevDay('2024-03-01'), '2024-02-29', '闰年2月末');
+assert.strictEqual(prevDay(''), '', '空日期返回空');
+
+// ===== 余额恒等式：剩余余额 − 开始余额 = 收入 − 支出 + 退款 + 互转净 + 股本净 =====
+// 与 accountBreakdown 的余额模型一致（bal = opening + flow + move）
+function balanceOf(rows, openings) {
+  var open = {}, flow = {}, move = {};
+  openings.forEach(function (o) { if (o.account) open[o.account] = (open[o.account] || 0) + Number(o.amount || 0); });
+  rows.forEach(function (t) {
+    var a = Number(t.amount) || 0;
+    if (t.type === 'income') flow[t.account] = (flow[t.account] || 0) + a;
+    else if (t.type === 'expense') flow[t.account] = (flow[t.account] || 0) - a;
+    else if (t.type === 'refund') flow[t.account] = (flow[t.account] || 0) + a;
+    else if (t.type === 'transfer') {
+      if (t.fromAccount) move[t.fromAccount] = (move[t.fromAccount] || 0) - a;
+      if (t.toAccount) move[t.toAccount] = (move[t.toAccount] || 0) + a;
+    } else if (t.type === 'equity') {
+      var s = t.equityDir === 'out' ? -1 : 1;
+      if (t.account) move[t.account] = (move[t.account] || 0) + s * a;
+    }
+  });
+  var names = {};
+  Object.keys(open).concat(Object.keys(flow)).concat(Object.keys(move)).forEach(function (k) { names[k] = 1; });
+  var out = {};
+  Object.keys(names).forEach(function (k) { out[k] = (open[k] || 0) + (flow[k] || 0) + (move[k] || 0); });
+  return out;
+}
+var openings = [{ account: 'A', amount: 1000 }, { account: 'B', amount: 500 }];
+var sample = [
+  { type: 'income',  account: 'A', amount: 300 },
+  { type: 'expense', account: 'A', amount: 120 },
+  { type: 'refund',  account: 'A', amount: 20 },
+  { type: 'transfer', fromAccount: 'A', toAccount: 'B', amount: 50 },
+  { type: 'equity',  account: 'B', equityDir: 'in', amount: 200 }
+];
+var endBal = balanceOf(sample, openings);
+var startBal = {}; openings.forEach(function (o) { startBal[o.account] = Number(o.amount || 0); }); // 无 from 时取期初
+Object.keys(endBal).forEach(function (k) {
+  var inc = 0, exp = 0, rf = 0;
+  sample.forEach(function (t) {
+    if (t.account !== k) { if (t.type === 'transfer' && t.fromAccount === k) exp += Number(t.amount); if (t.type === 'transfer' && t.toAccount === k) inc += Number(t.amount); return; }
+    if (t.type === 'income') inc += Number(t.amount);
+    else if (t.type === 'expense') exp += Number(t.amount);
+    else if (t.type === 'refund') inc += Number(t.amount);
+  });
+  var eq = 0;
+  sample.forEach(function (t) { if (t.type === 'equity' && t.account === k) eq += Number(t.amount) * (t.equityDir === 'out' ? -1 : 1); });
+  var delta = inc - exp + eq;
+  assert.strictEqual((endBal[k] - (startBal[k] || 0)).toFixed(2), delta.toFixed(2), '账户 ' + k + ' 剩余−开始 = 收入−支出+股本净（含互转）');
+});
+assert.strictEqual((endBal['A'] - 1000).toFixed(2), (300 - 120 + 20 - 50).toFixed(2), 'A 账户余额变动 = 收入300−支出120+退款20−转给B50');
+assert.strictEqual((endBal['B'] - 500).toFixed(2), (50 + 200).toFixed(2), 'B 账户余额变动 = 收到A转50+股本注入200');
+
 console.log('ALL_OK');

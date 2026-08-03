@@ -586,6 +586,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .flow-print h2 { font-size: 20px; margin: 0 0 2px; color: var(--text); }
 .flow-print .fp-sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .flow-print .fp-h4 { margin: 18px 0 8px; font-size: 15px; color: var(--text); border-left: 3px solid var(--gold); padding-left: 8px; }
+.flow-print .fp-note { color: var(--muted); font-size: 12px; margin: 6px 0 14px; line-height: 1.5; }
+.flow-print .flow-acc-table { overflow-x: auto; margin-bottom: 14px; }
+.flow-print .flow-acc-table table { font-size: 12px; }
 .flow-print .fp-kpis { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
 .flow-print .fp-kpi { font-size: 13px; color: var(--muted); }
 .flow-print .fp-kpi b { display: block; font-size: 17px; margin-top: 2px; color: var(--text); }
