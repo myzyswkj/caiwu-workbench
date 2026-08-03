@@ -354,6 +354,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .acc-sub-row .acc-mgr-cname:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(200,16,46,.12); }
 .acc-sub-add, .acc-mgr-pdel, .acc-sub-del { width: auto; min-width: unset; padding: 5px 10px; font-size: 12px; }
 .acc-sub-del { color: var(--income); }
+.acc-clean-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; background: var(--panel); }
+.acc-clean-info { font-size: 13px; }
+.acc-clean-info .muted { font-weight: 400; }
+.acc-clean-act { display: flex; align-items: center; gap: 8px; }
+.acc-clean-target { border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px; background: #fff; outline: none; }
+.acc-clean-target:focus { border-color: var(--info, #2C7A6B); box-shadow: 0 0 0 2px rgba(44,122,107,.12); }
 .dash-pnl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .dash-pnl-table th, .dash-pnl-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
 .dash-pnl-table thead th { background: #eef2ef; color: var(--muted); font-weight: 600; }

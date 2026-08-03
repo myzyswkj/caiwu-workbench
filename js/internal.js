@@ -786,6 +786,7 @@
     }
     function renderBody() {
       return '<div class="muted" style="font-size:12px;margin-bottom:10px">支持「一级 / 二级」账户（如 银行卡 / 工商、招商）。记账、期初、筛选、余额看板都会按层级展示。改名时可选择同步更新历史流水（默认保留旧名）。至少保留 1 个一级账户。</div>' +
+        '<button class="btn ghost" id="accMgrClean" style="margin-bottom:12px">🔧 清理游离账户</button>' +
         '<div id="accMgrList">' + renderList() + '</div>' +
         '<button class="btn ghost" id="accMgrAdd">＋ 添加一级账户</button>' +
         '<div class="form-actions" style="margin-top:12px"><button class="btn ghost" id="accMgrCancel">取消</button><button class="btn" id="accMgrSave">保存</button></div>';
@@ -817,6 +818,7 @@
         rebind();
       };
       document.getElementById('accMgrCancel').onclick = FW.closeModal;
+      document.getElementById('accMgrClean').onclick = function () { FW.closeModal(); openAccCleanup(); };
       document.getElementById('accMgrSave').onclick = function () {
         // 清洗：去空、去重（一级 + 二级）
         var clean = tree.filter(function (p) { return (p.name || '').trim(); }).map(function (p) {
@@ -871,6 +873,9 @@
             });
           });
           FW.db.saveList(KEY, txns);
+          var ops = getOpenings();
+          renames.forEach(function (r) { ops.forEach(function (o) { if (o.account === r.old) o.account = r.new; }); });
+          saveOpenings(ops);
         }
 
         saveAccounts(clean);
@@ -900,6 +905,79 @@
   }
   function accOpts(sel) { return accOptsHtml(sel); }
   function accOptsAll(sel) { return '<option value="">全部账户</option>' + accOptsHtml(sel); }
+  // 游离账户扫描：流水/期初引用、但不在账户树中的名字（改名未同步历史时产生）
+  function scanOrphanAccounts() {
+    var tree = getAccountTree(), defined = {};
+    tree.forEach(function (a) {
+      defined[a.name] = true;
+      (a.children || []).forEach(function (c) { defined[a.name + SEP + c] = true; });
+    });
+    var counts = {};
+    function bump(n) { if (n) counts[n] = (counts[n] || 0) + 1; }
+    FW.db.getList(KEY).forEach(function (t) {
+      if (t.type === 'transfer') { bump(t.fromAccount); bump(t.toAccount); } else bump(t.account);
+    });
+    getOpenings().forEach(function (o) { bump(o.account); });
+    var orphans = [];
+    Object.keys(counts).forEach(function (fn) { if (!defined[fn]) orphans.push({ name: fn, count: counts[fn] }); });
+    return orphans;
+  }
+  // 把某账户的全部引用改名到新账户（流水 + 期初，含转账互转）
+  function mergeAccount(oldName, newName) {
+    var txns = FW.db.getList(KEY);
+    txns.forEach(function (t) {
+      if (t.account === oldName) t.account = newName;
+      if (t.type === 'transfer') {
+        if (t.fromAccount === oldName) t.fromAccount = newName;
+        if (t.toAccount === oldName) t.toAccount = newName;
+        t.account = (t.fromAccount || '') + ' → ' + (t.toAccount || '');
+      }
+    });
+    FW.db.saveList(KEY, txns);
+    var ops = getOpenings();
+    ops.forEach(function (o) { if (o.account === oldName) o.account = newName; });
+    saveOpenings(ops);
+    refreshAccts();
+  }
+  function openAccCleanup() {
+    var orphans = scanOrphanAccounts();
+    function optsHtml() {
+      var tree = getAccountTree(), hs = '<option value="">选择目标账户…</option>';
+      tree.forEach(function (a) {
+        hs += '<option value="' + FW.esc(a.name) + '">' + FW.esc(a.name) + '（汇总）</option>';
+        (a.children || []).forEach(function (c) {
+          var fn = a.name + SEP + c;
+          hs += '<option value="' + FW.esc(fn) + '">　' + FW.esc(c) + '</option>';
+        });
+      });
+      return hs;
+    }
+    function renderBody() {
+      if (!orphans.length) return '<div class="empty">没有发现游离账户，所有流水/期初引用的账户都在账户列表内，无需清理。</div><div class="form-actions"><button class="btn ghost" id="accCleanClose">关闭</button></div>';
+      var rows = orphans.map(function (o) {
+        return '<div class="acc-clean-row" data-name="' + FW.esc(o.name) + '">' +
+          '<div class="acc-clean-info"><b>' + FW.esc(o.name) + '</b> <span class="muted">（' + o.count + ' 条引用）</span></div>' +
+          '<div class="acc-clean-act"><select class="acc-clean-target">' + optsHtml() + '</select><button class="btn ghost acc-clean-do">合并</button></div>' +
+          '</div>';
+      }).join('');
+      return '<div class="muted" style="font-size:12px;margin-bottom:10px">这些是流水/期初里引用、但已不在账户列表中的「游离账户」。选一个目标账户后点「合并」，即可把它们的引用统一改名，余额与统计会自动归位。</div>' + rows + '<div class="form-actions"><button class="btn ghost" id="accCleanClose">关闭</button></div>';
+    }
+    FW.openModal('清理游离账户', renderBody(), function () {
+      var cb = document.getElementById('accCleanClose'); if (cb) cb.onclick = FW.closeModal;
+      FW.qa('.acc-clean-do').forEach(function (btn) {
+        btn.onclick = function () {
+          var row = btn.closest('.acc-clean-row');
+          var oldName = row.getAttribute('data-name');
+          var target = row.querySelector('.acc-clean-target').value;
+          if (!target) { FW.toast('请先选择目标账户'); return; }
+          mergeAccount(oldName, target);
+          row.remove();
+          FW.toast('已将「' + oldName + '」合并到「' + target + '」');
+          if (!document.querySelector('.acc-clean-row')) { var b = document.getElementById('modalBody'); if (b) b.innerHTML = '<div class="empty">已全部清理完成。</div>'; }
+        };
+      });
+    });
+  }
   function cat1Opts(sel) {
     return '<option value="">（不选）</option>' + cats().map(function (c) { return '<option ' + (c.name === sel ? 'selected' : '') + '>' + FW.esc(c.name) + '</option>'; }).join('');
   }
