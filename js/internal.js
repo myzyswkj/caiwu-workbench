@@ -84,7 +84,7 @@
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
   function shiftMonth(ym, delta) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1 + delta; y += Math.floor(m / 12); m = (m % 12 + 12) % 12; return y + '-' + (m + 1 < 10 ? '0' + (m + 1) : m + 1); }
 
-  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '' };
+  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '', selMode: false, selIds: {} };
 
   function all() { return FW.db.getList(KEY).sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); }); }
   function projects() {
@@ -235,7 +235,7 @@
 
     var tb = document.getElementById('inToolbar');
     if (tb) {
-      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn ghost" id="expTxBtn">⬇ 导出表格</button><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
       document.getElementById('openBtn').onclick = openOpenings;
       document.getElementById('accMgrBtn').onclick = openAccManager;
       document.getElementById('budgetBtn').onclick = openBudgetForm;
@@ -250,6 +250,7 @@
         render();
         FW.toast('已清空当前账本内账流水');
       };
+      document.getElementById('bulkBtn').onclick = function () { state.selMode = !state.selMode; state.selIds = {}; render(); };
     }
   }
 
@@ -374,6 +375,7 @@
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
           '<button class="btn ghost sm" id="fReset">重置</button>' +
         '</div>' +
+        (state.selMode ? bulkBarHtml() : '') +
         '<div id="txWrap"></div>' +
       '</div>';
     document.getElementById('fProj').value = f.project;
@@ -385,6 +387,7 @@
     document.getElementById('fTo').value = f.to;
     bindFilter();
     drawTable();
+    if (state.selMode) bindBulkBar();
     var gb = document.getElementById('goBudget');
     if (gb) gb.onclick = openBudgetForm;
   }
@@ -425,6 +428,7 @@
     FW.qa('#txTable .row-del').forEach(function (b) { b.onclick = function () { delTx(b.dataset.id); }; });
     FW.qa('#txTable .photo-cell img').forEach(function (img) { img.onclick = function () { previewPhoto(img.dataset.pid); }; });
     loadThumbs();
+    if (state.selMode) bindBulkRowEvents();
   }
 
   function typeMeta(t) {
@@ -445,7 +449,8 @@
       var affects = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
       var amtCls = affects ? m.cls : 'neutral';
       var acctTxt = accountOf(t);
-      return '<tr>' +
+      var selTd = state.selMode ? '<td><input type="checkbox" class="sel-cb" data-id="' + t.id + '"' + (state.selIds[t.id] ? ' checked' : '') + '></td>' : '';
+      return '<tr>' + selTd +
         '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
         '<td>' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
         '<td>' + FW.esc(t.project || '—') + '</td>' +
@@ -459,7 +464,8 @@
         '<td class="row-actions nowrap"><button class="btn ghost sm row-edit" data-id="' + t.id + '">编辑</button><button class="btn danger sm row-del" data-id="' + t.id + '">删</button></td>' +
         '</tr>';
     }).join('');
-    return '<table id="txTable"><thead><tr>' +
+    var selHead = state.selMode ? '<th><input type="checkbox" id="selAll" title="全选当前列表"></th>' : '';
+    return '<table id="txTable"><thead><tr>' + selHead +
       '<th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th class="num">金额</th><th>备注</th><th>凭证</th><th>对方/个人</th><th>报销人</th><th>操作</th>' +
       '</tr></thead><tbody>' + trs + '</tbody></table>';
   }
@@ -1776,6 +1782,155 @@
     if (rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
     render(); FW.toast('已删除');
   }
+  /* ---------- 批量修改 ---------- */
+  function bulkBarHtml() {
+    return '<div id="bulkBar" class="bulk-bar">' +
+      '<span class="bulk-info">已选 <b id="bulkCount">0</b> 条</span>' +
+      '<button class="btn sm" id="bulkSetBtn">批量设置字段值</button>' +
+      '<button class="btn sm" id="bulkDateBtn">批量调整日期</button>' +
+      '<button class="btn danger sm" id="bulkDelBtn">批量删除</button>' +
+      '<button class="btn ghost sm" id="bulkExitBtn">退出批量</button>' +
+    '</div>';
+  }
+  function updateBulkCount() {
+    var el = document.getElementById('bulkCount');
+    if (el) el.textContent = Object.keys(state.selIds).length;
+  }
+  function bindBulkBar() {
+    var set = document.getElementById('bulkSetBtn'); if (set) set.onclick = openBulkSet;
+    var dt = document.getElementById('bulkDateBtn'); if (dt) dt.onclick = openBulkDate;
+    var del = document.getElementById('bulkDelBtn'); if (del) del.onclick = openBulkDelete;
+    var ex = document.getElementById('bulkExitBtn'); if (ex) ex.onclick = function () { state.selMode = false; state.selIds = {}; render(); };
+    updateBulkCount();
+  }
+  function bindBulkRowEvents() {
+    FW.qa('#txTable .sel-cb').forEach(function (cb) {
+      cb.onchange = function () {
+        if (cb.checked) state.selIds[cb.dataset.id] = true; else delete state.selIds[cb.dataset.id];
+        updateBulkCount();
+      };
+    });
+    var sa = document.getElementById('selAll');
+    if (sa) sa.onchange = function () {
+      var rows = filteredRows();
+      if (sa.checked) rows.forEach(function (t) { state.selIds[t.id] = true; });
+      else rows.forEach(function (t) { delete state.selIds[t.id]; });
+      FW.qa('#txTable .sel-cb').forEach(function (cb) { cb.checked = sa.checked; });
+      updateBulkCount();
+    };
+  }
+  var BULK_FIELDS = { category: '分类', account: '账户', project: '项目', party: '对方单位/个人', reimburser: '报销人', type: '类型' };
+  function bulkFieldInputHtml(field) {
+    if (field === 'category') {
+      return '<div class="field"><label>一级分类</label><select id="bulkCat1">' + cat1Opts('') + '</select></div>' +
+             '<div class="field"><label>二级分类（可选）</label><select id="bulkCat2">' + cat2Opts('', '') + '</select></div>';
+    }
+    if (field === 'account') {
+      return '<div class="field"><label>账户</label><select id="bulkAccount">' + accOptsHtml('') + '</select></div>';
+    }
+    if (field === 'type') {
+      return '<div class="field"><label>类型</label><select id="bulkType"><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option></select></div>';
+    }
+    var idMap = { project: 'bulkProject', party: 'bulkParty', reimburser: 'bulkReimburser' };
+    var phMap = { project: '如：XX项目', party: '如：XX公司 / 张三', reimburser: '如：李四' };
+    var dl = field === 'project' ? '<datalist id="bulkProjList">' + projects().map(function (p) { return '<option value="' + FW.esc(p) + '">'; }).join('') + '</datalist>' : '';
+    return '<div class="field"><label>' + BULK_FIELDS[field] + '</label><input id="' + idMap[field] + '" list="' + (field === 'project' ? 'bulkProjList' : '') + '" placeholder="' + phMap[field] + '">' + dl + '</div>';
+  }
+  function bindBulkCat1() {
+    var c1 = document.getElementById('bulkCat1'); if (!c1) return;
+    function fill() {
+      var c2 = document.getElementById('bulkCat2'); if (!c2) return;
+      c2.innerHTML = cat2Opts(c1.value, '');
+    }
+    c1.onchange = fill; fill();
+  }
+  function readBulkValue(field) {
+    if (field === 'category') {
+      var c1 = document.getElementById('bulkCat1').value;
+      var c2 = document.getElementById('bulkCat2').value;
+      return c1 ? (c2 ? c1 + ' / ' + c2 : c1) : '';
+    }
+    if (field === 'account') return document.getElementById('bulkAccount').value;
+    if (field === 'type') return document.getElementById('bulkType').value;
+    var idMap = { project: 'bulkProject', party: 'bulkParty', reimburser: 'bulkReimburser' };
+    return (document.getElementById(idMap[field]).value || '').trim();
+  }
+  function applyBulkSet(field, value) {
+    var list = all(); var n = 0;
+    list.forEach(function (t) {
+      if (state.selIds[t.id]) { t[field] = value; n++; }
+    });
+    FW.db.saveList(KEY, list);
+    FW.toast('已批量更新 ' + n + ' 条流水的「' + BULK_FIELDS[field] + '」');
+  }
+  function openBulkSet() {
+    var ids = Object.keys(state.selIds);
+    if (!ids.length) { FW.toast('请先勾选要修改的流水'); return; }
+    var fieldOpts = Object.keys(BULK_FIELDS).map(function (k) { return '<option value="' + k + '">' + BULK_FIELDS[k] + '</option>'; }).join('');
+    var body =
+      '<div class="muted" style="font-size:12px;margin-bottom:10px">将把选中的 <b>' + ids.length + '</b> 条流水统一设置某个字段（其它字段保持不变）。</div>' +
+      '<div class="field"><label>要设置的字段</label><select id="bulkField">' + fieldOpts + '</select></div>' +
+      '<div id="bulkFieldInput">' + bulkFieldInputHtml('category') + '</div>' +
+      '<div class="form-actions"><button class="btn ghost" id="bkSetCancel">取消</button><button class="btn" id="bkSetGo">应用修改</button></div>';
+    FW.openModal('批量设置字段值', body, function () {
+      bindBulkCat1();
+      var fsel = document.getElementById('bulkField');
+      fsel.onchange = function () {
+        document.getElementById('bulkFieldInput').innerHTML = bulkFieldInputHtml(this.value);
+        if (this.value === 'category') bindBulkCat1();
+      };
+      document.getElementById('bkSetCancel').onclick = FW.closeModal;
+      document.getElementById('bkSetGo').onclick = function () {
+        var field = fsel.value;
+        var val = readBulkValue(field);
+        if ((field === 'category' || field === 'account') && !val) { FW.toast('请选择' + BULK_FIELDS[field]); return; }
+        if ((field === 'project' || field === 'party' || field === 'reimburser') && !val) { FW.toast('请输入' + BULK_FIELDS[field]); return; }
+        applyBulkSet(field, val);
+        FW.closeModal(); render();
+      };
+    });
+  }
+  function shiftDate(d, n) {
+    var m = (d || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return d;
+    var dt = new Date(+m[1], +m[2] - 1, +m[3]);
+    dt.setDate(dt.getDate() + n);
+    var y = dt.getFullYear(), mo = dt.getMonth() + 1, da = dt.getDate();
+    return y + '-' + (mo < 10 ? '0' + mo : mo) + '-' + (da < 10 ? '0' + da : da);
+  }
+  function openBulkDate() {
+    var ids = Object.keys(state.selIds);
+    if (!ids.length) { FW.toast('请先勾选要修改的流水'); return; }
+    var body =
+      '<div class="muted" style="font-size:12px;margin-bottom:10px">将把选中的 <b>' + ids.length + '</b> 条流水的日期统一偏移（正数后移，负数前移）。</div>' +
+      '<div class="field"><label>偏移天数（如 7 或 -3）</label><input id="bulkDays" type="number" value="0"></div>' +
+      '<div class="form-actions"><button class="btn ghost" id="bkDateCancel">取消</button><button class="btn" id="bkDateGo">应用</button></div>';
+    FW.openModal('批量调整日期', body, function () {
+      document.getElementById('bkDateCancel').onclick = FW.closeModal;
+      document.getElementById('bkDateGo').onclick = function () {
+        var n = parseInt(document.getElementById('bulkDays').value, 10);
+        if (isNaN(n) || n === 0) { FW.toast('请输入非零整数天数'); return; }
+        var list = all(); var c = 0;
+        list.forEach(function (t) { if (state.selIds[t.id]) { t.date = shiftDate(t.date, n); c++; } });
+        FW.db.saveList(KEY, list);
+        FW.closeModal(); render();
+        FW.toast('已调整 ' + c + ' 条流水的日期（' + (n > 0 ? '+' : '') + n + ' 天）');
+      };
+    });
+  }
+  function openBulkDelete() {
+    var ids = Object.keys(state.selIds);
+    if (!ids.length) { FW.toast('请先勾选要删除的流水'); return; }
+    if (!confirm('确定删除选中的 ' + ids.length + ' 条流水吗？\n（将同时删除它们的凭证照片，不可恢复！）')) return;
+    var list = all();
+    list.forEach(function (t) { if (state.selIds[t.id] && t.photos && t.photos.length) { try { FW.db.deletePhotos(t.photos); } catch (e) {} } });
+    var kept = list.filter(function (t) { return !state.selIds[t.id]; });
+    FW.db.saveList(KEY, kept);
+    state.selIds = {};
+    render();
+    FW.toast('已删除 ' + ids.length + ' 条流水');
+  }
+
   function exportTable() {
     var rows = filteredRows();
     if (!rows.length) { FW.toast('没有可导出的流水'); return; }

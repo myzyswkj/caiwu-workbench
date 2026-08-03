@@ -226,6 +226,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 
 /* 筛选条 */
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 12px; background: #e8eeea; border: 1px solid #cfe0d8; border-radius: 10px; }
+.bulk-bar .bulk-info { font-size: 13px; color: #3A4A42; }
+.bulk-bar .bulk-info b { color: #14342B; }
+.bulk-bar #bulkCount { color: #C8102E; }
 .toolbar .field { flex: 0 0 auto; }
 .toolbar input, .toolbar select { min-width: 130px; }
 
