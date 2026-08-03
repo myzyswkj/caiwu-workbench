@@ -242,6 +242,17 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .photo-thumb { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); cursor: pointer; }
 .photo-add { width: 64px; height: 64px; border: 1px dashed var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--muted); cursor: pointer; font-size: 22px; }
 
+/* 内联凭证（每笔交易下方直接展示） */
+.v-count { display: inline-block; padding: 1px 9px; border-radius: 10px; background: var(--gold-soft); color: var(--gold); font-size: 12px; white-space: nowrap; }
+.voucher-row td { background: #FAFBFD; padding: 6px 16px 12px !important; border-top: none !important; }
+.voucher-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.v-label { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
+.v-imgs { display: flex; flex-wrap: wrap; gap: 8px; }
+.v-inline { width: 84px; height: 84px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); cursor: pointer; background: #fff; }
+.v-inline:hover { border-color: var(--info); box-shadow: 0 0 0 2px rgba(59,111,181,.18); }
+.chk-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); margin-left: 4px; cursor: pointer; user-select: none; }
+.chk-inline input { width: 16px; height: 16px; }
+
 /* 合同文档 / 附件（正文文档解析提取 + 相关附件） */
 .ct-file-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .ct-file { display: flex; align-items: center; gap: 6px; background: var(--card, #fff); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px; max-width: 100%; }

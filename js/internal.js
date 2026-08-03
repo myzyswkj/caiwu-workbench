@@ -84,7 +84,7 @@
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
   function shiftMonth(ym, delta) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1 + delta; y += Math.floor(m / 12); m = (m % 12 + 12) % 12; return y + '-' + (m + 1 < 10 ? '0' + (m + 1) : m + 1); }
 
-  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '', selMode: false, selIds: {} };
+  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '', showVoucher: true, selMode: false, selIds: {} };
 
   function all() { return FW.db.getList(KEY).sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); }); }
   function projects() {
@@ -406,6 +406,7 @@
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
           '<button class="btn ghost sm" id="fReset">重置</button>' +
+          '<label class="chk-inline"><input type="checkbox" id="fVoucher" checked> 内联凭证</label>' +
         '</div>' +
         (state.selMode ? bulkBarHtml() : '') +
         '<div id="txWrap"></div>' +
@@ -441,6 +442,7 @@
     g('fFrom').onchange = function () { state.filter.from = this.value; drawTable(); };
     g('fTo').onchange = function () { state.filter.to = this.value; drawTable(); };
     g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }; drawList(); };
+    g('fVoucher').onchange = function () { state.showVoucher = this.checked; drawTable(); };
   }
 
   function drawTable() {
@@ -458,7 +460,7 @@
     document.getElementById('txWrap').innerHTML = rows.length ? tableHtml(rows) : '<div class="empty">没有符合条件的流水，点右上角「新增流水」开始登记。</div>';
     FW.qa('#txTable .row-edit').forEach(function (b) { b.onclick = function () { openForm(b.dataset.id); }; });
     FW.qa('#txTable .row-del').forEach(function (b) { b.onclick = function () { delTx(b.dataset.id); }; });
-    FW.qa('#txTable .photo-cell img').forEach(function (img) { img.onclick = function () { previewPhoto(img.dataset.pid); }; });
+    FW.qa('#txTable .voucher-inline img').forEach(function (img) { img.onclick = function () { previewPhoto(img.dataset.pid); }; });
     loadThumbs();
     if (state.selMode) bindBulkRowEvents();
   }
@@ -473,16 +475,15 @@
   }
 
   function tableHtml(rows) {
+    var colCount = (state.selMode ? 1 : 0) + 10;
     var trs = rows.map(function (t) {
-      var photos = (t.photos || []).map(function (pid) {
-        return '<img class="photo-thumb" data-pid="' + pid + '" src="" data-load="' + pid + '" alt="凭证">';
-      }).join('');
       var m = typeMeta(t);
       var affects = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
       var amtCls = affects ? m.cls : 'neutral';
       var acctTxt = accountOf(t);
+      var pcount = (t.photos && t.photos.length) || 0;
       var selTd = state.selMode ? '<td><input type="checkbox" class="sel-cb" data-id="' + t.id + '"' + (state.selIds[t.id] ? ' checked' : '') + '></td>' : '';
-      return '<tr>' + selTd +
+      var mainRow = '<tr>' + selTd +
         '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
         '<td>' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
         '<td>' + FW.esc(t.project || '—') + '</td>' +
@@ -490,11 +491,19 @@
         '<td>' + FW.esc(acctTxt) + '</td>' +
         '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
         '<td>' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣支出 ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
-        '<td class="photo-cell">' + (photos || '<span class="muted">—</span>') + '</td>' +
+        '<td class="photo-cell">' + (pcount ? '<span class="v-count" title="该笔有 ' + pcount + ' 张凭证">📎 ' + pcount + '</span>' : '<span class="muted">—</span>') + '</td>' +
         '<td>' + FW.esc(t.party || '—') + '</td>' +
         '<td>' + FW.esc(t.reimburser || '—') + '</td>' +
         '<td class="row-actions nowrap"><button class="btn ghost sm row-edit" data-id="' + t.id + '">编辑</button><button class="btn danger sm row-del" data-id="' + t.id + '">删</button></td>' +
         '</tr>';
+      var voucherRow = '';
+      if (state.showVoucher && pcount) {
+        var imgs = t.photos.map(function (pid) {
+          return '<img class="v-inline" data-pid="' + pid + '" data-load="' + pid + '" src="" alt="凭证" title="点击查看大图">';
+        }).join('');
+        voucherRow = '<tr class="voucher-row" data-tid="' + t.id + '"><td colspan="' + colCount + '"><div class="voucher-inline"><span class="v-label">📎 凭证 ' + pcount + ' 张</span><div class="v-imgs">' + imgs + '</div></div></td></tr>';
+      }
+      return mainRow + voucherRow;
     }).join('');
     var selHead = state.selMode ? '<th><input type="checkbox" id="selAll" title="全选当前列表"></th>' : '';
     return '<table id="txTable"><thead><tr>' + selHead +
