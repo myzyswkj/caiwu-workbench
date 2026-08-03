@@ -39,17 +39,19 @@ assert.strictEqual(typeLabel({ type: 'equity', equityDir: 'out' }), '股本抽�
 assert.strictEqual(typeLabel({ type: 'transfer' }), '账户互转');
 
 // ===== buildAccMap：按账户汇总（与统计 tab groupSum 一致） =====
-// 只算 income/expense/refund；transfer/equity 不计；refund 抵减支出
+// 收入/支出/退款（refund 抵减支出）；并单列账户互转净（fromAccount 出 / toAccount 进）
 function buildAccMap(rows) {
   var map = {};
+  function ensure(k) { if (!map[k]) map[k] = { income: 0, expense: 0, transfer: 0 }; return map[k]; }
   rows.forEach(function (t) {
-    if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
-    var k = t.account || '其他';
-    if (!map[k]) map[k] = { income: 0, expense: 0 };
     var a = Number(t.amount) || 0;
-    if (t.type === 'income') map[k].income += a;
-    else if (t.type === 'expense') map[k].expense += a;
-    else if (t.type === 'refund') map[k].expense -= a;
+    if (t.type === 'income') { ensure(t.account || '其他').income += a; }
+    else if (t.type === 'expense') { ensure(t.account || '其他').expense += a; }
+    else if (t.type === 'refund') { ensure(t.account || '其他').expense -= a; }
+    else if (t.type === 'transfer') {
+      if (t.fromAccount) ensure(t.fromAccount).transfer -= a;
+      if (t.toAccount) ensure(t.toAccount).transfer += a;
+    }
   });
   return map;
 }
@@ -59,14 +61,16 @@ var acc = buildAccMap([
   { type: 'expense', account: 'LULU私户', amount: 162284.14 },
   { type: 'refund',  account: 'LULU私户', amount: 5000 },
   { type: 'income',  account: '公户',     amount: 49230.37 },
-  { type: 'transfer', account: 'LULU私户', amount: 9999 } // 互转不计
+  { type: 'transfer', fromAccount: 'LULU私户', toAccount: '公户', amount: 9999 } // 互转单列：LULU转出 / 公户转入
 ]);
 assert.strictEqual(acc['LULU私户'].income, 200000, 'LULU私户 收入 = 200,000');
 assert.strictEqual(acc['LULU私户'].expense.toFixed(2), (162284.14 - 5000).toFixed(2), 'LULU私户 支出 = 支出 - 退款');
 assert.strictEqual(acc['公户'].income, 49230.37, '公户 收入 = 49,230.37');
 assert.strictEqual(acc['公户'].expense, 0, '公户 无支出');
-assert.strictEqual(Object.keys(acc).length, 2, '互转不产生新账户');
-// 净额与老板视觉一致
+assert.strictEqual(acc['LULU私户'].transfer, -9999, 'LULU私户 互转 = -9999（转出）');
+assert.strictEqual(acc['公户'].transfer, 9999, '公户 互转 = +9999（转入）');
+assert.strictEqual(Object.keys(acc).length, 2, '互转不产生额外账户（仅已在收支中出现的账户）');
+// 净额与老板视觉一致（互转不影响收支净额）
 assert.strictEqual((acc['LULU私户'].income - acc['LULU私户'].expense).toFixed(2), (200000 - 162284.14 + 5000).toFixed(2), 'LULU私户 净额 = 收入 - (支出 - 退款)');
 
 // ===== prevDay：日期减一天（YYYY-MM-DD） =====

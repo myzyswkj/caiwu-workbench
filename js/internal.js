@@ -530,7 +530,7 @@
     var byMonth = groupSum(rowsIn, function (t) { return t.date.slice(0, 7); });
     var byDay = groupSum(rowsIn, function (t) { return t.date; });
     var byCat = groupSum(rowsIn, function (t) { return t.category || '其他'; });
-    var byAcc = groupSum(rowsIn, function (t) { return t.account || '其他'; });
+    var byAcc = buildAccMap(rowsIn);
 
     var totalIncome = rowsIn.reduce(function (a, t) { return a + (t.type === 'income' ? +t.amount : 0); }, 0);
     var totalRefund = rowsIn.reduce(function (a, t) { return a + (t.type === 'refund' ? +t.amount : 0); }, 0);
@@ -655,17 +655,19 @@
     });
   }
 
-  // 按账户汇总（与统计 tab 一致：只算收入/支出/退款，refund 抵减支出；transfer/equity 不计）
+  // 按账户汇总（与统计 tab 一致：收入/支出/退款；refund 抵减支出；并单列账户互转净）
   function buildAccMap(rows) {
     var map = {};
+    function ensure(k) { if (!map[k]) map[k] = { income: 0, expense: 0, transfer: 0 }; return map[k]; }
     rows.forEach(function (t) {
-      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
-      var k = t.account || '其他';
-      if (!map[k]) map[k] = { income: 0, expense: 0 };
       var a = Number(t.amount) || 0;
-      if (t.type === 'income') map[k].income += a;
-      else if (t.type === 'expense') map[k].expense += a;
-      else if (t.type === 'refund') map[k].expense -= a;
+      if (t.type === 'income') { ensure(t.account || '其他').income += a; }
+      else if (t.type === 'expense') { ensure(t.account || '其他').expense += a; }
+      else if (t.type === 'refund') { ensure(t.account || '其他').expense -= a; }
+      else if (t.type === 'transfer') {
+        if (t.fromAccount) ensure(t.fromAccount).transfer -= a;
+        if (t.toAccount) ensure(t.toAccount).transfer += a;
+      }
     });
     return map;
   }
@@ -689,18 +691,28 @@
     getOpenings().forEach(function (o) { if (o.account) m[o.account] = (m[o.account] || 0) + (Number(o.amount) || 0); });
     return m;
   }
-  function statTableRows(map, fmtKey, balMaps) {
-    var keys = Object.keys(map).sort(function (a, b) { return (map[b].income + map[b].expense) - (map[a].income + map[a].expense); });
+  function statTableRows(map, fmtKey, balMaps, showTransfer) {
+    var keys = Object.keys(map).sort(function (a, b) {
+      return (map[b].income + map[b].expense + Math.abs(map[b].transfer || 0)) - (map[a].income + map[a].expense + Math.abs(map[a].transfer || 0));
+    });
     if (!keys.length) return '<div class="empty">暂无数据</div>';
     var head = '<th>' + fmtKey + '</th>';
     if (balMaps) head += '<th class="num">开始余额</th>';
-    head += '<th class="num">收入</th><th class="num">支出</th><th class="num">净额</th>';
+    head += '<th class="num">收入</th><th class="num">支出</th>';
+    if (showTransfer) head += '<th class="num">互转</th>';
+    head += '<th class="num">净额</th>';
     if (balMaps) head += '<th class="num">剩余余额</th>';
     var trs = keys.map(function (k) {
       var v = map[k];
       var cells = '<td>' + FW.esc(k) + '</td>';
       if (balMaps) cells += '<td class="num">' + FW.fmtMoney(balMaps.start[k] || 0) + '</td>';
-      cells += '<td class="num income">' + FW.fmtMoney(v.income) + '</td><td class="num expense">' + FW.fmtMoney(v.expense) + '</td><td class="num"><b>' + FW.fmtMoney(v.income - v.expense) + '</b></td>';
+      cells += '<td class="num income">' + FW.fmtMoney(v.income) + '</td><td class="num expense">' + FW.fmtMoney(v.expense) + '</td>';
+      if (showTransfer) {
+        var tr = v.transfer || 0;
+        var trCls = tr > 0 ? 'income' : (tr < 0 ? 'expense' : '');
+        cells += '<td class="num ' + trCls + '">' + FW.fmtMoney(tr) + '</td>';
+      }
+      cells += '<td class="num"><b>' + FW.fmtMoney(v.income - v.expense) + '</b></td>';
       if (balMaps) cells += '<td class="num"><b>' + FW.fmtMoney(balMaps.end[k] || 0) + '</b></td>';
       return '<tr>' + cells + '</tr>';
     }).join('');
@@ -713,7 +725,7 @@
     else if (s === 'day') el.innerHTML = statTableRows(byDay, '日期');
     else if (s === 'catacc') {
       el.innerHTML = '<h4 style="margin:4px 0 8px">按分类</h4>' + statTableRows(byCat, '分类') +
-        '<h4 style="margin:18px 0 8px">按账户（收支维度）</h4>' + statTableRows(byAcc, '账户');
+        '<h4 style="margin:18px 0 8px">按账户（收支维度）</h4>' + statTableRows(byAcc, '账户', null, true);
     }
   }
 
@@ -2143,18 +2155,18 @@
     var f = state.filter;
     var accMap = buildAccMap(rows);
     var startBal = startBalanceMap(f), endBal = balMapAt(f.to || FW.today());
-    var accKeys = Object.keys(accMap).sort(function (a, b) { return (accMap[b].income + accMap[b].expense) - (accMap[a].income + accMap[a].expense); });
-    var accAoa = [['账户', '开始余额', '收入', '支出', '净额（收入−支出）', '剩余余额']];
-    var accSumInc = 0, accSumExp = 0, accSumStart = 0, accSumEnd = 0;
+    var accKeys = Object.keys(accMap).sort(function (a, b) { return (accMap[b].income + accMap[b].expense + Math.abs(accMap[b].transfer || 0)) - (accMap[a].income + accMap[a].expense + Math.abs(accMap[a].transfer || 0)); });
+    var accAoa = [['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额']];
+    var accSumInc = 0, accSumExp = 0, accSumStart = 0, accSumEnd = 0, accSumXfer = 0;
     accKeys.forEach(function (k) {
       var v = accMap[k];
       var s = startBal[k] || 0, e = endBal[k] || 0;
-      accAoa.push([k, s, v.income, v.expense, v.income - v.expense, e]);
-      accSumInc += v.income; accSumExp += v.expense; accSumStart += s; accSumEnd += e;
+      accAoa.push([k, s, v.income, v.expense, v.transfer || 0, v.income - v.expense, e]);
+      accSumInc += v.income; accSumExp += v.expense; accSumStart += s; accSumEnd += e; accSumXfer += (v.transfer || 0);
     });
-    accAoa.push(['合计（' + accKeys.length + ' 账户）', accSumStart, accSumInc, accSumExp, accSumInc - accSumExp, accSumEnd]);
+    accAoa.push(['合计（' + accKeys.length + ' 账户）', accSumStart, accSumInc, accSumExp, accSumXfer, accSumInc - accSumExp, accSumEnd]);
     var ws2 = x.utils.aoa_to_sheet(accAoa);
-    ws2['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 16 }];
+    ws2['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 16 }];
     x.utils.book_append_sheet(wb, ws2, '按账户收支');
     var out = x.write(wb, { bookType: 'xlsx', type: 'array' });
     var blob = new Blob([out], { type: 'application/octet-stream' });
@@ -2211,8 +2223,8 @@
         '</div>' +
         // 按账户收支维度：老板看流水时通常最关心"每个账户赚了/花了多少"
         '<h4 class="fp-h4">按账户（收支维度）</h4>' +
-        '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }) + '</div>' +
-        '<div class="fp-note">注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）；剩余余额 = 开始余额 + 收入 − 支出 + 互转/股本净变动。</div>' +
+        '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true) + '</div>' +
+        '<div class="fp-note">注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
         '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th>备注</th><th>凭证</th></tr></thead><tbody>' +
         rows.map(function (t) {
           return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + FW.esc(t.project || '') + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td><td>' + (t.photos ? t.photos.length : 0) + '</td></tr>';
