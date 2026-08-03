@@ -655,6 +655,20 @@
     });
   }
 
+  // 按账户汇总（与统计 tab 一致：只算收入/支出/退款，refund 抵减支出；transfer/equity 不计）
+  function buildAccMap(rows) {
+    var map = {};
+    rows.forEach(function (t) {
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
+      var k = t.account || '其他';
+      if (!map[k]) map[k] = { income: 0, expense: 0 };
+      var a = Number(t.amount) || 0;
+      if (t.type === 'income') map[k].income += a;
+      else if (t.type === 'expense') map[k].expense += a;
+      else if (t.type === 'refund') map[k].expense -= a;
+    });
+    return map;
+  }
   function statTableRows(map, fmtKey) {
     var keys = Object.keys(map).sort(function (a, b) { return (map[b].income + map[b].expense) - (map[a].income + map[a].expense); });
     if (!keys.length) return '<div class="empty">暂无数据</div>';
@@ -2097,6 +2111,20 @@
       { wch: 24 }, { wch: 8 }, { wch: 18 }, { wch: 12 }, { wch: 12 }
     ];
     x.utils.book_append_sheet(wb, ws, '内账流水');
+    // 第二张表：按账户收支（老板视角）
+    var accMap = buildAccMap(rows);
+    var accKeys = Object.keys(accMap).sort(function (a, b) { return (accMap[b].income + accMap[b].expense) - (accMap[a].income + accMap[a].expense); });
+    var accAoa = [['账户', '收入', '支出', '净额（收入−支出）']];
+    var accSumInc = 0, accSumExp = 0;
+    accKeys.forEach(function (k) {
+      var v = accMap[k];
+      accAoa.push([k, v.income, v.expense, v.income - v.expense]);
+      accSumInc += v.income; accSumExp += v.expense;
+    });
+    accAoa.push(['合计（' + accKeys.length + ' 账户）', accSumInc, accSumExp, accSumInc - accSumExp]);
+    var ws2 = x.utils.aoa_to_sheet(accAoa);
+    ws2['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 18 }];
+    x.utils.book_append_sheet(wb, ws2, '按账户收支');
     var out = x.write(wb, { bookType: 'xlsx', type: 'array' });
     var blob = new Blob([out], { type: 'application/octet-stream' });
     var url = URL.createObjectURL(blob);
@@ -2150,6 +2178,9 @@
           '<div class="fp-kpi">支出合计<b class="expense">' + FW.fmtMoney(exp) + '</b></div>' +
           '<div class="fp-kpi">净额（收入−支出）<b>' + FW.fmtMoney(inc - exp) + '</b></div>' +
         '</div>' +
+        // 按账户收支维度：老板看流水时通常最关心"每个账户赚了/花了多少"
+        '<h4 class="fp-h4">按账户（收支维度）</h4>' +
+        statTableRows(buildAccMap(rows), '账户') +
         '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th>备注</th><th>凭证</th></tr></thead><tbody>' +
         rows.map(function (t) {
           return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + FW.esc(t.project || '') + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td><td>' + (t.photos ? t.photos.length : 0) + '</td></tr>';

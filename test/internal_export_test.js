@@ -38,4 +38,35 @@ assert.strictEqual(typeLabel({ type: 'refund' }), '退款收入');
 assert.strictEqual(typeLabel({ type: 'equity', equityDir: 'out' }), '股本抽回');
 assert.strictEqual(typeLabel({ type: 'transfer' }), '账户互转');
 
+// ===== buildAccMap：按账户汇总（与统计 tab groupSum 一致） =====
+// 只算 income/expense/refund；transfer/equity 不计；refund 抵减支出
+function buildAccMap(rows) {
+  var map = {};
+  rows.forEach(function (t) {
+    if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
+    var k = t.account || '其他';
+    if (!map[k]) map[k] = { income: 0, expense: 0 };
+    var a = Number(t.amount) || 0;
+    if (t.type === 'income') map[k].income += a;
+    else if (t.type === 'expense') map[k].expense += a;
+    else if (t.type === 'refund') map[k].expense -= a;
+  });
+  return map;
+}
+
+var acc = buildAccMap([
+  { type: 'income',  account: 'LULU私户', amount: 200000 },
+  { type: 'expense', account: 'LULU私户', amount: 162284.14 },
+  { type: 'refund',  account: 'LULU私户', amount: 5000 },
+  { type: 'income',  account: '公户',     amount: 49230.37 },
+  { type: 'transfer', account: 'LULU私户', amount: 9999 } // 互转不计
+]);
+assert.strictEqual(acc['LULU私户'].income, 200000, 'LULU私户 收入 = 200,000');
+assert.strictEqual(acc['LULU私户'].expense.toFixed(2), (162284.14 - 5000).toFixed(2), 'LULU私户 支出 = 支出 - 退款');
+assert.strictEqual(acc['公户'].income, 49230.37, '公户 收入 = 49,230.37');
+assert.strictEqual(acc['公户'].expense, 0, '公户 无支出');
+assert.strictEqual(Object.keys(acc).length, 2, '互转不产生新账户');
+// 净额与老板视觉一致
+assert.strictEqual((acc['LULU私户'].income - acc['LULU私户'].expense).toFixed(2), (200000 - 162284.14 + 5000).toFixed(2), 'LULU私户 净额 = 收入 - (支出 - 退款)');
+
 console.log('ALL_OK');
