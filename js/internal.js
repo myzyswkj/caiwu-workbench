@@ -2211,6 +2211,13 @@
       else { cls += ' neutral'; }
       return '<td class="' + cls + '">' + sign + FW.fmtMoney(a) + '</td>';
     }
+    function amtPlain(t) {
+      var a = Number(t.amount) || 0;
+      var sign = '';
+      if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) sign = '+';
+      else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) sign = '−';
+      return sign + FW.fmtMoney(a);
+    }
     var html =
       '<div class="flow-print print-area">' +
         '<h2>内账流水明细</h2>' +
@@ -2225,18 +2232,63 @@
         '<h4 class="fp-h4">按账户（收支维度）</h4>' +
         '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true) + '</div>' +
         '<div class="fp-note">注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
+        '<h4 class="fp-h4">流水明细</h4>' +
         '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th>备注</th><th>凭证</th></tr></thead><tbody>' +
         rows.map(function (t) {
           return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + FW.esc(t.project || '') + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td><td>' + (t.photos ? t.photos.length : 0) + '</td></tr>';
         }).join('') +
         '</tbody></table>' +
+        '<h4 class="fp-h4">📎 凭证附件</h4>' +
+        '<div id="fpVouchers"><div class="fp-loading">加载凭证图片中…</div></div>' +
       '</div>' +
-      '<div class="form-actions no-print" style="margin-top:14px"><button class="btn" id="fpPrint">🖨 打印 / 保存为 PDF</button><button class="btn ghost" id="fpClose">关闭</button></div>';
+      '<div class="form-actions no-print" style="margin-top:14px">' +
+        '<label class="fp-inc"><input type="checkbox" id="fpIncImg" checked> 包含凭证图片</label>' +
+        '<button class="btn" id="fpPrint">🖨 打印 / 保存为 PDF</button>' +
+        '<button class="btn ghost" id="fpClose">关闭</button>' +
+      '</div>';
     FW.openModal('内账流水 · 打印预览', html, function (body) {
       var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
-      var pb = body.querySelector('#fpPrint'); if (pb) pb.onclick = function () { window.print(); };
+      var pb = body.querySelector('#fpPrint'); if (pb) pb.onclick = function () { setTimeout(function () { window.print(); }, 60); };
       var cb = body.querySelector('#fpClose'); if (cb) cb.onclick = FW.closeModal;
+      renderVouchers(body, rows);
+      var incChk = body.querySelector('#fpIncImg');
+      if (incChk) incChk.onchange = function () { renderVouchers(body, rows); };
     });
+
+    // 把每笔流水关联的凭证照片按流水分组，拼到打印视图末尾（异步取图，含加密凭证自动解密）
+    function renderVouchers(body, rows) {
+      var box = body.querySelector('#fpVouchers');
+      if (!box) return;
+      var incChk = body.querySelector('#fpIncImg');
+      var include = !incChk || incChk.checked;
+      if (!include) { box.innerHTML = '<div class="fp-note">（已关闭凭证图片，仅导出明细表）</div>'; return; }
+      var tasks = [];
+      rows.forEach(function (t) {
+        (t.photos || []).forEach(function (pid) {
+          if (!pid) return;
+          tasks.push(FW.db.getPhoto(pid).then(function (d) { return { t: t, d: d || '' }; }).catch(function () { return null; }));
+        });
+      });
+      if (!tasks.length) { box.innerHTML = '<div class="fp-note">所选流水没有关联的凭证图片。</div>'; return; }
+      box.innerHTML = '<div class="fp-loading">加载凭证图片中…</div>';
+      Promise.all(tasks).then(function (res) {
+        var byTx = {};
+        res.forEach(function (r) {
+          if (!r || !r.d) return;
+          var id = r.t.id || (r.t.date + '|' + r.t.amount + '|' + (r.t.remark || ''));
+          if (!byTx[id]) byTx[id] = { t: r.t, imgs: [] };
+          byTx[id].imgs.push(r.d);
+        });
+        var ids = Object.keys(byTx);
+        if (!ids.length) { box.innerHTML = '<div class="fp-note">所选流水没有关联的凭证图片。</div>'; return; }
+        box.innerHTML = ids.map(function (id) {
+          var g = byTx[id], t = g.t;
+          var cap = FW.esc(t.date) + '　' + FW.esc(typeLabel(t)) + '　' + FW.esc(t.project || '') + '　' + amtPlain(t) + '　' + FW.esc(t.party || '');
+          var imgs = g.imgs.map(function (d) { return '<div class="fp-v-img"><img src="' + d + '" alt="凭证"></div>'; }).join('');
+          return '<div class="fp-voucher"><div class="fp-v-cap">' + cap + '</div><div class="fp-v-imgs">' + imgs + '</div></div>';
+        }).join('');
+      });
+    }
   }
 
   /* ---------- 预算横幅 ---------- */

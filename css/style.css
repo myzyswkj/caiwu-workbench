@@ -602,6 +602,14 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .flow-print .expense { color: var(--expense); }
 .flow-print .refund { color: #0d9488; }
 .flow-print .neutral { color: var(--muted); }
+.flow-print .fp-inc { font-size: 13px; color: var(--text); display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
+.flow-print .fp-loading { color: var(--muted); font-size: 13px; padding: 8px 0; }
+.flow-print #fpVouchers { margin-top: 4px; }
+.flow-print .fp-voucher { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; page-break-inside: avoid; }
+.flow-print .fp-v-cap { font-size: 13px; color: var(--text); margin-bottom: 8px; font-weight: 600; }
+.flow-print .fp-v-imgs { display: flex; flex-wrap: wrap; gap: 10px; }
+.flow-print .fp-v-img { border: 1px solid var(--border); border-radius: 6px; padding: 4px; background: #fff; }
+.flow-print .fp-v-img img { display: block; max-width: 260px; max-height: 320px; object-fit: contain; }
 
 /* ===== 打印（仅显示凭证纸 / 账表） ===== */
 @media print {
@@ -609,6 +617,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
   .print-area, .print-area * { visibility: visible; }
   .print-area { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; border: none; padding: 0; margin: 0; }
   .no-print { display: none !important; }
+  .flow-print img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .modal-mask { position: static; background: #fff; display: block !important; }
   .modal { box-shadow: none; width: 100% !important; max-width: 100%; }
   .modal-body { padding: 0; }
