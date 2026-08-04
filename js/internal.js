@@ -116,7 +116,11 @@
   }
   function filterRows(f) {
     return all().filter(function (t) {
-      if (f.project && t.project !== f.project) return false;
+      if (f.project) {
+        var projHit = (t.project === f.project);
+        if (!projHit && t.allocations) projHit = t.allocations.some(function (a) { return (a.project || '').trim() === f.project; });
+        if (!projHit) return false; // 单项目直接比；已分摊的交易按各 allocation 项目匹配，避免分摊出去的交易在按项目筛时消失
+      }
       if (f.category && cat1Name(t) !== f.category) return false;
       if (f.category2 && cat2Name(t) !== f.category2) return false;
       if (f.account) {

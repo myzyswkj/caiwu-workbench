@@ -167,5 +167,20 @@ ok('filterRows(noAlloc=true) 排除已分摊(a1)与互转(u3)', (function () {
   return r.every(function (t) { return t.id !== 'a1' && t.id !== 'u3'; });
 })());
 
+// ===== 6. 按项目筛选要命中「分摊到该项目」的交易（t.project 为空、分摊存 allocations） =====
+ok('filterRows(project=项目A) 命中分摊到项目A的 editRecord 与 a1（共 2 笔）', (function () {
+  var r = FILTER({ project: '项目A' });
+  var ids = r.map(function (t) { return t.id; }).sort();
+  return r.length === 2 && ids[0] === 'a1' && ids[1] === 't_alloc1';
+})());
+ok('filterRows(project=项目A) 不含未分摊(u1/u2)与互转(u3)', (function () {
+  var r = FILTER({ project: '项目A' });
+  return r.every(function (t) { return t.id !== 'u1' && t.id !== 'u2' && t.id !== 'u3' && t.id !== 't_plain'; });
+})());
+ok('filterRows(project=项目X) 命中单项目 plainRecord（共 1 笔）', (function () {
+  var r = FILTER({ project: '项目X' });
+  return r.length === 1 && r[0].id === 't_plain';
+})());
+
 console.log('\nopenForm 轻量回归测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);
