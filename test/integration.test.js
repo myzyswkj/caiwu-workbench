@@ -1,7 +1,7 @@
 /* 财务工作台 —— jsdom 集成测试（验证三项新功能 + 回归） */
 const fs = require('fs');
 const path = require('path');
-const { JSDOM } = require('C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom');
+const { JSDOM } = require('./setup');
 
 const ROOT = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
@@ -12,7 +12,7 @@ global.window = window;
 
 // 注入 fake-indexeddb，使照片备份可真实往返测试
 try {
-  var fidb = require('C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/fake-indexeddb');
+  var fidb = require('./setup').fakeIndexedDB;
   Object.defineProperty(window, 'indexedDB', { value: new fidb.IDBFactory(), configurable: true, writable: true });
 } catch (e) { /* 无 IDB 时跳过真实往返 */ }
 
@@ -105,10 +105,10 @@ try {
   section('功能1：资金变动明细（账户互转/股本）');
   reset();
   FW.modules.internal.render();
-  // 切到资金变动明细 tab
-  const fundTab = window.document.querySelector('#inTabs .tab[data-t="fund"]');
-  ok('内账包含「资金变动明细」标签', !!fundTab);
-  fundTab.click();
+  // 切到资金变动明细 tab（tab 现由 FW.nav 子导航渲染，无 #inTabs DOM，改用模块 API 切换）
+  var hasFundTab = (FW.modules.internal.tabs || []).some(function (t) { return t.key === 'fund'; });
+  ok('内账包含「资金变动明细」标签', hasFundTab);
+  FW.modules.internal.setTab('fund');
   let body = window.document.getElementById('inBody').innerHTML;
   ok('资金变动明细页含「各账户资金净变动」', body.indexOf('各账户资金净变动') >= 0);
   ok('资金变动明细页含「不影响收支」说明', body.indexOf('不影响收支') >= 0);
@@ -116,14 +116,13 @@ try {
   // 写入 1 笔互转 + 1 笔股本注入
   FW.db.upsert('internal', { id: 't1', date: '2026-07-01', type: 'transfer', fromAccount: '现金', toAccount: '银行卡', amount: 100, project: 'P', remark: '调拨' });
   FW.db.upsert('internal', { id: 't2', date: '2026-07-02', type: 'equity', equityDir: 'in', account: '现金', amount: 50, project: 'P', remark: '注资' });
-  fundTab.click();
+  FW.modules.internal.setTab('fund');
   body = window.document.getElementById('inBody').innerHTML;
   ok('互转出现在资金变动明细', body.indexOf('账户互转') >= 0 && body.indexOf('现金') >= 0 && body.indexOf('银行卡') >= 0);
   ok('股本出现在资金变动明细', body.indexOf('股本注入') >= 0);
 
   // 互转/股本不应计入收支统计
-  const statTab = window.document.querySelector('#inTabs .tab[data-t="stat"]');
-  statTab.click();
+  FW.modules.internal.setTab('stat');
   const sBody = window.document.getElementById('inBody').innerHTML;
   // 区间收入/支出应均为 0（仅互转+股本）
   ok('统计分析不把互转/股本算作收入', sBody.indexOf('¥0.00') >= 0 && sBody.indexOf('区间收入') >= 0);
@@ -134,7 +133,7 @@ try {
 
   // 加一笔真实收入后，收入应计入
   FW.db.upsert('internal', { id: 't3', date: '2026-07-03', type: 'income', category: '其他收入', account: '现金', amount: 300, project: 'P', remark: '收款' });
-  statTab.click();
+  FW.modules.internal.setTab('stat');
   const sText2 = window.document.getElementById('inBody').textContent.replace(/,/g, '');
   ok('真实收入计入区间收入(300)', sText2.indexOf('¥300.00') >= 0);
 

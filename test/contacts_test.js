@@ -1,7 +1,7 @@
 /* 往来账 DOM 冒烟测试：验证 预付类型 + 关联项目 字段的存储契约
  * （项目核算依赖 contacts 中 kind='预付' & project 聚合成「应收回款项」）
  */
-const { JSDOM } = require('jsdom');
+const { JSDOM } = require('./setup');
 const fs = require('fs');
 const path = require('path');
 

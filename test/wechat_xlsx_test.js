@@ -2,7 +2,7 @@
  * 模拟：XLSX 解析出微信账单格式的行 → 转 CSV → parseWeChatBill → 得到正确记录
  */
 var assert = require('assert');
-var JSDOM = require('jsdom').JSDOM;
+var JSDOM = require('./setup').JSDOM;
 
 // 创建 DOM 环境（internal.js 依赖 window/document）
 var dom = new JSDOM('<!DOCTYPE html><html><body><div id="content"></div></body></html>', {

@@ -1,5 +1,5 @@
 /* 合同台账 DOM 冒烟测试：验证 render / 新增 / 汇总 / 删除 */
-const { JSDOM } = require('jsdom');
+const { JSDOM } = require('./setup');
 const fs = require('fs');
 const path = require('path');
 

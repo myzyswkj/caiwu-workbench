@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supabase 免费反代部署指南 · 腾讯云函数 SCF</title>
+<style>
+  :root{
+    --bg:#F4F6F2; --panel:#ffffff; --ink:#1f2a24; --muted:#5E6B62;
+    --line:#e3e8e2; --brand:#C8102E; --gold:#C9A227; --info:#2C7A6B;
+    --code-bg:#0f1a16; --code-ink:#d7e4dc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;
+    line-height:1.7;font-size:15px}
+  .wrap{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+  header{background:linear-gradient(135deg,#14342B,#1c4a3a);color:#fff;
+    padding:26px 20px;border-radius:14px;margin-bottom:24px}
+  header h1{margin:0 0 6px;font-size:22px}
+  header p{margin:0;opacity:.85;font-size:13px}
+  .why{background:#eaf5f1;border:1px solid #bfe0d6;border-left:4px solid var(--info);
+    padding:14px 16px;border-radius:8px;margin-bottom:22px;font-size:14px}
+  .why b{color:var(--info)}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:20px 22px;margin-bottom:18px}
+  h2{margin:0 0 12px;font-size:17px;color:var(--info);display:flex;align-items:center;gap:10px}
+  .num{display:inline-flex;align-items:center;justify-content:center;
+    width:28px;height:28px;border-radius:50%;background:var(--info);color:#fff;
+    font-size:14px;font-weight:700;flex:none}
+  h3{margin:18px 0 6px;font-size:15px;color:#14342B}
+  p{margin:8px 0}
+  code{background:#eef2ef;color:#14342B;padding:2px 6px;border-radius:4px;
+    font-family:"SFMono-Regular",Consolas,Menlo,monospace;font-size:13px}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:14px 16px;
+    border-radius:8px;overflow:auto;font-family:Consolas,Menlo,monospace;
+    font-size:13px;line-height:1.6;margin:10px 0}
+  pre .c{color:#7fae9a}
+  pre .k{color:#8be9a3}
+  .tip{background:#eaf5f1;border:1px solid #bfe0d6;border-left:4px solid var(--info);
+    padding:12px 14px;border-radius:8px;margin:12px 0;font-size:13px}
+  .warn{background:#fdecee;border:1px solid #f7c4cb;border-left:4px solid var(--brand);
+    padding:12px 14px;border-radius:8px;margin:12px 0;font-size:13px}
+  .warn b{color:var(--brand)}
+  ol,ul{margin:8px 0;padding-left:22px}
+  ol li,ul li{margin:6px 0}
+  footer{margin-top:30px;padding:16px;background:#eef2ef;border-radius:10px;
+    font-size:13px;color:var(--muted);text-align:center}
+  .tag{display:inline-block;background:var(--gold);color:#fff;font-size:11px;
+    padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Supabase 免费反代部署指南 <span class="tag">免费</span></h1>
+  <p>腾讯云函数 SCF · 香港地域 · 无需买服务器 · 约 15 分钟搞定</p>
+</header>
+
+<div class="why">
+  <b>为什么用这个？</b> 不用买服务器、不用搞域名和证书，腾讯云函数 SCF 有<b>免费额度</b>（每月 100 万次调用 + 40 万 GB·秒，个人同步用量根本用不完）。
+  香港地域的函数，国内访问稳定，函数到 Supabase 海外链路也优化——两头都通。账号、数据、加密全部不动，只改前端一个地址。
+</div>
+
+<section>
+  <h2><span class="num">1</span>进入云函数控制台，地域选「香港」</h2>
+  <ol>
+    <li>打开 <a href="https://console.cloud.tencent.com/scf" target="_blank">腾讯云云函数 SCF 控制台</a></li>
+    <li>页面顶部<b>地域</b>切换到 <b>中国香港</b>（关键，别选内地）</li>
+  </ol>
+  <div class="tip">首次使用 SCF 会提示开通服务，点同意即可，开通免费、不扣费。</div>
+</section>
+
+<section>
+  <h2><span class="num">2</span>新建 Web 函数</h2>
+  <ol>
+    <li>点「新建」→ 创建方式选 <b>自定义创建</b></li>
+    <li>函数类型选 <b>Web 函数</b>（重要：这样会自动配好 HTTP 访问地址）</li>
+    <li>函数名随意，如 <code>supabase-proxy</code></li>
+    <li>运行环境选 <b>Node.js 18.15</b>（必须 18+，代码用了全局 fetch）</li>
+    <li>内存 <code>128 MB</code> 够用</li>
+    <li><b>执行超时</b>改成 <code>60</code> 秒（默认 3 秒太短，登录/同步可能超时）</li>
+  </ol>
+</section>
+
+<section>
+  <h2><span class="num">3</span>贴入反代代码</h2>
+  <p>在「函数代码」编辑区，把模板内容<b>全部清空</b>，贴入 <code>deploy/scf-proxy.js</code> 的完整内容（确保文件名为 <code>index.js</code>）。</p>
+  <p>核心逻辑就一点：透传请求到 <code>https://uuvgvocusrpfakjejbnt.supabase.co</code>，把 <code>Host</code> 头改成源站（反代 HTTPS 的关键），其余原样转发。</p>
+  <div class="tip">如果编辑器里默认文件不是 <code>index.js</code>，新建一个 <code>index.js</code> 贴进去，并在函数配置的「执行方法/启动文件」里指向 <code>index.js</code>。</div>
+  <p>点<b>部署</b>（或保存并部署）。</p>
+</section>
+
+<section>
+  <h2><span class="num">4</span>获取访问 URL</h2>
+  <p>部署成功后：</p>
+  <ol>
+    <li>进入函数详情 → <b>触发管理</b>（或「触发器」）标签</li>
+    <li>会看到一个自动创建的 <b>API 网关触发器</b>，带访问路径</li>
+    <li>复制那个 <b>不带额外路径前缀</b> 的根 URL，形如：
+      <pre>https://service-xxxx-xxxx.hk.apigw.tencentcs.com/</pre>
+      或 Web 函数默认域名：
+      <pre>https://supabase-proxy-xxxx.hk.tencentscsapp.com</pre>
+    </li>
+  </ol>
+  <div class="warn"><b>注意 URL 路径</b>：要用<b>根地址</b>。如果 URL 末尾带 <code>/release</code> 之类前缀，不要带上——前端会拼成 <code>.../release/auth/v1/...</code> 转发就 404 了。用根路径即可。</div>
+</section>
+
+<section>
+  <h2><span class="num">5</span>验证反代是否通</h2>
+  <p>在浏览器访问上一步的根 URL：</p>
+  <pre>https://你的函数URL/</pre>
+  <p>应看到 Supabase 返回的 JSON（下列任一都算通）：</p>
+  <pre>{"message":"No API key found in request"}    <span class="c"># 401/400 类</span>
+{"error":"requested path is invalid"}           <span class="c"># 404 类</span></pre>
+  <p><b>不是 522 / 超时 / 一直转圈</b>就说明反代通了。也可在函数控制台点「测试」看返回。</p>
+</section>
+
+<section>
+  <h2><span class="num">6</span>把 URL 发我，改前端上线</h2>
+  <p>把你的函数访问 URL（根地址）发给我，我把 <code>js/config.js</code> 的 <code>SUPABASE_URL</code> 改成它，提交推送上线，你刷新工作台重新登录即可。</p>
+  <div class="tip">前端只改这一行，SDK 的 Auth / 数据库同步全自动跟随。</div>
+</section>
+
+<section>
+  <h2>常见问题</h2>
+
+  <h3>Q1：测试时返回 502 proxy_error？</h3>
+  <p>多半是运行环境不是 Node 18+（没有全局 fetch）。回到函数配置把运行环境改成 <b>Node.js 18.15</b> 重新部署。</p>
+
+  <h3>Q2：URL 带路径前缀导致前端 404？</h3>
+  <p>确保 <code>SUPABASE_URL</code> 用的是根地址。如果你拿到的 URL 是 <code>https://xxx.apigw.../release/</code>，把它发我时<b>去掉 <code>/release</code></b>，或在函数的 API 网关里把路径设为 <code>/</code>。你不确定就把整段 URL 发我，我帮你判断。</p>
+
+  <h3>Q3：同步时提示 body 太大 / 413？</h3>
+  <p>云函数/API 网关对单次请求体有上限（通常 1~6 MB，看网关配置）。如果你的加密快照（含凭证图）很大可能超限。遇到的话告诉我，我帮你：① 把图片从快照里拆出去单独存；② 或换回轻量服务器方案（无此限制）。</p>
+
+  <h3>Q4：首次访问慢 1~2 秒？</h3>
+  <p>正常，云函数冷启动。登录后频繁同步不会冷启动。不影响使用。</p>
+
+  <h3>Q5：免费额度够吗？会扣钱吗？</h3>
+  <p>SCF 免费额度：每月 100 万次调用 + 40 万 GB·秒。个人财务同步一天几十次，远远用不完。不绑定套餐不会扣费。</p>
+</section>
+
+<footer>
+  财务工作台 · Supabase 免费反代（腾讯云函数 SCF）· 部署好把 URL 发我即可上线
+</footer>
+
+</div>
+</body>
+</html>

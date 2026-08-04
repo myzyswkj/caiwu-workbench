@@ -1,5 +1,5 @@
 /* 库存台账 DOM 冒烟测试：验证 render / 新增(入/出) / 汇总 / 删除 / tabs */
-const { JSDOM } = require('jsdom');
+const { JSDOM } = require('./setup');
 const fs = require('fs');
 const path = require('path');
 

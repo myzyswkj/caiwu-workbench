@@ -1,0 +1,13 @@
+# 依赖
+node_modules/
+
+# WorkBuddy 智能体工作数据（本地用，不入库）
+.workbuddy/
+
+# 误重定向产生的垃圾文件
+main"
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.log

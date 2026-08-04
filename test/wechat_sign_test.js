@@ -2,7 +2,7 @@
  * 复现用户反馈「收入和支出有错误」的根因——负数支出导致汇总被抵消。
  */
 var assert = require('assert');
-var JSDOM = require('jsdom').JSDOM;
+var JSDOM = require('./setup').JSDOM;
 
 var dom = new JSDOM('<!DOCTYPE html><html><body><div id="content"></div></body></html>', {
   url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true

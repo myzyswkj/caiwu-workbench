@@ -3,7 +3,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { JSDOM } = require('jsdom');
+const { JSDOM } = require('./setup');
 
 const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://example.com/' });
 const { window } = dom;

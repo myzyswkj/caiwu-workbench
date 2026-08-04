@@ -2,7 +2,7 @@
  * 验证：默认账户、新增、编辑名称、删除、保存后 ACCTS 动态更新
  */
 var assert = require('assert');
-var JSDOM = require('jsdom').JSDOM;
+var JSDOM = require('./setup').JSDOM;
 
 var dom = new JSDOM('<!DOCTYPE html><html><body><div id="content"></div><div id="topActions"></div><div id="inOverview"></div></body></html>', {
   url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true

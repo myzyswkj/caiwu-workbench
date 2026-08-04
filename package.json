@@ -1,0 +1,13 @@
+{
+  "name": "caiwu-workbench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "财务工作台 - 纯静态离线财务记账工具（GitHub Pages 部署，测试用 Node.js）",
+  "scripts": {
+    "test": "node test/run-all.js"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "fake-indexeddb": "^6.2.5"
+  }
+}

@@ -2,7 +2,7 @@
 var assert = require('assert');
 var fs = require('fs');
 var path = require('path');
-var JSDOM = require('jsdom').JSDOM;
+var JSDOM = require('./setup').JSDOM;
 
 var dom = new JSDOM('<!DOCTYPE html><html><body><div id="topActions"></div><div id="content"><div id="inOverview"></div><div id="inBody"></div></div></body></html>', {
   url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true
@@ -87,7 +87,10 @@ global.Blob = function (parts) { capCsv = parts.join(''); this.parts = parts; };
 global.URL = { createObjectURL: function () { return 'blob:x'; }, revokeObjectURL: function () {} };
 var expBtn = document.getElementById('expTxBtn');
 assert.ok(expBtn, '应存在「导出表格」按钮');
-expBtn.click();
+// 导出已改为下拉菜单：点 expTxBtn 仅开菜单，需再点菜单里的 CSV 项才真正导出
+var csvBtn = document.querySelector('#expTxMenu button[data-fmt="csv"]');
+assert.ok(csvBtn, '导出菜单应含「CSV」项');
+csvBtn.click();
 console.log('[5] 导出 CSV 片段:', capCsv.split('\r\n')[0], '|', capCsv.split('\r\n')[1]);
 assert(/对方单位\/个人/.test(capCsv), '导出 CSV 表头应含「对方单位/个人」');
 assert(/报销人/.test(capCsv), '导出 CSV 表头应含「报销人」');

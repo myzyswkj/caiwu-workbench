@@ -3,7 +3,7 @@
  *       不能用区间(from,to)口径，否则选定起始日期后会误报对账不平。
  */
 var assert = require('assert');
-var JSDOM = require('jsdom').JSDOM;
+var JSDOM = require('./setup').JSDOM;
 
 var dom = new JSDOM('<!DOCTYPE html><html><body><div id="content"></div><div id="topActions"></div><div id="inOverview"></div></body></html>', {
   url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true

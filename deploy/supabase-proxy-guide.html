@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supabase 香港反代部署指南 · 财务工作台</title>
+<style>
+  :root{
+    --bg:#F4F6F2; --panel:#ffffff; --ink:#1f2a24; --muted:#5E6B62;
+    --line:#e3e8e2; --brand:#C8102E; --gold:#C9A227; --info:#2C7A6B;
+    --code-bg:#0f1a16; --code-ink:#d7e4dc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;
+    line-height:1.7;font-size:15px}
+  .wrap{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+  header{background:linear-gradient(135deg,#14342B,#1c4a3a);color:#fff;
+    padding:26px 20px;border-radius:14px;margin-bottom:24px}
+  header h1{margin:0 0 6px;font-size:22px}
+  header p{margin:0;opacity:.85;font-size:13px}
+  .why{background:#fff7e6;border:1px solid #ffe3a3;border-left:4px solid var(--gold);
+    padding:14px 16px;border-radius:8px;margin-bottom:22px;font-size:14px}
+  .why b{color:#8a6d00}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:20px 22px;margin-bottom:18px}
+  h2{margin:0 0 12px;font-size:17px;color:var(--info);display:flex;align-items:center;gap:10px}
+  .num{display:inline-flex;align-items:center;justify-content:center;
+    width:28px;height:28px;border-radius:50%;background:var(--info);color:#fff;
+    font-size:14px;font-weight:700;flex:none}
+  h3{margin:18px 0 6px;font-size:15px;color:#14342B}
+  p{margin:8px 0}
+  code{background:#eef2ef;color:#14342B;padding:2px 6px;border-radius:4px;
+    font-family:"SFMono-Regular",Consolas,Menlo,monospace;font-size:13px}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:14px 16px;
+    border-radius:8px;overflow:auto;font-family:Consolas,Menlo,monospace;
+    font-size:13px;line-height:1.6;margin:10px 0}
+  pre .c{color:#7fae9a}
+  pre .k{color:#8be9a3}
+  .tip{background:#eaf5f1;border:1px solid #bfe0d6;border-left:4px solid var(--info);
+    padding:12px 14px;border-radius:8px;margin:12px 0;font-size:13px}
+  .warn{background:#fdecee;border:1px solid #f7c4cb;border-left:4px solid var(--brand);
+    padding:12px 14px;border-radius:8px;margin:12px 0;font-size:13px}
+  .warn b{color:var(--brand)}
+  ol{margin:8px 0;padding-left:22px}
+  ol li{margin:6px 0}
+  .kbd{display:inline-block;background:#fff;border:1px solid var(--line);
+    border-bottom-width:2px;border-radius:4px;padding:1px 7px;font-size:12px;
+    font-family:Consolas,monospace;color:#444}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left}
+  th{background:#eef2ef;color:#14342B}
+  .step-done{color:var(--info);font-weight:700}
+  footer{margin-top:30px;padding:16px;background:#eef2ef;border-radius:10px;
+    font-size:13px;color:var(--muted);text-align:center}
+  .copy{float:right;cursor:pointer;color:var(--info);font-size:12px;user-select:none}
+  .copy:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Supabase 香港反代部署指南</h1>
+  <p>财务工作台云同步恢复方案 · 香港轻量 + Caddy · 约 30 分钟搞定</p>
+</header>
+
+<div class="why">
+  <b>为什么要这么做？</b> 你的登录卡死是因为「国内网络 → Cloudflare → Supabase 海外源站」这条跨国链路不稳（浏览器一直 Pending / 522）。
+  在香港轻量服务器上搭一层反代后，你的浏览器<b>只连香港服务器</b>（国内访问香港很稳），再由香港服务器转发到 Supabase——香港到海外链路优化，两头都通。
+  Supabase 的数据、账号完全不动，只改前端一个地址。
+</div>
+
+<section>
+  <h2><span class="num">1</span>买一台香港轻量服务器</h2>
+  <ol>
+    <li>登录 <a href="https://console.cloud.tencent.com/lighthouse" target="_blank">腾讯云轻量应用服务器控制台</a> → 新建</li>
+    <li>地域选 <b>中国香港</b>（关键，别选内地）</li>
+    <li>镜像选 <b>Ubuntu 22.04 / 24.04</b></li>
+    <li>套餐选最便宜的即可（约 <b>24 元/月</b>，1 核 1G 足够，反代流量极小）</li>
+    <li>付款后进入实例详情，记下<b>公网 IP</b></li>
+  </ol>
+  <div class="tip">买完后在实例详情页点「登录」可直接用浏览器网页登录终端，<b>不用装 SSH 工具</b>。登录后默认是 root。</div>
+</section>
+
+<section>
+  <h2><span class="num">2</span>准备一个域名并解析到服务器</h2>
+  <p>反代需要 HTTPS，所以需要一个域名（任意域名都行）。</p>
+  <ul style="margin:6px 0;padding-left:22px">
+    <li>有现成域名：直接用，加一条子域名 A 记录即可（如 <code>supabase.你的域名</code>）。</li>
+    <li>没有域名：在腾讯云买个 <code>.top</code> / <code>.xyz</code>，<b>几元/年</b>，最便宜够用。</li>
+  </ul>
+  <h3>添加解析记录</h3>
+  <p>在域名解析（DNSPod）里加一条：</p>
+  <table>
+    <tr><th>记录类型</th><th>主机记录</th><th>记录值</th></tr>
+    <tr><td>A</td><td>supabase（或任意前缀）</td><td>你的服务器公网 IP</td></tr>
+  </table>
+  <p>例如域名是 <code>example.top</code>，主机记录填 <code>supabase</code>，那么反代地址就是 <code>https://supabase.example.top</code>。</p>
+  <div class="tip">解析一般几分钟生效。可在服务器上 <code>ping supabase.example.top</code> 验证是否解析到本机 IP。</div>
+</section>
+
+<section>
+  <h2><span class="num">3</span>放行防火墙 80 / 443 端口</h2>
+  <p>腾讯云轻量的防火墙在<b>控制台层</b>（不是服务器内的 ufw），必须在这里放行：</p>
+  <ol>
+    <li>实例详情 → <b>防火墙</b> 标签 → 添加规则</li>
+    <li>加两条：端口 <code>80</code> 协议 TCP 来源 <code>0.0.0.0/0</code>；端口 <code>443</code> 同上</li>
+  </ol>
+  <div class="warn"><b>别忘了这步！</b> Caddy 申请 HTTPS 证书要用 80 端口，访问要用 443。不放行会卡在证书申请失败。</div>
+</section>
+
+<section>
+  <h2><span class="num">4</span>在服务器上跑一键脚本</h2>
+  <p>在服务器终端（root）粘贴下面两行，把 <code>你的域名</code> 换成上一步的域名：</p>
+  <pre><span class="c"># 下载脚本（或直接把 deploy/setup-proxy.sh 内容粘贴进去）</span>
+curl -fsSL https://raw.githubusercontent.com/myzyswkj/caiwu-workbench/main/deploy/setup-proxy.sh -o setup-proxy.sh
+
+<span class="c"># 执行（替换成你的域名）</span>
+bash setup-proxy.sh <span class="k">supabase.example.top</span></pre>
+
+  <p>或者，如果 GitHub 不好拉，直接把下面这段<b>整体粘贴</b>到终端（把域名换成你的）：</p>
+  <pre><span class="c">cat &gt; /etc/caddy/Caddyfile &lt;&lt;'EOF'</span>
+<span class="k">supabase.example.top</span> {
+    encode gzip
+    reverse_proxy https://uuvgvocusrpfakjejbnt.supabase.co {
+        header_up Host uuvgvocusrpfakjevbnt.supabase.co
+        transport http {
+            tls
+            tls_server_name uuvgvocusrpfakjevbnt.supabase.co
+        }
+    }
+}
+<span class="c">EOF</span>
+
+<span class="c"># 装 caddy 并重启（如已装可跳过安装）</span>
+apt-get update -y &amp;&amp; apt-get install -y caddy
+systemctl enable caddy &amp;&amp; systemctl restart caddy</pre>
+  <div class="tip"><b>关键点</b>：反代 HTTPS 源站必须 <code>header_up Host</code> 改成源站域名 + <code>tls_server_name</code> 设 SNI，否则 Supabase 的 Cloudflare 不认，会返回 404/522。脚本已处理好。</div>
+</section>
+
+<section>
+  <h2><span class="num">5</span>验证反代是否通了</h2>
+  <p>在你的电脑浏览器访问（注意是反代域名，不是 supabase.co）：</p>
+  <pre>https://<span class="k">supabase.example.top</span>/</pre>
+  <p>应看到 Supabase 返回的 JSON，类似：</p>
+  <pre>{"message":"No API key found in request"}   <span class="c"># 或 404，都算通</span></pre>
+  <p>只要<b>不是 522 / 超时 / 一直转圈</b>，就说明反代通了。也可以直接在终端测：</p>
+  <pre>curl -I https://<span class="k">supabase.example.top</span>/
+<span class="c"># 期望: HTTP/2 200 或 404，且秒回（&lt;1s）</span></pre>
+</section>
+
+<section>
+  <h2><span class="num">6</span>把域名告诉我，我改前端上线</h2>
+  <p>反代通了之后，把你的反代域名（如 <code>supabase.example.top</code>）发给我。</p>
+  <p>我会把 <code>js/config.js</code> 里的 <code>SUPABASE_URL</code> 从</p>
+  <pre>https://uuvgvocusrpfakjejbnt.supabase.co</pre>
+  <p>改成</p>
+  <pre>https://<span class="k">supabase.example.top</span></pre>
+  <p>然后提交推送到 GitHub Pages，你刷新工作台重新登录即可恢复云同步。</p>
+  <div class="tip">前端改动只有这一行，SDK 其余部分（Auth / 数据库同步）全自动跟随反代地址，不用动别的代码。</div>
+</section>
+
+<section>
+  <h2>常见问题</h2>
+  <h3>Q1：浏览器访问反代域名还是 522 / 超时？</h3>
+  <p>检查：①域名是否解析到服务器 IP；②腾讯云防火墙是否放行 80/443；③Caddy 是否在跑（<code>systemctl status caddy</code>）。看日志：<code>journalctl -u caddy -f</code>。</p>
+  <h3>Q2：证书申请失败（浏览器提示不安全）？</h3>
+  <p>Caddy 申请 Let's Encrypt 证书需要 80 端口能被外网访问。确认防火墙 80 已放行、域名已解析。首次启动等 1~2 分钟。</p>
+  <h3>Q3：香港服务器自己连 Supabase 也不稳怎么办？</h3>
+  <p>极少见。香港到 Supabase（Cloudflare）链路优化，通常很稳。若偶尔抖动，Caddy 会自动重试；可加 <code>lb_try_duration 30s</code> 增加重试窗口。</p>
+  <h3>Q4：不想长期花钱？</h3>
+  <p>轻量最便宜约 24 元/月。若觉得贵，可换腾讯云函数 SCF（香港，免费额度），不用买机器，但配置略复杂——告诉我我再给 SCF 方案。</p>
+</section>
+
+<footer>
+  财务工作台 · Supabase 反代部署指南 · 搭好把域名发我即可上线
+</footer>
+
+</div>
+</body>
+</html>

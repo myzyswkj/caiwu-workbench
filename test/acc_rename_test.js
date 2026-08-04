@@ -2,7 +2,7 @@
 var assert = require('assert');
 var fs = require('fs');
 var path = require('path');
-var JSDOM = require('jsdom').JSDOM;
+var JSDOM = require('./setup').JSDOM;
 
 var dom = new JSDOM('<!DOCTYPE html><html><body><div id="topActions"></div><div id="content"><div id="inOverview"></div><div id="inBody"></div></div></body></html>', {
   url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true
