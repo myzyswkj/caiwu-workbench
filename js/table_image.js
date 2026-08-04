@@ -286,7 +286,8 @@
             head: config.head, rows: config.rows, colWidths: config.colWidths,
             pics: picsModel, amountCol: config.amountCol, imgCol: config.imgCol,
             kpis: config.kpis, title: config.title, subtitle: config.subtitle,
-            picMaxW: config.picMaxW, picMaxH: config.picMaxH, gap: config.gap, scale: scale
+            picMaxW: config.picMaxW, picMaxH: config.picMaxH, gap: config.gap, scale: scale,
+            subtable: config.subtable
           }, measure);
 
           var canvas = document.createElement('canvas');

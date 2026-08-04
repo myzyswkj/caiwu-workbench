@@ -179,6 +179,61 @@ console.log('[9] _draw 含副表不抛异常且绘制了副表文字');
   ok('绘制了副表与正表的文字', calls.fillText >= 10 + 11);
 })();
 
-console.log('');
-console.log('PASS ' + pass + ' / FAIL ' + fail);
-if (fail) process.exit(1);
+console.log('[10] render() 端到端会把 subtable 透传给 _compute 并真正绘制（回归：曾漏传 subtable 导致副表/互转不显示）');
+(function () {
+  // 最小化 mock DOM（node 无真实 canvas）：createElement('canvas') 返回带 mock ctx 的对象
+  var fillTexts = [];
+  function makeCtx() {
+    return {
+      scale: function () {}, fillRect: function () {}, strokeRect: function () {},
+      fill: function () {}, stroke: function () {}, beginPath: function () {}, moveTo: function () {},
+      lineTo: function () {}, arcTo: function () {}, closePath: function () {}, roundRect: function () {},
+      drawImage: function () {},
+      measureText: function (s) { return { width: String(s).length * 7 }; },
+      fillText: function (t) { fillTexts.push(String(t)); },
+      set fillStyle(v) {}, set strokeStyle(v) {}, set font(v) {}, set lineWidth(v) {}, set textBaseline(v) {}
+    };
+  }
+  var canvasObj = { width: 0, height: 0, getContext: function () { return makeCtx(); }, toDataURL: function () { return 'data:image/png;base64,'; } };
+  global.document = { documentElement: {}, createElement: function (tag) { return tag === 'canvas' ? canvasObj : {}; }, createElementNS: function () { return {}; }, body: { appendChild: function () {}, removeChild: function () {} } };
+  // 不定义 getComputedStyle → render 内 try/catch 兜底用默认色
+
+  var sub = {
+    title: '按账户（收支维度）',
+    note: '注：互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额。',
+    head: ['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额'],
+    rows: [['现金', '¥1,000', '¥300', '¥120', '¥0', '¥180', '¥1,180'],
+           ['合计（1 账户）', '¥1,000', '¥300', '¥120', '¥0', '¥180', '¥1,180']],
+    colWidths: [200, 180, 150, 150, 150, 150, 218],
+    rightCols: [1, 2, 3, 4, 5, 6],
+    colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed', 'signed'],
+    totalRow: true, headerH: 30
+  };
+  var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
+  var rows = [{ cells: ['2026-08-01', '收入', 'A', '销售', '微信', '+1,000', '得力', '张三', '备注', ''], amountCls: 'income' }];
+
+  var finished = false;
+  function doneOnce() { if (finished) return; finished = true; console.log(''); console.log('PASS ' + pass + ' / FAIL ' + fail); if (fail) process.exit(1); }
+
+  try {
+    T.render({
+      title: '内账流水明细',
+      kpis: [{ label: '笔数', value: '1' }],
+      head: head, rows: rows, amountCol: 5, imgCol: 9,
+      subtable: sub, pics: {}
+    }).then(function (canvas) {
+      ok('render 路径绘制了副表标题「按账户（收支维度）」', fillTexts.indexOf('按账户（收支维度）') >= 0);
+      ok('render 路径绘制了「互转（转入−转出）」列标题', fillTexts.indexOf('互转（转入−转出）') >= 0);
+      ok('render 返回了 canvas 对象', !!canvas);
+      doneOnce();
+    }).catch(function (e) {
+      console.log('  render rejected: ' + (e && e.message));
+      fail++; console.log('  ✗ render() 端到端执行');
+      doneOnce();
+    });
+  } catch (e) {
+    console.log('  sync error: ' + e.message);
+    fail++; console.log('  ✗ render() 端到端执行');
+    doneOnce();
+  }
+})();
