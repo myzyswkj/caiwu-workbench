@@ -1836,7 +1836,7 @@
   }
   function txProjectText(t) {
     var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
-    if (!items.length) return txProjectText(t);
+    if (!items.length) return (t && t.project) ? t.project : '';
     return items.map(function (a) { return (a.project || '').trim(); }).join('/');
   }
 
@@ -1871,7 +1871,7 @@
       fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
     if (edit) {
       v = { date: edit.date || FW.today(), type: edit.type || 'expense', cat1: '', cat2: '', account: edit.account || ACCTS[0],
-        amount: edit.amount, remark: edit.remark || '', project: editxProjectText(t), party: edit.party || '', reimburser: edit.reimburser || '', photos: edit.photos || [],
+        amount: edit.amount, remark: edit.remark || '', project: edit.project || '', party: edit.party || '', reimburser: edit.reimburser || '', photos: edit.photos || [],
         fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
       if (edit.category) { var parts = edit.category.split(' / '); v.cat1 = parts[0]; v.cat2 = parts[1] || ''; }
       if (edit.type === 'transfer') { v.fromAccount = edit.fromAccount || ACCTS[0]; v.toAccount = edit.toAccount || (ACCTS[1] || ACCTS[0]); }
