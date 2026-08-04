@@ -464,7 +464,7 @@
     document.getElementById('txWrap').innerHTML = rows.length ? tableHtml(rows) : '<div class="empty">没有符合条件的流水，点右上角「新增流水」开始登记。</div>';
     // 「按账户（收支维度）」小表：随筛选实时重算（与流水表共用 filteredRows 口径）
     var accEl = document.getElementById('accSummary');
-    if (accEl) accEl.innerHTML = accSummaryHtml(rows);
+    if (accEl) accEl.innerHTML = accSummaryHtml(rows, state.filter);
     FW.qa('#txTable .row-edit').forEach(function (b) { b.onclick = function () { openForm(b.dataset.id); }; });
     FW.qa('#txTable .row-del').forEach(function (b) { b.onclick = function () { delTx(b.dataset.id); }; });
     FW.qa('#txTable .photo-cell img').forEach(function (img) { img.onclick = function () { previewPhoto(img.dataset.pid); }; });
@@ -743,45 +743,54 @@
     }
   }
 
-  // 流水明细页的「按账户（收支维度）」小表（界面版，5 列紧凑表：账户/收入/支出/互转/净额）。
-  // 与打印视图 / Excel 导出口径一致（共用 buildAccMap），随筛选实时重算。
-  // 输入：rows = 当前筛选后的流水（filteredRows 口径，含 transfer 互转数据）。
+  // 流水明细页的「按账户（收支维度）」小表（界面版，6 列紧凑表：账户/开始时间余额/收入/支出/互转/当前余额(净额)）。
+  // 与打印视图 / Excel / 图片导出口径一致（共用 buildAccMap + startBalanceMap + balMapAt），随筛选实时重算。
+  // 输入：rows = 当前筛选后的流水（filteredRows 口径，含 transfer 互转数据）；f = 当前筛选（用于取开始/期末余额）。
+  // 口径：开始时间余额 = startBalanceMap(f)[账户]（筛选开始前的账户余额，含期初/互转/股本）；
+  //       当前余额（净额） = balMapAt(f.to || 今天)[账户]（筛选期末的真实账户余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动）。
   // 输出：HTML 字符串；无账户或无数据时返回 ''。
-  function accSummaryHtml(rows) {
+  function accSummaryHtml(rows, f) {
     if (!rows || !rows.length) return '';
     var accMap = buildAccMap(rows);
     var keys = Object.keys(accMap);
     if (!keys.length) return '';
-    // 按「收入+支出+|互转|」降序——与 statTableRows 排序保持一致
+    f = f || {};
+    var startBal = startBalanceMap(f);
+    var endBal = balMapAt(f.to || FW.today());
+    // 按「收入+支出+|互转|」降序——与 statTableRows / 导出图片副表 排序保持一致
     keys.sort(function (a, b) {
       var va = accMap[a], vb = accMap[b];
       return (vb.income + vb.expense + Math.abs(vb.transfer || 0)) - (va.income + va.expense + Math.abs(va.transfer || 0));
     });
     function trCls(n) { return n > 0 ? 'income' : (n < 0 ? 'expense' : ''); }
-    var totalIn = 0, totalEx = 0, totalTr = 0, totalNet = 0;
+    function signedCls(n) { return n > 0 ? 'income' : (n < 0 ? 'expense' : ''); }
+    var totalIn = 0, totalEx = 0, totalTr = 0, totalStart = 0, totalCur = 0;
     var trs = keys.map(function (k) {
       var v = accMap[k];
       var tr = v.transfer || 0;
-      var net = v.income - v.expense;
-      totalIn += v.income; totalEx += v.expense; totalTr += tr; totalNet += net;
+      var s = startBal[k] || 0;
+      var cur = endBal[k] || 0;
+      totalIn += v.income; totalEx += v.expense; totalTr += tr; totalStart += s; totalCur += cur;
       return '<tr>' +
         '<td>' + FW.esc(k) + '</td>' +
+        '<td class="num ' + signedCls(s) + '">' + FW.fmtMoney(s) + '</td>' +
         '<td class="num income">' + FW.fmtMoney(v.income) + '</td>' +
         '<td class="num expense">' + FW.fmtMoney(v.expense) + '</td>' +
         '<td class="num ' + trCls(tr) + '">' + FW.fmtMoney(tr) + '</td>' +
-        '<td class="num ' + (net >= 0 ? 'income' : 'expense') + '"><b>' + FW.fmtMoney(net) + '</b></td>' +
+        '<td class="num ' + signedCls(cur) + '"><b>' + FW.fmtMoney(cur) + '</b></td>' +
         '</tr>';
     }).join('');
     trs += '<tr class="acc-sum-row">' +
       '<td>合计（' + keys.length + ' 账户）</td>' +
+      '<td class="num ' + signedCls(totalStart) + '">' + FW.fmtMoney(totalStart) + '</td>' +
       '<td class="num income">' + FW.fmtMoney(totalIn) + '</td>' +
       '<td class="num expense">' + FW.fmtMoney(totalEx) + '</td>' +
       '<td class="num ' + trCls(totalTr) + '">' + FW.fmtMoney(totalTr) + '</td>' +
-      '<td class="num ' + (totalNet >= 0 ? 'income' : 'expense') + '"><b>' + FW.fmtMoney(totalNet) + '</b></td>' +
+      '<td class="num ' + signedCls(totalCur) + '"><b>' + FW.fmtMoney(totalCur) + '</b></td>' +
       '</tr>';
     return '<div class="flow-acc-head">按账户（收支维度）</div>' +
-      '<table class="flow-acc-tbl"><thead><tr><th>账户</th><th class="num">收入</th><th class="num">支出</th><th class="num">互转</th><th class="num">净额</th></tr></thead><tbody>' + trs + '</tbody></table>' +
-      '<div class="flow-acc-note">互转 = 转入 − 转出（账户互转净头寸，单列不影响收支净额）</div>';
+      '<table class="flow-acc-tbl"><thead><tr><th>账户</th><th class="num">开始时间余额</th><th class="num">收入</th><th class="num">支出</th><th class="num">互转</th><th class="num">当前余额（净额）</th></tr></thead><tbody>' + trs + '</tbody></table>' +
+      '<div class="flow-acc-note">开始时间余额 = 筛选开始前的账户余额；当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的账户余额。互转 = 转入 − 转出（账户互转净头寸，单列不影响收支净额）。</div>';
   }
 
   /* ---------- 资金变动明细（账户互转 / 股本，不影响收支） ---------- */
@@ -2218,18 +2227,18 @@
     accKeys.forEach(function (k) {
       var v = accMap[k];
       var s = startBal[k] || 0, e = endBal[k] || 0;
-      accRows.push([k, FW.fmtMoney(s), FW.fmtMoney(v.income), FW.fmtMoney(v.expense), FW.fmtMoney(v.transfer || 0), FW.fmtMoney(v.income - v.expense), FW.fmtMoney(e)]);
+      accRows.push([k, FW.fmtMoney(s), FW.fmtMoney(v.income), FW.fmtMoney(v.expense), FW.fmtMoney(v.transfer || 0), FW.fmtMoney(e)]);
       aInc += v.income; aExp += v.expense; aStart += s; aEnd += e; aXfer += (v.transfer || 0);
     });
-    accRows.push(['合计（' + accKeys.length + ' 账户）', FW.fmtMoney(aStart), FW.fmtMoney(aInc), FW.fmtMoney(aExp), FW.fmtMoney(aXfer), FW.fmtMoney(aInc - aExp), FW.fmtMoney(aEnd)]);
+    accRows.push(['合计（' + accKeys.length + ' 账户）', FW.fmtMoney(aStart), FW.fmtMoney(aInc), FW.fmtMoney(aExp), FW.fmtMoney(aXfer), FW.fmtMoney(aEnd)]);
     var subtable = {
       title: '按账户（收支维度）',
-      note: '注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。',
-      head: ['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额'],
+      note: '注：开始时间余额 = 筛选开始前的账户余额；当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的真实账户余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额。',
+      head: ['账户', '开始时间余额', '收入', '支出', '互转（转入−转出）', '当前余额（净额）'],
       rows: accRows,
-      colWidths: [200, 180, 150, 150, 150, 150, 218],
-      rightCols: [1, 2, 3, 4, 5, 6],
-      colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed', 'signed'],
+      colWidths: [200, 180, 150, 150, 150, 218],
+      rightCols: [1, 2, 3, 4, 5],
+      colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed'],
       totalRow: true,
       headerH: 30
     };

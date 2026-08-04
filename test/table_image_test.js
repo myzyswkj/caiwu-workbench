@@ -200,13 +200,13 @@ console.log('[10] render() 端到端会把 subtable 透传给 _compute 并真正
 
   var sub = {
     title: '按账户（收支维度）',
-    note: '注：互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额。',
-    head: ['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额'],
-    rows: [['现金', '¥1,000', '¥300', '¥120', '¥0', '¥180', '¥1,180'],
-           ['合计（1 账户）', '¥1,000', '¥300', '¥120', '¥0', '¥180', '¥1,180']],
-    colWidths: [200, 180, 150, 150, 150, 150, 218],
-    rightCols: [1, 2, 3, 4, 5, 6],
-    colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed', 'signed'],
+    note: '注：开始时间余额 = 筛选开始前的账户余额；当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的真实账户余额。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额。',
+    head: ['账户', '开始时间余额', '收入', '支出', '互转（转入−转出）', '当前余额（净额）'],
+    rows: [['现金', '¥1,000', '¥300', '¥120', '¥0', '¥1,180'],
+           ['合计（1 账户）', '¥1,000', '¥300', '¥120', '¥0', '¥1,180']],
+    colWidths: [200, 180, 150, 150, 150, 218],
+    rightCols: [1, 2, 3, 4, 5],
+    colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed'],
     totalRow: true, headerH: 30
   };
   var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
@@ -224,6 +224,8 @@ console.log('[10] render() 端到端会把 subtable 透传给 _compute 并真正
     }).then(function (canvas) {
       ok('render 路径绘制了副表标题「按账户（收支维度）」', fillTexts.indexOf('按账户（收支维度）') >= 0);
       ok('render 路径绘制了「互转（转入−转出）」列标题', fillTexts.indexOf('互转（转入−转出）') >= 0);
+      ok('render 路径绘制了「开始时间余额」列标题', fillTexts.indexOf('开始时间余额') >= 0);
+      ok('render 路径绘制了「当前余额（净额）」列标题', fillTexts.indexOf('当前余额（净额）') >= 0);
       ok('render 返回了 canvas 对象', !!canvas);
       doneOnce();
     }).catch(function (e) {
