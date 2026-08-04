@@ -84,7 +84,7 @@
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
   function shiftMonth(ym, delta) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1 + delta; y += Math.floor(m / 12); m = (m % 12 + 12) % 12; return y + '-' + (m + 1 < 10 ? '0' + (m + 1) : m + 1); }
 
-  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '', showVoucher: true, selMode: false, selIds: {} };
+  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '', noAlloc: false }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '', showVoucher: true, selMode: false, selIds: {} };
 
   function all() { return FW.db.getList(KEY).sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); }); }
   function projects() {
@@ -129,6 +129,11 @@
       if (f.from && t.date < f.from) return false;
       if (f.to && t.date > f.to) return false;
       if (f.kw && ((t.remark || '') + (txProjectText(t)) + (t.category || '')).indexOf(f.kw) < 0) return false;
+      if (f.noAlloc) {
+        var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
+        var hasAlloc = !!(t.allocations && t.allocations.length);
+        if (!allocatable || hasAlloc) return false; // 只保留「应收分摊却没分摊」的收支/退款
+      }
       return true;
     });
   }
@@ -413,6 +418,7 @@
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
           '<button class="btn ghost sm" id="fReset">重置</button>' +
+          '<label class="chk-inline"><input type="checkbox" id="fNoAlloc"' + (f.noAlloc ? ' checked' : '') + '> 仅看未分摊</label>' +
           '<label class="chk-inline"><input type="checkbox" id="fVoucher"' + (state.showVoucher ? ' checked' : '') + '> 显示凭证图</label>' +
         '</div>' +
         (state.selMode ? bulkBarHtml() : '') +
@@ -448,7 +454,8 @@
     g('fType').onchange = function () { state.filter.type = this.value; drawTable(); };
     g('fFrom').onchange = function () { state.filter.from = this.value; drawTable(); };
     g('fTo').onchange = function () { state.filter.to = this.value; drawTable(); };
-    g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '' }; drawList(); };
+    g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '', noAlloc: false }; drawList(); };
+    g('fNoAlloc').onchange = function () { state.filter.noAlloc = this.checked; drawTable(); };
     g('fVoucher').onchange = function () { state.showVoucher = this.checked; drawTable(); };
   }
 
@@ -458,12 +465,18 @@
     var expense = rows.filter(function (t) { return t.type === 'expense'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var refund = rows.filter(function (t) { return t.type === 'refund'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var netExpense = expense - refund;
+    var unalloc = all().filter(function (t) {
+      var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
+      var hasAlloc = !!(t.allocations && t.allocations.length);
+      return allocatable && !hasAlloc;
+    }).length;
     document.getElementById('txStats').innerHTML =
       '<div class="stat"><div class="label">筛选后收入</div><div class="value income">' + FW.fmtMoney(income) + '</div></div>' +
       '<div class="stat"><div class="label">筛选后支出（净额）</div><div class="value expense">' + FW.fmtMoney(netExpense) + '</div></div>' +
       '<div class="stat"><div class="label">退款收入（冲减支出）</div><div class="value refund">' + FW.fmtMoney(refund) + '</div></div>' +
       '<div class="stat"><div class="label">筛选后结余</div><div class="value">' + FW.fmtMoney(income - netExpense) + '</div></div>' +
-      '<div class="stat"><div class="label">笔数</div><div class="value">' + rows.length + '</div></div>';
+      '<div class="stat"><div class="label">笔数</div><div class="value">' + rows.length + '</div></div>' +
+      '<div class="stat"><div class="label">未分摊笔数</div><div class="value' + (unalloc ? ' expense' : '') + '" title="应收项目分摊、但还没填分摊的收支/退款笔数；点上方「仅看未分摊」可列出">' + unalloc + '</div></div>';
     document.getElementById('txWrap').innerHTML = rows.length ? tableHtml(rows) : '<div class="empty">没有符合条件的流水，点右上角「新增流水」开始登记。</div>';
     // 「按账户（收支维度）」小表：随筛选实时重算（与流水表共用 filteredRows 口径）
     var accEl = document.getElementById('accSummary');
@@ -1764,17 +1777,30 @@
   // 表单草稿：每一行 { project, amount }
   var allocDraft = [];
 
+  // 单行分摊的「项目」控件：已有项目用下拉直接选；自定义（库里没有的）项目名用文本框直接填
+  function allocProjCtrl(a, i) {
+    var existing = projects();
+    if (a.project && existing.indexOf(a.project) < 0) {
+      return '<input class="alloc-proj" data-i="' + i + '" value="' + FW.esc(a.project) + '" placeholder="项目名">';
+    }
+    var opts = '<option value="">（不选）</option>' + existing.map(function (p) {
+      return '<option' + (p === a.project ? ' selected' : '') + '>' + FW.esc(p) + '</option>';
+    }).join('') + '<option value="__NEW__">＋ 新建项目…</option>';
+    return '<select class="alloc-proj" data-i="' + i + '">' + opts + '</select>';
+  }
+  function allocRowHtml(a, i) {
+    return '<div class="alloc-row" data-i="' + i + '">' +
+      allocProjCtrl(a, i) +
+      '<input class="alloc-amt" type="number" step="0.01" min="0" data-i="' + i + '" value="' + (a.amount === '' || a.amount == null ? '' : a.amount) + '" placeholder="金额">' +
+      '<button type="button" class="btn ghost sm alloc-del" data-i="' + i + '" title="删除此行">✕</button>' +
+      '</div>';
+  }
+
   function allocBoxHtml() {
-    var rows = allocDraft.map(function (a, i) {
-      return '<div class="alloc-row" data-i="' + i + '">' +
-        '<input class="alloc-proj" list="projList" data-i="' + i + '" value="' + FW.esc(a.project || '') + '" placeholder="项目名">' +
-        '<input class="alloc-amt" type="number" step="0.01" min="0" data-i="' + i + '" value="' + (a.amount === '' || a.amount == null ? '' : a.amount) + '" placeholder="金额">' +
-        '<button type="button" class="btn ghost sm alloc-del" data-i="' + i + '" title="删除此行">✕</button>' +
-        '</div>';
-    }).join('');
+    var rows = allocDraft.map(allocRowHtml).join('');
     return '<div class="alloc-box">' +
       '<div class="alloc-head">⊞ 项目分摊（一笔收支需归属多个项目时填写）</div>' +
-      '<div class="muted" style="font-size:12px;margin:2px 0 6px">填写后，上方「项目」将被忽略，本笔金额按下列各项目分配；各项目金额合计须等于本笔金额。</div>' +
+      '<div class="muted" style="font-size:12px;margin:2px 0 6px">填写后，上方「项目」将被忽略，本笔金额按下列各项目分配；各项目金额合计须等于本笔金额。项目可直接从下拉选，或选「＋ 新建项目…」输入新项目名。</div>' +
       '<div id="allocRows">' + rows + '</div>' +
       '<button type="button" class="btn ghost sm alloc-add" id="allocAdd">＋ 添加分摊行</button>' +
       '<div class="alloc-total" id="allocTotal"></div>' +
@@ -1784,13 +1810,7 @@
   function refreshAlloc() {
     var box = document.getElementById('allocRows');
     if (!box) return;
-    box.innerHTML = allocDraft.map(function (a, i) {
-      return '<div class="alloc-row" data-i="' + i + '">' +
-        '<input class="alloc-proj" list="projList" data-i="' + i + '" value="' + FW.esc(a.project || '') + '" placeholder="项目名">' +
-        '<input class="alloc-amt" type="number" step="0.01" min="0" data-i="' + i + '" value="' + (a.amount === '' || a.amount == null ? '' : a.amount) + '" placeholder="金额">' +
-        '<button type="button" class="btn ghost sm alloc-del" data-i="' + i + '" title="删除此行">✕</button>' +
-        '</div>';
-    }).join('');
+    box.innerHTML = allocDraft.map(allocRowHtml).join('');
     updateAllocTotal();
   }
 
@@ -1815,13 +1835,38 @@
         var del = e.target.closest && e.target.closest('.alloc-del');
         if (del) { allocDraft.splice(+del.dataset.i, 1); refreshAlloc(); }
       };
+      // 文本框输入（自定义项目名 / 金额）：实时写入草稿
       rowsEl.oninput = function (e) {
         var inp = e.target;
-        if (inp.classList.contains('alloc-proj')) allocDraft[+inp.dataset.i].project = inp.value;
-        else if (inp.classList.contains('alloc-amt')) allocDraft[+inp.dataset.i].amount = (inp.value === '' ? '' : parseFloat(inp.value));
-        updateAllocTotal();
+        if (inp.classList.contains('alloc-amt')) {
+          allocDraft[+inp.dataset.i].amount = (inp.value === '' ? '' : parseFloat(inp.value));
+          updateAllocTotal();
+        } else if (inp.classList.contains('alloc-proj') && inp.tagName === 'INPUT') {
+          allocDraft[+inp.dataset.i].project = inp.value;
+          updateAllocTotal();
+        }
+      };
+      // 下拉选择：选「＋ 新建项目…」则换成文本框；选已有项目则直接写入草稿
+      rowsEl.onchange = function (e) {
+        var inp = e.target;
+        if (inp.classList.contains('alloc-proj') && inp.tagName === 'SELECT') {
+          if (inp.value === '__NEW__') { swapToNewProject(inp); return; }
+          allocDraft[+inp.dataset.i].project = inp.value;
+          updateAllocTotal();
+        }
       };
     }
+  }
+  // 选「＋ 新建项目…」时把 <select> 换成文本框，方便直接输入新项目名
+  function swapToNewProject(sel) {
+    var i = +sel.dataset.i;
+    var inp = document.createElement('input');
+    inp.className = 'alloc-proj';
+    inp.dataset.i = i;
+    inp.placeholder = '输入新项目名';
+    inp.value = '';
+    if (sel.parentNode) sel.parentNode.replaceChild(inp, sel);
+    inp.focus();
   }
 
   // 流水列表 / 打印中的「项目」列：分摊交易显示 ⊞ 标记 + 各项目名（悬停看金额）
