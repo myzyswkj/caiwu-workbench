@@ -33,13 +33,13 @@
     gold: '#C9A227'
   };
 
-  var FONT = '13px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
-  var FONT_BOLD = '600 13px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
-  var TITLE_FONT = '700 20px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
-  var SUB_FONT = '12px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
-  var KPI_LABEL_FONT = '12px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
-  var KPI_VALUE_FONT = '700 16px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
-  var PANEL_TITLE_FONT = '700 15px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var FONT = '15px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var FONT_BOLD = '600 15px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var TITLE_FONT = '700 24px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var SUB_FONT = '14px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var KPI_LABEL_FONT = '14px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var KPI_VALUE_FONT = '700 19px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var PANEL_TITLE_FONT = '700 18px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
 
   // ---------- 纯函数：文本折行（按字符，兼容中英文混排） ----------
   function wrapText(measure, text, maxWidth) {
@@ -101,7 +101,7 @@
   }
 
   function defaultWidths(n) {
-    var d = [92, 60, 110, 84, 120, 116, 140, 76, 180, 220];
+    var d = [108, 72, 126, 98, 136, 128, 158, 92, 196, 236];
     var out = [];
     for (var i = 0; i < n; i++) out.push(d[i] != null ? d[i] : 120);
     return out;
@@ -119,23 +119,23 @@
     var amountCol = (cfg.amountCol != null) ? cfg.amountCol : -1;
     var imgCol = (cfg.imgCol != null) ? cfg.imgCol : (nCol - 1);
     var colW = (cfg.colWidths && cfg.colWidths.length === nCol) ? cfg.colWidths : defaultWidths(nCol);
-    var padX = cfg.padX != null ? cfg.padX : 8;
-    var padY = cfg.padY != null ? cfg.padY : 7;
-    var lineH = cfg.lineH != null ? cfg.lineH : 18;
+    var padX = cfg.padX != null ? cfg.padX : 10;
+    var padY = cfg.padY != null ? cfg.padY : 9;
+    var lineH = cfg.lineH != null ? cfg.lineH : 22;
     var picMaxW = cfg.picMaxW != null ? cfg.picMaxW : 200;
     var picMaxH = cfg.picMaxH != null ? cfg.picMaxH : 120;
-    var gap = cfg.gap != null ? cfg.gap : 6;
+    var gap = cfg.gap != null ? cfg.gap : 8;
     var marginX = cfg.marginX != null ? cfg.marginX : 16;
     var marginY = cfg.marginY != null ? cfg.marginY : 16;
-    var headerH = cfg.headerH != null ? cfg.headerH : 34;
+    var headerH = cfg.headerH != null ? cfg.headerH : 42;
 
     var tableW = colW.reduce(function (s, w) { return s + w; }, 0);
     var totalW = tableW + marginX * 2;
 
     // 顶部区块高度预算
-    var titleH = cfg.title ? 26 : 0;
-    var subtitleH = cfg.subtitle ? 20 : 0;
-    var kpiH = (cfg.kpis && cfg.kpis.length) ? 52 : 0;
+    var titleH = cfg.title ? 32 : 0;
+    var subtitleH = cfg.subtitle ? 24 : 0;
+    var kpiH = (cfg.kpis && cfg.kpis.length) ? 62 : 0;
     var cursorY = marginY + titleH + (cfg.title ? 8 : 0) + subtitleH + (cfg.subtitle ? 6 : 0) + kpiH + (kpiH ? 10 : 0);
 
     // 副表（按账户收支等小表）：放在 KPI 与主表之间，左对齐、宽度与主表一致
@@ -193,7 +193,7 @@
     var nCol = head.length;
     var colW = (cfg.colWidths && cfg.colWidths.length === nCol) ? cfg.colWidths : head.map(function () { return 120; });
     var padX = opt.padX, lineH = opt.lineH, padY = opt.padY;
-    var headerH = cfg.headerH != null ? cfg.headerH : 30;
+    var headerH = cfg.headerH != null ? cfg.headerH : 40;
     var rightCols = cfg.rightCols || [];
     var titleH = cfg.title ? 22 : 0;
     var rowGeom = [];
@@ -214,7 +214,7 @@
     }
     var tableH = y;
     var noteLines = cfg.note ? wrapText(measure, cfg.note, opt.availW) : [];
-    var noteH = noteLines.length * 15;
+    var noteH = noteLines.length * 17;
     var gapNote = noteLines.length ? 6 : 0;
     var totalH = titleH + (cfg.title ? 6 : 0) + tableH + gapNote + noteH;
     var tableW = colW.reduce(function (s, w) { return s + w; }, 0);
@@ -333,16 +333,16 @@
         var labelW = ctx.measureText(k.label).width;
         ctx.font = KPI_VALUE_FONT;
         var valW = ctx.measureText(k.value).width;
-        var cardW = Math.max(120, labelW + valW + 24);
-        var cardH = 44;
+        var cardW = Math.max(130, labelW + valW + 26);
+        var cardH = 54;
         ctx.fillStyle = '#F2F5F9';
         rr(ctx, kx, kpiY, cardW, cardH, 8); ctx.fill();
         ctx.strokeStyle = C.border; ctx.lineWidth = 1; ctx.stroke();
         ctx.fillStyle = C.muted; ctx.font = KPI_LABEL_FONT;
-        ctx.fillText(k.label, kx + 12, kpiY + 8);
+        ctx.fillText(k.label, kx + 12, kpiY + 11);
         ctx.fillStyle = k.cls === 'income' ? C.income : (k.cls === 'expense' ? C.expense : C.text);
         ctx.font = KPI_VALUE_FONT;
-        ctx.fillText(k.value, kx + 12, kpiY + 24);
+        ctx.fillText(k.value, kx + 12, kpiY + 33);
         kx += cardW + 14;
       });
       cy += geo.kpiH + 10;
@@ -424,7 +424,7 @@
         ctx.fillStyle = C.muted;
         ctx.font = SUB_FONT;
         for (var ni = 0; ni < st.noteLines.length; ni++) {
-          ctx.fillText(st.noteLines[ni], sx, sry + 6 + ni * 15);
+          ctx.fillText(st.noteLines[ni], sx, sry + 6 + ni * 17);
         }
       }
     }

@@ -2412,7 +2412,7 @@
     });
     var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
     var amountCol = 5, imgCol = 9;
-    var colWidths = [92, 60, 110, 84, 120, 116, 140, 76, 180, 220];
+    var colWidths = [108, 72, 126, 98, 136, 128, 158, 92, 196, 236];
     var outRows = rows.map(function (t) {
       var a = Number(t.amount) || 0;
       var cls = 'neutral', sign = '';
@@ -2442,11 +2442,11 @@
       note: '注：开始时间余额 = 筛选开始前的账户余额；当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的真实账户余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额。',
       head: ['账户', '开始时间余额', '收入', '支出', '互转（转入−转出）', '当前余额（净额）'],
       rows: accRows,
-      colWidths: [200, 180, 150, 150, 150, 218],
+      colWidths: [240, 220, 200, 200, 190, 300],
       rightCols: [1, 2, 3, 4, 5],
       colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed'],
       totalRow: true,
-      headerH: 30
+      headerH: 40
     };
     // 凭证图（JPEG dataURL，来自 IndexedDB，绘制不会污染 canvas），按行下标归集
     var pics = {};
@@ -2473,6 +2473,7 @@
         amountCol: amountCol, imgCol: imgCol,
         pics: picMap || {},
         picMaxW: 200, picMaxH: 120,
+        gap: 8,
         subtable: subtable
       };
     }
