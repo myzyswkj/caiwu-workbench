@@ -545,13 +545,31 @@
     ctx.strokeRect(tableLeft + 0.5, tableTop + 0.5, geo.totalW - mx * 2 - 1, (geo.rows.length ? (geo.rows[geo.rows.length - 1].top + geo.rows[geo.rows.length - 1].height - tableTop) : geo.headerH) + 0.5);
   }
 
+  // 单张凭证图加载：加超时（部分 JPEG/PNG 在某些浏览器上 onload/onerror 都不触发，会让 Promise 永远 pending）
   function preload(src) {
     return new Promise(function (resolve) {
       if (!src) { resolve(null); return; }
       var img = new Image();
-      img.onload = function () { resolve(img); };
-      img.onerror = function () { resolve(null); };
-      img.src = src;
+      var done = false;
+      function finish(v) {
+        if (done) return;
+        done = true;
+        clearTimeout(tmo);
+        resolve(v);
+      }
+      var tmo = setTimeout(function () {
+        console.warn('[table_image.preload] 凭证图加载超时 8s,跳过; dataURL 长度=', (src || '').length);
+        finish(null);
+      }, 8000);
+      img.onload = function () { finish(img); };
+      img.onerror = function (e) {
+        console.warn('[table_image.preload] 凭证图加载失败:', e, 'dataURL 长度=', (src || '').length);
+        finish(null);
+      };
+      try { img.src = src; } catch (e) {
+        console.warn('[table_image.preload] 赋值 src 抛异常:', e);
+        finish(null);
+      }
     });
   }
 

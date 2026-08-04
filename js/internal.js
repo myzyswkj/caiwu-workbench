@@ -2503,9 +2503,10 @@
             '<span id="picSizeVal" class="tx-size-val">23px</span>' +
           '</label>' +
           '<span class="tx-prev-spacer"></span>' +
+          '<span class="muted" id="txPrevSize" style="font-size:12px;"></span>' +
           '<span class="muted">可横向滚动查看完整图片</span>' +
         '</div>' +
-        '<div class="tx-prev-scroll" id="prevScroll"><div class="tx-loading">正在生成预览…</div></div>' +
+        '<div class="tx-prev-scroll" id="prevScroll"><div class="tx-loading" id="txPrevStatus">正在生成预览…</div></div>' +
         '<div class="form-actions">' +
           '<button type="button" class="btn ghost" id="prevCancel">取消</button>' +
           '<button type="button" class="btn" id="prevDownload">下载 PNG</button>' +
@@ -2516,13 +2517,20 @@
       var cur = null; // 当前预览 canvas（下载用）
       var pxOf = function (fs) { return Math.round(17 * fs); };
       var fsOf = function (px) { return (Number(px) || 23) / 17; };
+      function setStatus(t) { var s = body.querySelector('#txPrevStatus'); if (s) s.textContent = t; }
+      function setSize(t)  { var s = body.querySelector('#txPrevSize'); if (s) s.textContent = t; }
       function refresh(px) {
         var fs = fsOf(px);
         var scroll = body.querySelector('#prevScroll');
         var valEl = body.querySelector('#picSizeVal');
         if (valEl) valEl.textContent = px + 'px';
-        if (scroll) scroll.innerHTML = '<div class="tx-loading">正在生成预览（' + px + 'px）…</div>';
+        // 凭证图总张数
+        var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
+        setStatus('正在加载凭证图（' + picN + ' 张）…');
+        setSize('字号 ' + px + 'px' + (picN ? ' · 含凭证' : ' · 无凭证'));
+        var t0 = Date.now();
         window.FWTableImg.render(buildImgConfig(pics, fs)).then(function (canvas) {
+          setStatus('正在绘制（已用 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's）…');
           cur = canvas;
           // 以「逻辑宽度」显示（dpr=2 → canvas.width/2），不缩放挤压，字号即屏幕真实大小；过宽容器横向滚动
           canvas.style.width = Math.round(canvas.width / 2) + 'px';
@@ -2531,9 +2539,10 @@
           canvas.style.borderRadius = '8px';
           canvas.style.display = 'block';
           if (scroll) { scroll.innerHTML = ''; scroll.appendChild(canvas); }
+          setSize('字号 ' + px + 'px · 导出 ' + canvas.width + '×' + canvas.height);
         }).catch(function (err) {
           console.error('[导出图片预览] render 失败：', err);
-          if (scroll) scroll.innerHTML = '<div class="tx-loading">预览生成失败：' + (err && err.message ? err.message : err) + '</div>';
+          if (scroll) scroll.innerHTML = '<div class="tx-loading" style="color:#C8102E;">预览生成失败：' + (err && err.message ? err.message : err) + '<br><span style="font-size:12px;color:var(--muted);">已用 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's，可按 F12 看 console</span></div>';
         });
       }
       var range = body.querySelector('#picSizeRange');
@@ -2549,7 +2558,7 @@
           FW.toast('已导出图片（' + n + ' 笔' + (picN ? '，含 ' + picN + ' 张凭证图' : '') + '）');
         } catch (e) {
           console.error('[导出图片] 下载失败：', e);
-          FW.toast('导出失败：' + (e && e.message ? e.message : e));
+          FW.toast('导出失败：' + (e && err.message ? err.message : e));
         }
         FW.closeModal();
       };
@@ -2567,9 +2576,16 @@
   function shrinkPhotoForXlsx(dataUrl) {
     return new Promise(function (res) {
       var im = new Image();
+      var done = false;
+      function finish(v) { if (done) return; done = true; clearTimeout(tmo); res(v); }
+      // 兜底超时：部分图（HEIC/损坏 JPEG）在浏览器里 onload/onerror 都不触发
+      var tmo = setTimeout(function () {
+        console.warn('[shrinkPhotoForXlsx] 凭证原图加载超时 8s,跳过');
+        finish(null);
+      }, 8000);
       im.onload = function () {
         var w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
-        if (!w || !h) { res(null); return; }
+        if (!w || !h) { finish(null); return; }
         var sc = Math.min(1, XPIC_STORE_MAX / Math.max(w, h));
         var cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc));
         try {
@@ -2578,11 +2594,17 @@
           var ctx = cv.getContext('2d');
           ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch); // 透明 PNG 转 JPEG 会发黑，先铺白底
           ctx.drawImage(im, 0, 0, cw, ch);
-          res({ dataUrl: cv.toDataURL('image/jpeg', 0.82), w: w, h: h });
-        } catch (e) { res(null); }
+          finish({ dataUrl: cv.toDataURL('image/jpeg', 0.82), w: w, h: h });
+        } catch (e) {
+          console.warn('[shrinkPhotoForXlsx] 绘制/导出失败:', e);
+          finish(null);
+        }
       };
-      im.onerror = function () { res(null); };
-      im.src = dataUrl;
+      im.onerror = function () { finish(null); };
+      try { im.src = dataUrl; } catch (e) {
+        console.warn('[shrinkPhotoForXlsx] 赋值 src 抛异常:', e);
+        finish(null);
+      }
     });
   }
 
