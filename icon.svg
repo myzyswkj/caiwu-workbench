@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0B1A2E"/>
+  <rect x="14" y="14" width="484" height="484" rx="100" fill="none" stroke="#C9A227" stroke-width="3" opacity="0.45"/>
+  <text x="256" y="252" font-family="-apple-system, 'Microsoft YaHei', 'PingFang SC', sans-serif" font-size="300" font-weight="700" fill="#C9A227" text-anchor="middle" dominant-baseline="central">财</text>
+</svg>

@@ -1,0 +1,16 @@
+{
+  "name": "财务工作台",
+  "short_name": "财务",
+  "description": "纯静态离线财务记账工作台：记账、报税、发票、工资、项目核算、导出报表。",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B1A2E",
+  "theme_color": "#0B1A2E",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
