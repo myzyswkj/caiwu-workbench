@@ -1789,7 +1789,7 @@
       return '<input class="alloc-proj" data-i="' + i + '" value="' + FW.esc(a.project) + '" placeholder="项目名">';
     }
     var opts = '<option value="">（不选）</option>' + existing.map(function (p) {
-      return '<option' + (p === a.project ? ' selected' : '') + '>' + FW.esc(p) + '</option>';
+      return '<option value="' + FW.esc(p) + '"' + (p === a.project ? ' selected' : '') + '>' + FW.esc(p) + '</option>';
     }).join('') + '<option value="__NEW__">＋ 新建项目…</option>';
     return '<select class="alloc-proj" data-i="' + i + '">' + opts + '</select>';
   }
@@ -1858,6 +1858,10 @@
           if (inp.value === '__NEW__') { swapToNewProject(inp); return; }
           allocDraft[+inp.dataset.i].project = inp.value;
           updateAllocTotal();
+          // 自动定位到金额框，让用户接着输金额——避免「选了下拉却感觉没反应」
+          var row = inp.closest && inp.closest('.alloc-row');
+          var amt = row && row.querySelector && row.querySelector('.alloc-amt');
+          if (amt) { amt.focus(); try { amt.select(); } catch (_) {} }
         }
       };
     }
