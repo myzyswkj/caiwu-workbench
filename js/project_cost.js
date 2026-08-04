@@ -26,6 +26,34 @@
   // 完整分类路径（保留 "一级 / 二级" 用于下钻）
   function catFull(t) { return (t.category || '').trim() || '其他 / 其他'; }
 
+  // 把一笔「合计支出 / 退款」按 allocations 拆成各项目应承担额（纯函数，便于测试与外部复用）。
+  // 返回 [{project, amount}] 或 null（无有效分摊 → 走单项目逻辑）。
+  // 规则：仅保留「有项目名且金额>0」的有效行；有效行金额合计 <= 本笔金额时，余差（含无效行金额）归到最后一项；
+  //       合计 > 本笔金额时，按比例缩放回本笔金额（避免超额分摊）。保证全部分摊完，总额 = 本笔金额。
+  function splitAmounts(t) {
+    var alloc = t && t.allocations;
+    if (!alloc || !alloc.length) return null;
+    var total = num(t.amount);
+    if (total <= 0) return null;
+    var valid = [];
+    alloc.forEach(function (a) {
+      var p = (a.project || '').trim();
+      var amt = Math.max(0, num(a.amount));
+      if (p && amt > 0) valid.push({ project: p, amount: amt });
+    });
+    if (!valid.length) return null;
+    var sum = valid.reduce(function (s, x) { return s + x.amount; }, 0);
+    var eff;
+    if (sum <= total) {
+      eff = valid.map(function (x) { return x.amount; });
+      eff[eff.length - 1] += (total - sum);                 // 余差（含无效行金额）归末项
+      if (eff[eff.length - 1] < 0) eff[eff.length - 1] = 0;  // 极端超额截断
+    } else {
+      eff = valid.map(function (x) { return total * x.amount / sum; }); // 超分：按比例缩放
+    }
+    return valid.map(function (x, i) { return { project: x.project, amount: eff[i] }; });
+  }
+
   // 把一条工资记录拆成 {project, type, amount} 明细（type: base/bonus/commission；兼容新旧数据）
   function salaryComps(r) {
     var out = [];
@@ -72,9 +100,25 @@
 
     // 流水：收入 / 支出（仅统计带项目的流水；不带项目的进入未分配）
     txs.forEach(function (t) {
+      var dv = (t.type === 'income' && num(t.deduct) > 0) ? num(t.deduct) : 0; // 已扣支出（代付/代扣）
+      // ===== 费用分摊：一笔合计支出 / 退款按 allocations 拆分到多个项目 =====
+      if (t.type === 'expense' || t.type === 'refund') {
+        var split = splitAmounts(t);
+        if (split) {
+          var sgn = t.type === 'refund' ? -1 : 1;
+          split.forEach(function (s) {
+            var d = ensure(s.project);
+            var a2 = s.amount * sgn;
+            d.flowCost += a2;
+            var c = cat1(t), cf = catFull(t);
+            d.byCat[c] = (d.byCat[c] || 0) + a2;
+            d.byCat2[cf] = (d.byCat2[cf] || 0) + a2;
+          });
+          return; // 已按分摊分发，不再走单项目分支（也不计未分配）
+        }
+      }
       var p = (t.project || '').trim();
       var a = num(t.amount);
-      var dv = (t.type === 'income' && num(t.deduct) > 0) ? num(t.deduct) : 0; // 已扣支出（代付/代扣）
       if (!p) { unFlowCount++; unFlowAmt += (a + dv); return; }
       var d = ensure(p);
       if (t.type === 'income') {
@@ -158,8 +202,17 @@
     var mMap = {};
     function mEnsure(k) { if (!mMap[k]) mMap[k] = { rev: 0, cost: 0 }; return mMap[k]; }
     txs.forEach(function (t) {
-      var p = (t.project || '').trim(); if (!p) return;
       var k = (t.date || '').slice(0, 7); if (k.length < 7) return;
+      // 费用分摊：支出 / 退款按 allocations 拆分到各项目的月度成本
+      if (t.type === 'expense' || t.type === 'refund') {
+        var split = splitAmounts(t);
+        if (split) {
+          var sgn = t.type === 'refund' ? -1 : 1;
+          split.forEach(function (s) { mEnsure(k).cost += s.amount * sgn; });
+          return;
+        }
+      }
+      var p = (t.project || '').trim(); if (!p) return;
       var d = mEnsure(k);
       if (t.type === 'income') d.rev += num(t.amount);
       else if (t.type === 'expense') d.cost += num(t.amount);
@@ -805,7 +858,7 @@
     });
   }
 
-  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct };
+  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct, splitAmounts: splitAmounts };
 
   FW.modules = FW.modules || {};
   FW.modules.projectCost = { title: '项目核算', render: render };

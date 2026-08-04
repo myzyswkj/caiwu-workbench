@@ -209,5 +209,36 @@ ok('成本率 剔除「工资成本」cost = 总成本-工资 = 48000', C.costRa
 ok('合计成本率(默认) = 总成本/收入（70000/100000=70%）', approx(C.totalCostRatePct({ tot: { revenue: 100000, totalCost: 70000, laborCost: 22000 }, catTot: { '办公费': 30000 }, cat2Tot: {} }), 70));
 ok('成本率表头默认文案 = 成本率(总成本)', C.costRateLabel() === '成本率(总成本)');
 
+console.log('--- 8) 费用分摊 splitAmounts（纯函数） ---');
+ok('splitAmounts 比例正确 A=6000 B=4000', (function () { var s = C.splitAmounts({ amount: 10000, allocations: [{ project: 'A', amount: 6000 }, { project: 'B', amount: 4000 }] }); return s.length === 2 && approx(s[0].amount, 6000) && approx(s[1].amount, 4000) && s[0].project === 'A'; })());
+ok('splitAmounts 余差归末项（A4000+B3500→B=6000）', (function () { var s = C.splitAmounts({ amount: 10000, allocations: [{ project: 'A', amount: 4000 }, { project: 'B', amount: 3500 }] }); return s.length === 2 && approx(s[1].amount, 6000); })());
+ok('splitAmounts 超分按比例缩放（A8000+B4000→A=6666.67 B=3333.33）', (function () { var s = C.splitAmounts({ amount: 10000, allocations: [{ project: 'A', amount: 8000 }, { project: 'B', amount: 4000 }] }); return approx(s[0].amount, 10000 * 8000 / 12000) && approx(s[1].amount, 10000 * 4000 / 12000); })());
+ok('splitAmounts 无 allocations → null', C.splitAmounts({ amount: 100 }) === null);
+ok('splitAmounts 空项目/0金额行被剔除（余下 B 吸收全部）', (function () { var s = C.splitAmounts({ amount: 1000, allocations: [{ project: '', amount: 600 }, { project: 'B', amount: 400 }] }); return s.length === 1 && s[0].project === 'B' && approx(s[0].amount, 1000); })());
+ok('splitAmounts 负/0 本金 → null', C.splitAmounts({ amount: 0, allocations: [{ project: 'A', amount: 1 }] }) === null);
+
+console.log('--- 9) 项目核算：合计支出按 allocations 拆分到多项目 ---');
+var _backupInternal = store['internal'];
+store['internal'] = [
+  { date: '2026-03-01', type: 'expense', amount: 10000, category: '材料费', allocations: [{ project: '项目A', amount: 4000 }, { project: '项目B', amount: 3500 }, { project: '项目C', amount: 2500 }] },
+  { date: '2026-03-02', type: 'expense', amount: 10000, category: '材料费', allocations: [{ project: '项目A', amount: 4000 }, { project: '项目B', amount: 3500 }] }, // 余差2500归末项→B=6000
+  { date: '2026-03-03', type: 'expense', amount: 10000, category: '材料费', allocations: [{ project: '项目A', amount: 8000 }, { project: '项目B', amount: 4000 }] }, // 超分→按比例
+  { date: '2026-03-04', type: 'refund', amount: 2000, category: '材料费', allocations: [{ project: '项目A', amount: 1200 }, { project: '项目B', amount: 800 }] },
+  { date: '2026-04-01', type: 'expense', amount: 500 } // 无项目无分摊 → 未分配
+];
+var da = C.compute('all');
+var Aa = da.rows.filter(function (r) { return r.project === '项目A'; })[0];
+var Ba = da.rows.filter(function (r) { return r.project === '项目B'; })[0];
+var Ca = da.rows.filter(function (r) { return r.project === '项目C'; })[0];
+ok('分摊：项目A 流水成本 = 4000+4000+6666.67-1200 = 13466.67', Aa && approx(Aa.flowCost, 4000 + 4000 + 10000 * 8000 / 12000 - 1200));
+ok('分摊：项目B 流水成本 = 3500+6000+3333.33-800 = 12033.33', Ba && approx(Ba.flowCost, 3500 + 6000 + 10000 * 4000 / 12000 - 800));
+ok('分摊：项目C 流水成本 = 2500（仅首笔）', Ca && approx(Ca.flowCost, 2500));
+ok('分摊：项目A 材料费分类成本 = 13466.67（按分摊同步拆分）', Aa && approx(Aa.byCat['材料费'], 4000 + 4000 + 10000 * 8000 / 12000 - 1200));
+ok('分摊：三项目流水成本合计 = 28000（30000支出-2000退款，全部分摊完）', approx(Aa.flowCost + Ba.flowCost + Ca.flowCost, 30000 - 2000));
+ok('分摊：未分配流水仅 1 笔、500 元（分摊交易不计未分配，虽 project 为空）', da.unalloc.flowCount === 1 && approx(da.unalloc.flowAmt, 500));
+ok('分摊：月度 2026-03 成本 = 28000（分摊落到各项目月份）', (function () { var i = da.monthly.labels.indexOf('2026-03'); return i >= 0 && approx(da.monthly.cost[i], 28000); })());
+ok('分摊：月度趋势不含 2026-04（无项目无分摊的未分配支出不计入月度趋势，与原有逻辑一致）', da.monthly.labels.indexOf('2026-04') === -1);
+store['internal'] = _backupInternal;
+
 console.log('\n项目核算 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);

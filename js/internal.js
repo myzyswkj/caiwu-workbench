@@ -89,7 +89,10 @@
   function all() { return FW.db.getList(KEY).sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); }); }
   function projects() {
     var set = {};
-    FW.db.getList(KEY).forEach(function (t) { if (t.project) set[t.project] = 1; });
+    FW.db.getList(KEY).forEach(function (t) {
+      if (t.project) set[t.project] = 1;
+      (t.allocations || []).forEach(function (a) { if (a.project) set[a.project] = 1; });
+    });
     return Object.keys(set);
   }
 
@@ -125,7 +128,7 @@
       if (f.type && t.type !== f.type) return false;
       if (f.from && t.date < f.from) return false;
       if (f.to && t.date > f.to) return false;
-      if (f.kw && ((t.remark || '') + (t.project || '') + (t.category || '')).indexOf(f.kw) < 0) return false;
+      if (f.kw && ((t.remark || '') + (txProjectText(t)) + (t.category || '')).indexOf(f.kw) < 0) return false;
       return true;
     });
   }
@@ -499,7 +502,7 @@
       return '<tr>' + selTd +
         '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
         '<td>' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
-        '<td>' + FW.esc(t.project || '—') + '</td>' +
+        '<td>' + txProjectLabel(t) + '</td>' +
         '<td>' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td>' + FW.esc(acctTxt) + '</td>' +
         '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
@@ -540,7 +543,7 @@
   function drawStat() {
     var from = state.statFrom, to = state.statTo;
     var rowsIn = all().filter(function (t) { return inRange(t, from, to); });
-    var byProj = groupSum(rowsIn, function (t) { return t.project || '未分类项目'; });
+    var byProj = projAgg(rowsIn);
     var byMonth = groupSum(rowsIn, function (t) { return t.date.slice(0, 7); });
     var byDay = groupSum(rowsIn, function (t) { return t.date; });
     var byCat = groupSum(rowsIn, function (t) { return t.category || '其他'; });
@@ -831,7 +834,7 @@
       return '<tr>' +
         '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
         '<td><span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div></td>' +
-        '<td>' + FW.esc(t.project || '—') + '</td>' +
+        '<td>' + txProjectLabel(t) + '</td>' +
         '<td>' + detail + '</td>' +
         '<td class="num neutral">' + FW.fmtMoney(t.amount) + '</td>' +
         '<td>' + FW.esc(t.remark || '') + '</td>' +
@@ -1161,16 +1164,17 @@
           '<input id="f_deduct" type="number" step="0.01" min="0" value="' + FW.esc(v.deduct || '') + '" placeholder="如本笔收入是扣除支出后的净额，填被扣除的金额">' +
           '<div class="muted" style="font-size:12px;margin-top:4px">填了之后：实际收入 = 本笔金额 + 此处；该扣除额会计入<b>项目成本</b>（只计一次），对账/到账金额仍按本笔金额。用于修正「收入按净额记导致利润率失真」。</div></div>';
       }
-      el.innerHTML =
-        '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select></div>' +
-        '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a></div>' +
-        '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
-        deductField;
-      var c1sel = document.getElementById('f_cat1');
-      if (c1sel) c1sel.onchange = function () { document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); };
-      var mg = document.getElementById('mgCats');
-      if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
-    }
+        el.innerHTML =
+          '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select></div>' +
+          '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a></div>' +
+          '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
+          deductField + allocBoxHtml();
+        var c1sel = document.getElementById('f_cat1');
+        if (c1sel) c1sel.onchange = function () { document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); };
+        var mg = document.getElementById('mgCats');
+        if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
+        if (type === 'expense' || type === 'refund') bindAllocBox();
+      }
   }
 
   /* ===================== 批量导入（微信账单 / 表格） ===================== */
@@ -1644,7 +1648,7 @@
     var unrecBook = recon.bookOnly.length ? '<div class="card" style="margin-bottom:14px">' +
       '<h3>内账已记录、银行未记录 <span class="sub">银行未达账项（在途/未到账）</span></h3>' +
       '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th class="num">金额</th></tr></thead><tbody>' +
-      recon.bookOnly.map(function (t) { return '<tr><td>' + FW.esc(t.date) + '</td><td>' + (t.type === 'income' ? '收入' : t.type === 'refund' ? '退款收入' : '支出') + '</td><td>' + FW.esc(t.project || '—') + '</td><td class="num ' + (t.type === 'income' ? 'income' : t.type === 'refund' ? 'refund' : 'expense') + '">' + FW.fmtMoney(t.amount) + '</td></tr>'; }).join('') +
+      recon.bookOnly.map(function (t) { return '<tr><td>' + FW.esc(t.date) + '</td><td>' + (t.type === 'income' ? '收入' : t.type === 'refund' ? '退款收入' : '支出') + '</td><td>' + txProjectLabel(t) + '</td><td class="num ' + (t.type === 'income' ? 'income' : t.type === 'refund' ? 'refund' : 'expense') + '">' + FW.fmtMoney(t.amount) + '</td></tr>'; }).join('') +
       '</tbody></table></div>' : '';
 
     var matchedHtml = recon.matched.length ? '<div class="card">' +
@@ -1756,15 +1760,117 @@
     bindReconcileActions();
   }
 
+  /* ---------- 费用分摊（一笔支出归属多个项目） ---------- */
+  // 表单草稿：每一行 { project, amount }
+  var allocDraft = [];
+
+  function allocBoxHtml() {
+    var rows = allocDraft.map(function (a, i) {
+      return '<div class="alloc-row" data-i="' + i + '">' +
+        '<input class="alloc-proj" list="projList" data-i="' + i + '" value="' + FW.esc(a.project || '') + '" placeholder="项目名">' +
+        '<input class="alloc-amt" type="number" step="0.01" min="0" data-i="' + i + '" value="' + (a.amount === '' || a.amount == null ? '' : a.amount) + '" placeholder="金额">' +
+        '<button type="button" class="btn ghost sm alloc-del" data-i="' + i + '" title="删除此行">✕</button>' +
+        '</div>';
+    }).join('');
+    return '<div class="alloc-box">' +
+      '<div class="alloc-head">⊞ 费用分摊（一笔支出需归属多个项目时填写）</div>' +
+      '<div class="muted" style="font-size:12px;margin:2px 0 6px">填写后，上方「项目」将被忽略，本笔金额按下列各项目分配；各项目金额合计须等于本笔金额。</div>' +
+      '<div id="allocRows">' + rows + '</div>' +
+      '<button type="button" class="btn ghost sm alloc-add" id="allocAdd">＋ 添加分摊行</button>' +
+      '<div class="alloc-total" id="allocTotal"></div>' +
+      '</div>';
+  }
+
+  function refreshAlloc() {
+    var box = document.getElementById('allocRows');
+    if (!box) return;
+    box.innerHTML = allocDraft.map(function (a, i) {
+      return '<div class="alloc-row" data-i="' + i + '">' +
+        '<input class="alloc-proj" list="projList" data-i="' + i + '" value="' + FW.esc(a.project || '') + '" placeholder="项目名">' +
+        '<input class="alloc-amt" type="number" step="0.01" min="0" data-i="' + i + '" value="' + (a.amount === '' || a.amount == null ? '' : a.amount) + '" placeholder="金额">' +
+        '<button type="button" class="btn ghost sm alloc-del" data-i="' + i + '" title="删除此行">✕</button>' +
+        '</div>';
+    }).join('');
+    updateAllocTotal();
+  }
+
+  function updateAllocTotal() {
+    var totEl = document.getElementById('allocTotal');
+    if (!totEl) return;
+    var amtEl = document.getElementById('f_amount');
+    var total = parseFloat(amtEl ? amtEl.value : '') || 0;
+    var sum = allocDraft.reduce(function (s, a) { return s + (parseFloat(a.amount) || 0); }, 0);
+    var diff = sum - total;
+    var okEq = Math.abs(diff) < 0.01;
+    totEl.innerHTML = '本笔金额 <b>' + FW.fmtMoney(total) + '</b> ｜ 已分摊合计 <b>' + FW.fmtMoney(sum) + '</b> ' +
+      (allocDraft.length ? (okEq ? '<span class="alloc-ok">✓ 已平衡</span>' : '<span class="alloc-warn">差额 ' + FW.fmtMoney(diff) + '</span>') : '');
+  }
+
+  function bindAllocBox() {
+    var addBtn = document.getElementById('allocAdd');
+    if (addBtn) addBtn.onclick = function () { allocDraft.push({ project: '', amount: '' }); refreshAlloc(); };
+    var rowsEl = document.getElementById('allocRows');
+    if (rowsEl) {
+      rowsEl.onclick = function (e) {
+        var del = e.target.closest && e.target.closest('.alloc-del');
+        if (del) { allocDraft.splice(+del.dataset.i, 1); refreshAlloc(); }
+      };
+      rowsEl.oninput = function (e) {
+        var inp = e.target;
+        if (inp.classList.contains('alloc-proj')) allocDraft[+inp.dataset.i].project = inp.value;
+        else if (inp.classList.contains('alloc-amt')) allocDraft[+inp.dataset.i].amount = (inp.value === '' ? '' : parseFloat(inp.value));
+        updateAllocTotal();
+      };
+    }
+  }
+
+  // 流水列表 / 打印中的「项目」列：分摊交易显示 ⊞ 标记 + 各项目名（悬停看金额）
+  function txProjectLabel(t) {
+    var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
+    if (!items.length) return FW.esc(t.project || '—');
+    var names = items.map(function (a) { return (a.project || '').trim(); });
+    var shown = names.slice(0, 2).join('/');
+    if (names.length > 2) shown += '…(' + names.length + ')';
+    var tip = '已分摊：' + items.map(function (a) { return (a.project || '') + ' ' + FW.fmtMoney(Number(a.amount) || 0); }).join('；');
+    return '<span class="alloc-tag" title="' + FW.esc(tip) + '">⊞ ' + FW.esc(shown) + '</span>';
+  }
+  function txProjectText(t) {
+    var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
+    if (!items.length) return txProjectText(t);
+    return items.map(function (a) { return (a.project || '').trim(); }).join('/');
+  }
+
+  // 项目统计（按项目汇总收支）：支出 / 退款按 allocations 拆分
+  function projAgg(rows) {
+    var map = {};
+    function add(k, inc, exp) {
+      if (!map[k]) map[k] = { income: 0, expense: 0 };
+      if (inc) map[k].income += inc;
+      if (exp) map[k].expense += exp;
+    }
+    (rows || []).forEach(function (t) {
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
+      var sign = (t.type === 'refund') ? -1 : 1;
+      var alloc = (t.type !== 'income' && FW.projectCostCalc && FW.projectCostCalc.splitAmounts) ? FW.projectCostCalc.splitAmounts(t) : null;
+      if (alloc) {
+        alloc.forEach(function (s) { add(s.project || '未分类项目', 0, s.amount * sign); });
+      } else {
+        add(t.project || '未分类项目', (t.type === 'income' ? Number(t.amount) : 0), (t.type === 'income' ? 0 : Number(t.amount) * sign));
+      }
+    });
+    return map;
+  }
+
   /* ---------- 新增 / 编辑 表单 ---------- */
   function openForm(id) {
     var edit = id ? FW.db.getById(KEY, id) : null;
+    allocDraft = (edit && edit.allocations && edit.allocations.length) ? edit.allocations.map(function (a) { return { project: (a.project || '').trim(), amount: (a.amount == null ? '' : a.amount) }; }) : [];
     var projList = projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
     var v = { date: FW.today(), type: 'expense', cat1: DEFAULT_CATS[0], cat2: '', account: ACCTS[0], amount: '', remark: '', project: '', party: '', reimburser: '', photos: [],
       fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
     if (edit) {
       v = { date: edit.date || FW.today(), type: edit.type || 'expense', cat1: '', cat2: '', account: edit.account || ACCTS[0],
-        amount: edit.amount, remark: edit.remark || '', project: edit.project || '', party: edit.party || '', reimburser: edit.reimburser || '', photos: edit.photos || [],
+        amount: edit.amount, remark: edit.remark || '', project: editxProjectText(t), party: edit.party || '', reimburser: edit.reimburser || '', photos: edit.photos || [],
         fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
       if (edit.category) { var parts = edit.category.split(' / '); v.cat1 = parts[0]; v.cat2 = parts[1] || ''; }
       if (edit.type === 'transfer') { v.fromAccount = edit.fromAccount || ACCTS[0]; v.toAccount = edit.toAccount || (ACCTS[1] || ACCTS[0]); }
@@ -1795,6 +1901,9 @@
       var typeSel = document.getElementById('f_type');
       renderDyn(typeSel.value, v);
       typeSel.onchange = function () { renderDyn(this.value, v); };
+      var amtEl = document.getElementById('f_amount');
+      if (amtEl) amtEl.oninput = updateAllocTotal;
+      updateAllocTotal();
       renderPhotoGrid(photos);
       var unbind = bindPaste(photos);
       document.getElementById('txCancel').onclick = function () { unbind(); FW.closeModal(); };
@@ -1830,6 +1939,16 @@
         } else if (type === 'equity') {
           rec.equityDir = document.getElementById('f_edir').value;
           rec.account = document.getElementById('f_account').value;
+        }
+        // ===== 费用分摊：支出 / 退款可拆分到多个项目 =====
+        if (type === 'expense' || type === 'refund') {
+          var valid = allocDraft.filter(function (a) { return (a.project || '').trim() && (parseFloat(a.amount) || 0) > 0; });
+          if (valid.length) {
+            var validSum = valid.reduce(function (s, a) { return s + parseFloat(a.amount); }, 0);
+            if (Math.abs(validSum - amount) > 0.01) { FW.toast('分摊金额合计(' + FW.fmtMoney(validSum) + ')需等于本笔金额(' + FW.fmtMoney(amount) + ')'); return; }
+            rec.project = '';
+            rec.allocations = valid.map(function (a) { return { project: (a.project || '').trim(), amount: parseFloat(a.amount) }; });
+          }
         }
         unbind();
         FW.db.upsert(KEY, rec);
@@ -2173,7 +2292,7 @@
     var head = ['日期', '类型', '项目', '分类', '账户', '金额', '已扣支出', '实际收入', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
     var data = rows.map(function (t) {
       var dv = (t.type === 'income' && t.deduct > 0) ? t.deduct : 0;
-      return [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), t.amount, dv, dv ? (t.amount + dv) : '', (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'];
+      return [t.date, typeLabel(t), txProjectText(t), t.category || '', accountOf(t), t.amount, dv, dv ? (t.amount + dv) : '', (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
@@ -2213,7 +2332,7 @@
       if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) { cls = 'income'; sign = '+'; }
       else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) { cls = 'expense'; sign = '−'; }
       return {
-        cells: [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), sign + FW.fmtMoney(a), t.party || '', t.reimburser || '', (t.remark || '').replace(/[\r\n]+/g, ' '), ''],
+        cells: [t.date, typeLabel(t), txProjectText(t), t.category || '', accountOf(t), sign + FW.fmtMoney(a), t.party || '', t.reimburser || '', (t.remark || '').replace(/[\r\n]+/g, ' '), ''],
         amountCls: cls
       };
     });
@@ -2392,7 +2511,7 @@
       if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) sumInc += amt;
       else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) sumExp += amt;
       var line = [
-        t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), amt, dv, dv ? (t.amount + dv) : '',
+        t.date, typeLabel(t), txProjectText(t), t.category || '', accountOf(t), amt, dv, dv ? (t.amount + dv) : '',
         (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '',
         (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'
       ];
@@ -2517,7 +2636,7 @@
             '<span class="fp-vn">' + (np ? np + ' 张' : '—') + '</span>' +
             '<span class="fp-vbox">' + (np ? '<span class="fp-vload">加载中…</span>' : '<span class="fp-vnone">—</span>') + '</span>' +
           '</td>';
-          return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + FW.esc(t.project || '') + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td class="fp-rb">' + FW.esc(t.reimburser || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>' + vcell + '</tr>';
+          return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + txProjectLabel(t) + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td class="fp-rb">' + FW.esc(t.reimburser || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>' + vcell + '</tr>';
         }).join('') +
         '</tbody></table>' +
       '</div>' +

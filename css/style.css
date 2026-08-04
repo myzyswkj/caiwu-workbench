@@ -1060,3 +1060,18 @@ td.photo-cell { vertical-align: top; }
 .ver-log-type.type-import { background: #1f9d55; }
 .ver-log-ts { flex: 0 0 150px; color: #6B7A70; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .ver-log-detail { color: #3A4A42; }
+
+/* ===== 费用分摊（一笔支出归属多个项目） ===== */
+.alloc-box { grid-column: 1 / -1; border: 1px solid var(--border); border-left: 4px solid var(--gold); border-radius: 10px; background: var(--gold-soft); padding: 12px 14px; margin-top: 4px; }
+.alloc-head { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.alloc-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.alloc-row .alloc-proj { flex: 1 1 auto; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; background: #fff; }
+.alloc-row .alloc-amt { width: 130px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; background: #fff; text-align: right; }
+.alloc-row .alloc-del { flex: 0 0 auto; }
+.alloc-row .alloc-proj:focus, .alloc-row .alloc-amt:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.alloc-total { margin-top: 8px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.alloc-total b { color: var(--text); font-weight: 600; }
+.alloc-ok { color: var(--expense); font-weight: 600; margin-left: 8px; }
+.alloc-warn { color: var(--income); font-weight: 600; margin-left: 8px; }
+.alloc-tag { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold); white-space: nowrap; cursor: default; }
+.alloc-tag:hover { background: var(--gold); color: #fff; }
