@@ -157,10 +157,10 @@ ok('filterRows 默认返回全部 6 笔', (function () {
   var r = FILTER({});
   return r.length === 6;
 })());
-ok('filterRows(noAlloc=true) 返回未分摊的 u1/u2/t_plain（共 3 笔，含单项目未分摊）', (function () {
+ok('filterRows(noAlloc=true) 返回未分摊的 u1/u2（共 2 笔，单项目 t_plain 已排除）', (function () {
   var r = FILTER({ noAlloc: true });
   var ids = r.map(function (t) { return t.id; }).sort();
-  return r.length === 3 && ids[0] === 't_plain' && ids[1] === 'u1' && ids[2] === 'u2';
+  return r.length === 2 && ids[0] === 'u1' && ids[1] === 'u2';
 })());
 ok('filterRows(noAlloc=true) 排除已分摊(a1)与互转(u3)', (function () {
   var r = FILTER({ noAlloc: true });

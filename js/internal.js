@@ -132,7 +132,8 @@
       if (f.noAlloc) {
         var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
         var hasAlloc = !!(t.allocations && t.allocations.length);
-        if (!allocatable || hasAlloc) return false; // 只保留「应收分摊却没分摊」的收支/退款
+        var hasProject = !!(t.project && String(t.project).trim());
+        if (!allocatable || hasAlloc || hasProject) return false; // 只保留「连单项目都没挂、又没做分摊」的收支/退款
       }
       return true;
     });
