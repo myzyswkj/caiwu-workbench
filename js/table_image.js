@@ -191,6 +191,22 @@
       try {
         config = config || {};
         var scale = config.scale || 2;
+        // 跟随当前主题：读取 CSS 变量覆盖默认色（主题改了图片导出也跟着变，避免写死错位）
+        try {
+          if (typeof document !== 'undefined' && document.documentElement) {
+            var cs = getComputedStyle(document.documentElement);
+            if (cs) {
+              var pick = function (name, fb) { var val = (cs.getPropertyValue(name) || '').trim(); return val || fb; };
+              C.headerBg = pick('--sidebar-bg', C.headerBg);
+              C.income = pick('--income', C.income);
+              C.expense = pick('--expense', C.expense);
+              C.border = pick('--border', C.border);
+              C.muted = pick('--muted', C.muted);
+              C.text = pick('--text', C.text);
+              C.rowAlt = pick('--bg', C.rowAlt);
+            }
+          }
+        } catch (e) { /* 取色失败则用默认色 */ }
         // 预加载凭证图（dataURL / blobURL），得到带自然尺寸的图片对象
         var picsCfg = config.pics || {};
         var rowIdxs = Object.keys(picsCfg);
