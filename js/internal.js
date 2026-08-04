@@ -1168,14 +1168,14 @@
     var el = document.getElementById('dynArea');
     if (type === 'transfer') {
       el.innerHTML =
-        '<div class="section-title">账户互转</div>' +
+        '<div class="tx-title">账户互转</div>' +
         '<div class="form-grid">' +
           '<div class="field"><label>源账户</label><select id="f_from">' + accOpts(v.fromAccount) + '</select></div>' +
           '<div class="field"><label>目标账户</label><select id="f_to">' + accOpts(v.toAccount) + '</select></div>' +
         '</div>';
     } else if (type === 'equity') {
       el.innerHTML =
-        '<div class="section-title">股本资金</div>' +
+        '<div class="tx-title">股本资金</div>' +
         '<div class="form-grid">' +
           '<div class="field"><label>方向</label><select id="f_edir"><option value="in" ' + (v.equityDir !== 'out' ? 'selected' : '') + '>股本注入（增加）</option><option value="out" ' + (v.equityDir === 'out' ? 'selected' : '') + '>股本抽回（减少）</option></select></div>' +
           '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
@@ -1189,7 +1189,7 @@
           '<div class="muted" style="font-size:12px;margin-top:4px">填了之后：实际收入 = 本笔金额 + 此处；该扣除额会计入<b>项目成本</b>（只计一次），对账/到账金额仍按本笔金额。用于修正「收入按净额记导致利润率失真」。</div></div>';
       }
       el.innerHTML =
-        '<div class="section-title">核算维度</div>' +
+        '<div class="tx-title">核算维度</div>' +
         '<div class="form-grid">' +
           '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select></div>' +
           '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a></div>' +
@@ -1945,7 +1945,7 @@
     var body =
       '<div class="tx-form">' +
         // —— 基础信息 ——
-        '<div class="form-section">' +
+        '<div class="tx-section">' +
           '<div class="form-grid">' +
             '<div class="field"><label>日期</label><input id="f_date" type="date" value="' + FW.esc(v.date) + '"></div>' +
             '<div class="field"><label>类型</label><select id="f_type">' +
@@ -1958,8 +1958,8 @@
           '</div>' +
         '</div>' +
         // —— 往来与归属 ——
-        '<div class="form-section">' +
-          '<div class="section-title">往来与归属</div>' +
+        '<div class="tx-section">' +
+          '<div class="tx-title">往来与归属</div>' +
           '<div class="form-grid">' +
             '<div class="field"><label>项目</label><input id="f_project" list="projList" value="' + FW.esc(v.project) + '" placeholder="如：XX项目"><datalist id="projList">' + projList + '</datalist></div>' +
             '<div class="field"><label>对方单位 / 个人</label><input id="f_party" value="' + FW.esc(v.party) + '" placeholder="如：XX公司 / 张三"></div>' +
@@ -1967,18 +1967,18 @@
           '</div>' +
         '</div>' +
         // —— 动态区：分类 / 账户 / 分摊 / 互转 / 股本（由 renderDyn 注入 section 结构）——
-        '<div class="form-section" id="dynArea"></div>' +
+        '<div class="tx-section" id="dynArea"></div>' +
         // —— 金额与备注 ——
-        '<div class="form-section">' +
-          '<div class="section-title">金额与备注</div>' +
+        '<div class="tx-section">' +
+          '<div class="tx-title">金额与备注</div>' +
           '<div class="form-grid">' +
             '<div class="field full"><label>金额（元）</label><input id="f_amount" type="number" step="0.01" min="0" value="' + FW.esc(v.amount) + '"></div>' +
             '<div class="field full"><label>备注</label><textarea id="f_remark" rows="2" placeholder="用途说明">' + FW.esc(v.remark) + '</textarea></div>' +
           '</div>' +
         '</div>' +
         // —— 收付款凭证 ——
-        '<div class="form-section">' +
-          '<div class="section-title">收付款凭证</div>' +
+        '<div class="tx-section">' +
+          '<div class="tx-title">收付款凭证</div>' +
           '<div class="field full"><div class="muted" style="font-size:12px;margin-bottom:4px">可点「＋」选择，也可直接 <b>Ctrl+V 粘贴</b> 或把图片拖到下方</div><div class="photo-grid" id="photoGrid"></div></div>' +
         '</div>' +
       '</div>' +

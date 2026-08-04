@@ -216,10 +216,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-wei
 .row-actions { display: flex; gap: 6px; }
 
 /* 表单：分组区块 + 组内 2 列，块间留白，避免「挤」 */
+/* 注：专用 .tx-section / .tx-title 前缀，避免与项目核算下钻弹窗的 .form-section 冲突覆盖 */
 .tx-form { display: flex; flex-direction: column; }
-.form-section { margin-bottom: 18px; }
-.form-section:last-child { margin-bottom: 0; }
-.section-title { font-size: 13px; font-weight: 600; color: var(--text); margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--gold); line-height: 1.3; }
+.tx-section { margin-bottom: 18px; }
+.tx-section:last-child { margin-bottom: 0; }
+.tx-title { font-size: 13px; font-weight: 600; color: var(--text); margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--gold); line-height: 1.3; }
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field.full { grid-column: 1 / -1; }

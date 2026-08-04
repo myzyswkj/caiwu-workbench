@@ -153,7 +153,7 @@ ok('分摊下拉列出已有项目（项目A 作为 option）', (function () {
 
 // ===== 4b. 表单重排为「分组区块 + 组内 2 列」布局（解决「挤」的观感，防运行期/结构回归）=====
 ok('openForm body 用 .tx-form 分组容器（不再平铺挤在一格）', (function () {
-  try { captured = null; M.openForm(editRecord.id); return /class="tx-form"/.test(captured.body) && captured.body.indexOf('form-section') >= 0; } catch (e) { return false; }
+  try { captured = null; M.openForm(editRecord.id); return /class="tx-form"/.test(captured.body) && captured.body.indexOf('tx-section') >= 0; } catch (e) { return false; }
 })());
 ok('renderDyn(支出) 动态区注入「核算维度」分组标题', (function () {
   try {
@@ -161,7 +161,7 @@ ok('renderDyn(支出) 动态区注入「核算维度」分组标题', (function 
     getEl('f_type').value = 'expense';
     captured.cb();
     var dyn = getEl('dynArea').innerHTML;
-    return dyn.indexOf('section-title') >= 0 && dyn.indexOf('核算维度') >= 0 && dyn.indexOf('alloc-box') >= 0;
+    return dyn.indexOf('tx-title') >= 0 && dyn.indexOf('核算维度') >= 0 && dyn.indexOf('alloc-box') >= 0;
   } catch (e) { return false; }
 })());
 ok('renderDyn(互转) 动态区注入「账户互转」分组标题', (function () {
