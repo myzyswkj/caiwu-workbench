@@ -2491,66 +2491,66 @@
       FW.toast('凭证图片处理失败，已生成不含凭证图的导出');
       promptFontSize({}, n);
     });
-  }
 
-  // 选导出字号 → 直接生成并下载 PNG（不做预览，避免宽表渲染卡顿/卡死）
-  function promptFontSize(pics, n) {
-    var bodyHtml =
-      '<div class="tx-prev">' +
-        '<div class="tx-prev-bar">' +
-          '<label class="tx-size-label">导出字号：' +
-            '<input type="range" id="picSizeRange" min="14" max="48" step="1" value="23">' +
-            '<span id="picSizeVal" class="tx-size-val">23px</span>' +
-          '</label>' +
-          '<span class="muted">（仅影响导出图片，不改原始数据）</span>' +
-          '<span class="tx-prev-spacer"></span>' +
-        '</div>' +
-        '<div class="tx-msg" id="txMsg" style="min-height:18px;margin:4px 0 2px;color:#C8102E;font-size:13px;"></div>' +
-        '<div class="form-actions">' +
-          '<button type="button" class="btn ghost" id="prevCancel">取消</button>' +
-          '<button type="button" class="btn" id="prevDownload">导出 PNG</button>' +
-        '</div>' +
-      '</div>';
-    FW.openModal('导出图片（选择字号）', bodyHtml, function (body) {
-      var range = body.querySelector('#picSizeRange');
-      var valEl = body.querySelector('#picSizeVal');
-      var msg = body.querySelector('#txMsg');
-      var cancel = body.querySelector('#prevCancel');
-      var dl = body.querySelector('#prevDownload');
-      var busy = false;
-      if (range) range.oninput = function () { if (valEl) valEl.textContent = (range.value || 23) + 'px'; };
-      if (cancel) cancel.onclick = FW.closeModal;
-      if (dl) dl.onclick = function () {
-        if (busy) return;
-        var px = parseInt(range ? range.value : '23', 10) || 23;
-        var fs = px / 17;
-        busy = true; if (dl) dl.disabled = true; if (cancel) cancel.disabled = true;
-        if (msg) msg.textContent = '正在生成图片…';
-        // 防御：buildImgConfig / render 任何同步或异步异常都捕获并上屏
-        var cfg;
-        try {
-          cfg = buildImgConfig(pics, fs);
-        } catch (e) {
-          console.error('[导出图片] 构建配置失败：', e);
-          if (msg) msg.textContent = '构建配置失败：' + (e && e.message ? e.message : e);
-          busy = false; if (dl) dl.disabled = false; if (cancel) cancel.disabled = false;
-          return;
-        }
-        Promise.resolve().then(function () {
-          return window.FWTableImg.render(cfg);
-        }).then(function (canvas) {
-          var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
-          var fname = '内账流水' + (picN ? '_含凭证' : '') + '_' + FW.today() + '.png';
-          window.FWTableImg.downloadPNG(canvas, fname);
-          FW.toast('已导出图片（' + n + ' 笔' + (picN ? '，含 ' + picN + ' 张凭证图' : '') + '）');
-          FW.closeModal();
-        }).catch(function (err) {
-          console.error('[导出图片] 渲染/下载失败：', err);
-          if (msg) msg.textContent = '导出失败：' + (err && err.message ? err.message : err) + '（可按 F12 看 console）';
-          busy = false; if (dl) dl.disabled = false; if (cancel) cancel.disabled = false;
-        });
-      };
-    });
+    // 选导出字号 → 直接生成并下载 PNG（不做预览，避免宽表渲染卡顿/卡死）
+    function promptFontSize(pics, n) {
+      var bodyHtml =
+        '<div class="tx-prev">' +
+          '<div class="tx-prev-bar">' +
+            '<label class="tx-size-label">导出字号：' +
+              '<input type="range" id="picSizeRange" min="14" max="48" step="1" value="23">' +
+              '<span id="picSizeVal" class="tx-size-val">23px</span>' +
+            '</label>' +
+            '<span class="muted">（仅影响导出图片，不改原始数据）</span>' +
+            '<span class="tx-prev-spacer"></span>' +
+          '</div>' +
+          '<div class="tx-msg" id="txMsg" style="min-height:18px;margin:4px 0 2px;color:#C8102E;font-size:13px;"></div>' +
+          '<div class="form-actions">' +
+            '<button type="button" class="btn ghost" id="prevCancel">取消</button>' +
+            '<button type="button" class="btn" id="prevDownload">导出 PNG</button>' +
+          '</div>' +
+        '</div>';
+      FW.openModal('导出图片（选择字号）', bodyHtml, function (body) {
+        var range = body.querySelector('#picSizeRange');
+        var valEl = body.querySelector('#picSizeVal');
+        var msg = body.querySelector('#txMsg');
+        var cancel = body.querySelector('#prevCancel');
+        var dl = body.querySelector('#prevDownload');
+        var busy = false;
+        if (range) range.oninput = function () { if (valEl) valEl.textContent = (range.value || 23) + 'px'; };
+        if (cancel) cancel.onclick = FW.closeModal;
+        if (dl) dl.onclick = function () {
+          if (busy) return;
+          var px = parseInt(range ? range.value : '23', 10) || 23;
+          var fs = px / 17;
+          busy = true; if (dl) dl.disabled = true; if (cancel) cancel.disabled = true;
+          if (msg) msg.textContent = '正在生成图片…';
+          // 防御：buildImgConfig / render 任何同步或异步异常都捕获并上屏
+          var cfg;
+          try {
+            cfg = buildImgConfig(pics, fs);
+          } catch (e) {
+            console.error('[导出图片] 构建配置失败：', e);
+            if (msg) msg.textContent = '构建配置失败：' + (e && e.message ? e.message : e);
+            busy = false; if (dl) dl.disabled = false; if (cancel) cancel.disabled = false;
+            return;
+          }
+          Promise.resolve().then(function () {
+            return window.FWTableImg.render(cfg);
+          }).then(function (canvas) {
+            var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
+            var fname = '内账流水' + (picN ? '_含凭证' : '') + '_' + FW.today() + '.png';
+            window.FWTableImg.downloadPNG(canvas, fname);
+            FW.toast('已导出图片（' + n + ' 笔' + (picN ? '，含 ' + picN + ' 张凭证图' : '') + '）');
+            FW.closeModal();
+          }).catch(function (err) {
+            console.error('[导出图片] 渲染/下载失败：', err);
+            if (msg) msg.textContent = '导出失败：' + (err && err.message ? err.message : err) + '（可按 F12 看 console）';
+            busy = false; if (dl) dl.disabled = false; if (cancel) cancel.disabled = false;
+          });
+        };
+      });
+    }
   }
 
   // ===== Excel 凭证图片嵌入 =====
