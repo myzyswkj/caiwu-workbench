@@ -611,6 +611,60 @@ td.photo-cell { vertical-align: top; }
 .flow-print .expense { color: var(--expense); }
 .flow-print .refund { color: #0d9488; }
 .flow-print .neutral { color: var(--muted); }
+
+/* ===== 流水明细页「按账户（收支维度）」小表（界面版） ===== */
+/* 老板视角：每个账户赚了/花了多少 + 互转头寸。随筛选实时重算。 */
+.flow-acc-inline {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 18px;
+  margin-bottom: 14px;
+}
+.flow-acc-head {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  border-left: 3px solid var(--gold);
+  padding-left: 8px;
+  margin: 0 0 10px;
+}
+.flow-acc-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.flow-acc-tbl thead th {
+  background: var(--sidebar-bg);
+  color: #fff;
+  font-weight: 500;
+  padding: 8px 10px;
+  text-align: left;
+}
+.flow-acc-tbl thead th.num { text-align: right; }
+.flow-acc-tbl tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.flow-acc-tbl tbody tr:last-child td { border-bottom: none; }
+.flow-acc-tbl tbody tr:nth-child(even) td { background: #f4f7f5; }
+.flow-acc-tbl tbody tr:hover td { background: #e7efea; }
+.flow-acc-tbl td.num, .flow-acc-tbl th.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.flow-acc-tbl td.num.income { color: var(--income); }
+.flow-acc-tbl td.num.expense { color: var(--expense); }
+.flow-acc-tbl .acc-sum-row td {
+  background: var(--gold-soft) !important;
+  color: var(--text);
+  font-weight: 600;
+  border-top: 2px solid var(--gold);
+}
+.flow-acc-tbl .acc-sum-row td.num { color: var(--text); }
+.flow-acc-tbl .acc-sum-row td.num.income { color: var(--income); }
+.flow-acc-tbl .acc-sum-row td.num.expense { color: var(--expense); }
+.flow-acc-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.5;
+}
 /* 注意：打印工具栏在 .flow-print 容器之外，这里不能加 .flow-print 前缀 */
 .fp-inc { font-size: 13px; color: var(--text); display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
 .fp-tip { margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.6; }

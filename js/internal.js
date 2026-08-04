@@ -397,6 +397,8 @@
     document.getElementById('inBody').innerHTML =
       '<div id="budgetCard">' + budgetBannerHtml() + '</div>' +
       '<div id="txStats" class="stat-row"></div>' +
+      // 「按账户（收支维度）」小表：老板视角（每个账户赚了/花了多少、互转头寸），随筛选实时重算
+      '<div id="accSummary" class="flow-acc-inline"></div>' +
       '<div class="card">' +
       '<div class="toolbar filter-bar">' +
         '<div class="field"><input id="fKw" placeholder="搜索备注/项目" value="' + FW.esc(f.kw) + '"></div>' +
@@ -460,6 +462,9 @@
       '<div class="stat"><div class="label">筛选后结余</div><div class="value">' + FW.fmtMoney(income - netExpense) + '</div></div>' +
       '<div class="stat"><div class="label">笔数</div><div class="value">' + rows.length + '</div></div>';
     document.getElementById('txWrap').innerHTML = rows.length ? tableHtml(rows) : '<div class="empty">没有符合条件的流水，点右上角「新增流水」开始登记。</div>';
+    // 「按账户（收支维度）」小表：随筛选实时重算（与流水表共用 filteredRows 口径）
+    var accEl = document.getElementById('accSummary');
+    if (accEl) accEl.innerHTML = accSummaryHtml(rows);
     FW.qa('#txTable .row-edit').forEach(function (b) { b.onclick = function () { openForm(b.dataset.id); }; });
     FW.qa('#txTable .row-del').forEach(function (b) { b.onclick = function () { delTx(b.dataset.id); }; });
     FW.qa('#txTable .photo-cell img').forEach(function (img) { img.onclick = function () { previewPhoto(img.dataset.pid); }; });
@@ -736,6 +741,47 @@
       el.innerHTML = '<h4 style="margin:4px 0 8px">按分类</h4>' + statTableRows(byCat, '分类') +
         '<h4 style="margin:18px 0 8px">按账户（收支维度）</h4>' + statTableRows(byAcc, '账户', null, true);
     }
+  }
+
+  // 流水明细页的「按账户（收支维度）」小表（界面版，5 列紧凑表：账户/收入/支出/互转/净额）。
+  // 与打印视图 / Excel 导出口径一致（共用 buildAccMap），随筛选实时重算。
+  // 输入：rows = 当前筛选后的流水（filteredRows 口径，含 transfer 互转数据）。
+  // 输出：HTML 字符串；无账户或无数据时返回 ''。
+  function accSummaryHtml(rows) {
+    if (!rows || !rows.length) return '';
+    var accMap = buildAccMap(rows);
+    var keys = Object.keys(accMap);
+    if (!keys.length) return '';
+    // 按「收入+支出+|互转|」降序——与 statTableRows 排序保持一致
+    keys.sort(function (a, b) {
+      var va = accMap[a], vb = accMap[b];
+      return (vb.income + vb.expense + Math.abs(vb.transfer || 0)) - (va.income + va.expense + Math.abs(va.transfer || 0));
+    });
+    function trCls(n) { return n > 0 ? 'income' : (n < 0 ? 'expense' : ''); }
+    var totalIn = 0, totalEx = 0, totalTr = 0, totalNet = 0;
+    var trs = keys.map(function (k) {
+      var v = accMap[k];
+      var tr = v.transfer || 0;
+      var net = v.income - v.expense;
+      totalIn += v.income; totalEx += v.expense; totalTr += tr; totalNet += net;
+      return '<tr>' +
+        '<td>' + FW.esc(k) + '</td>' +
+        '<td class="num income">' + FW.fmtMoney(v.income) + '</td>' +
+        '<td class="num expense">' + FW.fmtMoney(v.expense) + '</td>' +
+        '<td class="num ' + trCls(tr) + '">' + FW.fmtMoney(tr) + '</td>' +
+        '<td class="num ' + (net >= 0 ? 'income' : 'expense') + '"><b>' + FW.fmtMoney(net) + '</b></td>' +
+        '</tr>';
+    }).join('');
+    trs += '<tr class="acc-sum-row">' +
+      '<td>合计（' + keys.length + ' 账户）</td>' +
+      '<td class="num income">' + FW.fmtMoney(totalIn) + '</td>' +
+      '<td class="num expense">' + FW.fmtMoney(totalEx) + '</td>' +
+      '<td class="num ' + trCls(totalTr) + '">' + FW.fmtMoney(totalTr) + '</td>' +
+      '<td class="num ' + (totalNet >= 0 ? 'income' : 'expense') + '"><b>' + FW.fmtMoney(totalNet) + '</b></td>' +
+      '</tr>';
+    return '<div class="flow-acc-head">按账户（收支维度）</div>' +
+      '<table class="flow-acc-tbl"><thead><tr><th>账户</th><th class="num">收入</th><th class="num">支出</th><th class="num">互转</th><th class="num">净额</th></tr></thead><tbody>' + trs + '</tbody></table>' +
+      '<div class="flow-acc-note">互转 = 转入 − 转出（账户互转净头寸，单列不影响收支净额）</div>';
   }
 
   /* ---------- 资金变动明细（账户互转 / 股本，不影响收支） ---------- */
@@ -2665,6 +2711,7 @@
       FW.db.saveList(CATKEY_, l); return true;
     },
     cats: cats,
-    internalReconcile: { parseBankRowsCore: parseBankRowsCore, reconcile: reconcile, guessBankMap: guessBankMap, computeAdjust: computeAdjust, dayDiff: dayDiff }
+    internalReconcile: { parseBankRowsCore: parseBankRowsCore, reconcile: reconcile, guessBankMap: guessBankMap, computeAdjust: computeAdjust, dayDiff: dayDiff },
+    accSummaryHtml: accSummaryHtml
   };
 })(window);
