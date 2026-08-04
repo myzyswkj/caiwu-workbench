@@ -29,23 +29,23 @@ console.log('[2] _compute 基础布局（无图）');
   var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
   var rows = [{ cells: ['2026-08-01', '收入', '项目A', '销售', '微信', '+1,000.00', '得力', '张三', '一笔较长的备注内容用于测试自动折行效果是否正常，再加一句确保一定超过列宽触发换行', ''], amountCls: 'income' }];
   var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9 }, measure);
-  var sumCol = head.length === 10 ? (108 + 72 + 126 + 98 + 136 + 128 + 158 + 92 + 196 + 236) : 0;
-  ok('总宽 = 列宽和 + 2*marginX', g.totalW === sumCol + 32);
+  var sumCol = head.length === 10 ? (124 + 84 + 144 + 114 + 156 + 148 + 184 + 106 + 224 + 268) : 0;
+  ok('总宽 = 列宽和 + 2*marginX', g.totalW === sumCol + 36);
   ok('备注列被折成多行', g.rows[0].cellLines[8].length > 1);
-  var textH = Math.max.apply(null, g.rows[0].cellLines.map(function (l) { return l.length; })) * 22 + 18;
+  var textH = Math.max.apply(null, g.rows[0].cellLines.map(function (l) { return l.length; })) * 26 + 22;
   ok('行高 = 文本行高（无图）', g.rows[0].height === textH);
-  ok('表头高度正确', g.headerH === 42);
+  ok('表头高度正确', g.headerH === 50);
 })();
 
 console.log('[3] _compute 含凭证图时行高≥图高');
 (function () {
   var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
   var rows = [{ cells: ['2026-08-01', '支出', '项目A', '采购', '支付宝', '-200.00', '供应商', '李四', '买物料', ''], amountCls: 'expense' }];
-  // 单张横图 800x600，凭证列宽 220，picMaxH=120
-  var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, pics: { 0: [{ w: 800, h: 600 }] }, picMaxW: 200, picMaxH: 120 }, measure);
-  ok('凭证图被缩放且高度=120', Math.abs(g.rows[0].imgs[0].h - 120) < 0.001);
-  ok('凭证图款宽在列内（≤ 列宽-16）', g.rows[0].imgs[0].w <= 236 - 16 + 0.001);
-  ok('行高 ≥ 图片高 + 上下内边距', g.rows[0].height >= 120 + 18 - 0.001);
+  // 单张横图 800x600，凭证列宽 268，picMaxH=130
+  var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, pics: { 0: [{ w: 800, h: 600 }] }, picMaxW: 220, picMaxH: 130 }, measure);
+  ok('凭证图被缩放且高度=130', Math.abs(g.rows[0].imgs[0].h - 130) < 0.001);
+  ok('凭证图款宽在列内（≤ 列宽-16）', g.rows[0].imgs[0].w <= 268 - 16 + 0.001);
+  ok('行高 ≥ 图片高 + 上下内边距', g.rows[0].height >= 130 + 22 - 0.001);
 })();
 
 console.log('[4] _compute 多张凭证图横向排开且不溢出');
@@ -53,19 +53,19 @@ console.log('[4] _compute 多张凭证图横向排开且不溢出');
   var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
   var rows = [{ cells: ['2026-08-01', '支出', '项目A', '采购', '支付宝', '-200.00', '供应商', '李四', '买物料', ''], amountCls: 'expense' }];
   var pics = [{ w: 800, h: 600 }, { w: 800, h: 600 }, { w: 800, h: 600 }];
-  var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, pics: { 0: pics }, picMaxW: 200, picMaxH: 120 }, measure);
+  var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, pics: { 0: pics }, picMaxW: 220, picMaxH: 130 }, measure);
   var rg = g.rows[0];
   var totalW = rg.imgs.reduce(function (s, im) { return s + im.w; }, 0) + rg.imgGap * (rg.imgs.length - 1);
   ok('三张图全部布局', rg.imgs.length === 3);
-  ok('三张图总宽 ≤ 凭证列可用宽(220)', totalW <= 220 + 0.01);
+  ok('三张图总宽 ≤ 凭证列可用宽(252)', totalW <= 252 + 0.01);
 })();
 
 console.log('[5] _compute 超宽单图被宽度上限裁剪');
 (function () {
   var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
   var rows = [{ cells: ['x', '支出', '', '', '', '', '', '', '', ''], amountCls: 'expense' }];
-  var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, pics: { 0: [{ w: 2000, h: 100 }] }, picMaxW: 200, picMaxH: 120 }, measure);
-  ok('超宽图宽度被压到 ≤ picMaxW', g.rows[0].imgs[0].w <= 200 + 0.001);
+  var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, pics: { 0: [{ w: 2000, h: 100 }] }, picMaxW: 220, picMaxH: 130 }, measure);
+  ok('超宽图宽度被压到 ≤ picMaxW', g.rows[0].imgs[0].w <= 220 + 0.001);
 })();
 
 console.log('[6] _compute 标题/KPI 占位');
@@ -73,8 +73,8 @@ console.log('[6] _compute 标题/KPI 占位');
   var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
   var rows = [{ cells: ['x', '收入', '', '', '', '', '', '', '', ''], amountCls: 'income' }];
   var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, title: '内账流水明细', subtitle: '账套：默认 | 期间：全部', kpis: [{ label: '笔数', value: '1' }, { label: '收入合计', value: '¥1,000', cls: 'income' }] }, measure);
-  ok('有标题时 titleH=32', g.titleH === 32);
-  ok('有 KPI 时 kpiH=62', g.kpiH === 62);
+  ok('有标题时 titleH=36', g.titleH === 36);
+  ok('有 KPI 时 kpiH=70', g.kpiH === 70);
   ok('表格起始位置在顶部区块之下', g.tableTop > g.marginY);
   ok('总高包含表头与至少一行', g.totalH > g.tableTop + g.headerH);
 })();
@@ -125,11 +125,11 @@ console.log('[8] _compute 含副表（按账户收支）几何');
     rows: [['现金', '¥1,000.00', '¥300.00', '¥120.00', '¥0.00', '¥180.00', '¥1,180.00'],
            ['微信', '¥500.00', '¥0.00', '¥50.00', '¥50.00', '−¥50.00', '¥500.00'],
            ['合计（2 账户）', '¥1,500.00', '¥300.00', '¥170.00', '¥50.00', '¥130.00', '¥1,680.00']],
-    colWidths: [220, 200, 175, 175, 180, 180, 220],
+    colWidths: [260, 220, 200, 200, 220, 232, 220],
     rightCols: [1, 2, 3, 4, 5, 6],
     colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed', 'signed'],
     totalRow: true,
-    headerH: 30
+    headerH: 50
   };
   var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, title: '内账流水明细', subtable: sub }, measure);
   ok('返回了副表几何', !!(g.subtable && g.subtable.head));
@@ -137,9 +137,9 @@ console.log('[8] _compute 含副表（按账户收支）几何');
   ok('末行 isTotal 标记', g.subtable.rows[2].isTotal === true);
   ok('colCls 透传（收入列=income）', g.subtable.colCls[2] === 'income');
   ok('右对齐列透传', g.subtable.rightCols.indexOf(2) >= 0);
-  ok('副表总宽 = 主表总宽（同宽）', Math.abs(g.subtable.tableW - (g.totalW - 32)) < 0.001);
+  ok('副表总宽 = 主表总宽（同宽）', Math.abs(g.subtable.tableW - (g.totalW - 36)) < 0.001);
   ok('主表起始位置被副表下推', g.tableTop > g.marginY + g.titleH);
-  ok('长注脚被折成多行', g.subtable.noteLines.length > 1);
+  ok('副表 note 拼接后还原（单段多行展开后）', g.subtable.noteLines.join('') === sub.note.replace(/^\s+|\s+$/g, ''));
   ok('总高因副表而增大', g.totalH > g.tableTop + g.headerH);
 })();
 
@@ -153,10 +153,10 @@ console.log('[9] _draw 含副表不抛异常且绘制了副表文字');
     head: ['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额'],
     rows: [['现金', '¥1,000.00', '¥300.00', '¥120.00', '¥0.00', '¥180.00', '¥1,180.00'],
            ['合计（1 账户）', '¥1,000.00', '¥300.00', '¥120.00', '¥0.00', '¥180.00', '¥1,180.00']],
-    colWidths: [220, 200, 175, 175, 180, 180, 220],
+    colWidths: [260, 220, 200, 200, 220, 232, 220],
     rightCols: [1, 2, 3, 4, 5, 6],
     colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed', 'signed'],
-    totalRow: true, headerH: 30
+    totalRow: true, headerH: 50
   };
   var cfg = {
     head: head, rows: rows, amountCol: 5, imgCol: 9, title: '内账流水明细',
