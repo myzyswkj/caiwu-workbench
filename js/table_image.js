@@ -41,6 +41,23 @@
   var KPI_VALUE_FONT = '700 22px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
   var PANEL_TITLE_FONT = '700 20px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
 
+  // 按「字号缩放系数 fs」生成整套字体串（fs=1 即上面的基准值）。
+  // 凭证大小(用户旋钮) → fontScale → 字号随凭证一起变大，但只有「凭证」列宽随 fs 放大，
+  // 其余文本列宽不变，于是「字号 / 表格框」比例变好，解决「框大字体小」。
+  function scaleFonts(fs) {
+    function px(n) { return Math.round(n * fs) + 'px'; }
+    var fam = '"PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+    return {
+      FONT: px(17) + ' ' + fam,
+      FONT_BOLD: '600 ' + px(17) + ' ' + fam,
+      TITLE: '700 ' + px(28) + ' ' + fam,
+      SUB: px(16) + ' ' + fam,
+      KPI_LABEL: px(16) + ' ' + fam,
+      KPI_VALUE: '700 ' + px(22) + ' ' + fam,
+      PANEL: '700 ' + px(20) + ' ' + fam
+    };
+  }
+
   // ---------- 纯函数：文本折行（按字符，兼容中英文混排） ----------
   function wrapText(measure, text, maxWidth) {
     if (text == null) text = '';
@@ -123,32 +140,42 @@
     var nCol = head.length;
     var amountCol = (cfg.amountCol != null) ? cfg.amountCol : -1;
     var imgCol = (cfg.imgCol != null) ? cfg.imgCol : (nCol - 1);
+    var fs = cfg.fontScale || 1;                 // 凭证大小旋钮：1=标准；>1 字号/凭证变大，框比例更协调
+    var F = scaleFonts(fs);
     var colW = (cfg.colWidths && cfg.colWidths.length === nCol) ? cfg.colWidths : defaultWidths(nCol).colWidths;
-    var padX = cfg.padX != null ? cfg.padX : 10;
-    var padY = cfg.padY != null ? cfg.padY : 11;
-    var lineH = cfg.lineH != null ? cfg.lineH : 26;
-    var picMaxW = cfg.picMaxW != null ? cfg.picMaxW : 220;
-    var picMaxH = cfg.picMaxH != null ? cfg.picMaxH : 130;
-    var gap = cfg.gap != null ? cfg.gap : 8;
-    var marginX = cfg.marginX != null ? cfg.marginX : 18;
-    var marginY = cfg.marginY != null ? cfg.marginY : 18;
-    var headerH = cfg.headerH != null ? cfg.headerH : 50;
+    var padX = (cfg.padX != null ? cfg.padX : 10) * fs;
+    var padY = (cfg.padY != null ? cfg.padY : 11) * fs;
+    var lineH = (cfg.lineH != null ? cfg.lineH : 26) * fs;
+    var picMaxW = (cfg.picMaxW != null ? cfg.picMaxW : 220) * fs;
+    var picMaxH = (cfg.picMaxH != null ? cfg.picMaxH : 130) * fs;
+    var gap = (cfg.gap != null ? cfg.gap : 8) * fs;
+    var marginX = (cfg.marginX != null ? cfg.marginX : 18) * fs;
+    var marginY = (cfg.marginY != null ? cfg.marginY : 18) * fs;
+    var headerH = (cfg.headerH != null ? cfg.headerH : 50) * fs;
+
+    // 仅「凭证」列宽随 fs 放大（其余文本列不变），让「字号 / 框」比例变好
+    if (fs !== 1) { colW = colW.slice(); colW[imgCol] = Math.round(colW[imgCol] * fs); }
 
     var tableW = colW.reduce(function (s, w) { return s + w; }, 0);
     var totalW = tableW + marginX * 2;
+    var cardH = 66 * fs;
+    var kpiPadX = 14 * fs;
+    var kpiLabelDY = 12 * fs;
+    var kpiValueDY = 34 * fs;
+    var noteLineH = 19 * fs;
 
-    // 顶部区块高度预算
-    var titleH = cfg.title ? 36 : 0;
-    var subtitleH = cfg.subtitle ? 24 : 0;
-    var kpiH = (cfg.kpis && cfg.kpis.length) ? 70 : 0;
-    var cursorY = marginY + titleH + (cfg.title ? 8 : 0) + subtitleH + (cfg.subtitle ? 6 : 0) + kpiH + (kpiH ? 10 : 0);
+    // 顶部区块高度预算（随 fs 放大，保持与放大后的字号协调）
+    var titleH = cfg.title ? 36 * fs : 0;
+    var subtitleH = cfg.subtitle ? 24 * fs : 0;
+    var kpiH = (cfg.kpis && cfg.kpis.length) ? 70 * fs : 0;
+    var cursorY = marginY + titleH + (cfg.title ? 8 * fs : 0) + subtitleH + (cfg.subtitle ? 6 * fs : 0) + kpiH + (kpiH ? 10 * fs : 0);
 
     // 副表（按账户收支等小表）：放在 KPI 与主表之间，左对齐、宽度与主表一致
     var subtable = null;
     if (cfg.subtable && cfg.subtable.head && cfg.subtable.head.length) {
-      subtable = computeSubTable(cfg.subtable, measure, { padX: padX, lineH: lineH, padY: padY, availW: tableW });
+      subtable = computeSubTable(cfg.subtable, measure, { padX: padX, lineH: lineH, padY: padY, availW: tableW, fs: fs });
       subtable.top = cursorY;
-      cursorY += subtable.totalH + (subtable.noteLines.length ? 8 : 14);
+      cursorY += subtable.totalH + (subtable.noteLines.length ? 8 * fs : 14 * fs);
     }
 
     var tableTop = cursorY;
@@ -184,7 +211,9 @@
       colW: colW, padX: padX, padY: padY, lineH: lineH, gap: gap,
       amountCol: amountCol, imgCol: imgCol,
       nCol: nCol, head: head, rows: rowGeom,
-      subtable: subtable
+      subtable: subtable,
+      fonts: F, cardH: cardH, kpiPadX: kpiPadX, kpiLabelDY: kpiLabelDY, kpiValueDY: kpiValueDY, noteLineH: noteLineH,
+      fs: fs
     };
   }
 
@@ -196,11 +225,12 @@
     var head = cfg.head || [];
     var rows = cfg.rows || [];
     var nCol = head.length;
+    var fs = opt.fs || 1;
     var colW = (cfg.colWidths && cfg.colWidths.length === nCol) ? cfg.colWidths : head.map(function () { return 120; });
     var padX = opt.padX, lineH = opt.lineH, padY = opt.padY;
-    var headerH = cfg.headerH != null ? cfg.headerH : 42;
+    var headerH = (cfg.headerH != null ? cfg.headerH : 42) * fs;
     var rightCols = cfg.rightCols || [];
-    var titleH = cfg.title ? 24 : 0;
+    var titleH = cfg.title ? 24 * fs : 0;
     var rowGeom = [];
     var y = 0;
     for (var r = 0; r < rows.length; r++) {
@@ -219,8 +249,8 @@
     }
     var tableH = y;
     var noteLines = cfg.note ? wrapText(measure, cfg.note, opt.availW) : [];
-    var noteH = noteLines.length * 19;
-    var gapNote = noteLines.length ? 6 : 0;
+    var noteH = noteLines.length * 19 * fs;
+    var gapNote = noteLines.length ? 6 * fs : 0;
     var totalH = titleH + (cfg.title ? 6 : 0) + tableH + gapNote + noteH;
     var tableW = colW.reduce(function (s, w) { return s + w; }, 0);
     return {
@@ -228,7 +258,7 @@
       head: head, rows: rowGeom, colW: colW, nCol: nCol,
       headerH: headerH, lineH: lineH, padX: padX, padY: padY,
       rightCols: rightCols, colCls: cfg.colCls || [], totalRow: !!cfg.totalRow,
-      tableW: tableW, totalH: totalH, titleH: titleH, noteH: noteH
+      tableW: tableW, totalH: totalH, titleH: titleH, noteH: noteH, noteLineH: 19 * fs
     };
   }
 
@@ -250,7 +280,8 @@
     return new Promise(function (resolve, reject) {
       try {
         config = config || {};
-        var scale = config.scale || 2;
+        var scale = config.scale || 2;   // 仅控制位图清晰度（devicePixelRatio）
+        var fs = config.fontScale || 1;  // 控制字号/凭证大小（用户旋钮）
         // 跟随当前主题：读取 CSS 变量覆盖默认色（主题改了图片导出也跟着变，避免写死错位）
         try {
           if (typeof document !== 'undefined' && document.documentElement) {
@@ -281,17 +312,18 @@
           var picsModel = {};
           loaded.forEach(function (o) { picsModel[o.ri] = o.imgs; });
 
-          // 用真实 ctx 做测量（measureText 依赖字体）
+            // 用真实 ctx 做测量（measureText 依赖字体，须用缩放后的字号串）
           var measCanvas = document.createElement('canvas');
           var mctx = measCanvas.getContext('2d');
-          mctx.font = FONT;
-          function measure(s) { mctx.font = FONT; return mctx.measureText(s); }
+          var measureFont = scaleFonts(fs).FONT;
+          mctx.font = measureFont;
+          function measure(s) { mctx.font = measureFont; return mctx.measureText(s); }
 
           var geo = _compute({
             head: config.head, rows: config.rows, colWidths: config.colWidths,
             pics: picsModel, amountCol: config.amountCol, imgCol: config.imgCol,
             kpis: config.kpis, title: config.title, subtitle: config.subtitle,
-            picMaxW: config.picMaxW, picMaxH: config.picMaxH, gap: config.gap, scale: scale,
+            picMaxW: config.picMaxW, picMaxH: config.picMaxH, gap: config.gap, fontScale: fs,
             subtable: config.subtable
           }, measure);
 
@@ -310,6 +342,7 @@
 
   function draw(ctx, geo, config) {
     var mx = geo.marginX, my = geo.marginY;
+    var F = geo.fonts, fs = geo.fs;
     // 背景
     ctx.fillStyle = C.panel;
     ctx.fillRect(0, 0, geo.totalW, geo.totalH);
@@ -318,39 +351,39 @@
     var cy = my;
     if (config.title) {
       ctx.fillStyle = C.title;
-      ctx.font = TITLE_FONT;
+      ctx.font = F.TITLE;
       ctx.fillText(config.title, mx, cy);
-      cy += geo.titleH + 8;
+      cy += geo.titleH + 8 * fs;
     }
     // 副标题
     if (config.subtitle) {
       ctx.fillStyle = C.muted;
-      ctx.font = SUB_FONT;
+      ctx.font = F.SUB;
       ctx.fillText(config.subtitle, mx, cy);
-      cy += geo.subtitleH + 6;
+      cy += geo.subtitleH + 6 * fs;
     }
     // KPI 卡片
     if (config.kpis && config.kpis.length) {
       var kpiY = cy;
       var kx = mx;
       config.kpis.forEach(function (k) {
-        ctx.font = KPI_LABEL_FONT;
+        ctx.font = F.KPI_LABEL;
         var labelW = ctx.measureText(k.label).width;
-        ctx.font = KPI_VALUE_FONT;
+        ctx.font = F.KPI_VALUE;
         var valW = ctx.measureText(k.value).width;
-        var cardW = Math.max(140, labelW + valW + 28);
-        var cardH = 66;
+        var cardW = Math.max(Math.round(140 * fs), labelW + valW + geo.kpiPadX * 2);
+        var cardH = geo.cardH;
         ctx.fillStyle = '#F2F5F9';
-        rr(ctx, kx, kpiY, cardW, cardH, 9); ctx.fill();
+        rr(ctx, kx, kpiY, cardW, cardH, Math.round(9 * fs)); ctx.fill();
         ctx.strokeStyle = C.border; ctx.lineWidth = 1; ctx.stroke();
-        ctx.fillStyle = C.muted; ctx.font = KPI_LABEL_FONT;
-        ctx.fillText(k.label, kx + 14, kpiY + 12);
+        ctx.fillStyle = C.muted; ctx.font = F.KPI_LABEL;
+        ctx.fillText(k.label, kx + geo.kpiPadX, kpiY + geo.kpiLabelDY);
         ctx.fillStyle = k.cls === 'income' ? C.income : (k.cls === 'expense' ? C.expense : C.text);
-        ctx.font = KPI_VALUE_FONT;
-        ctx.fillText(k.value, kx + 14, kpiY + 34);
-        kx += cardW + 16;
+        ctx.font = F.KPI_VALUE;
+        ctx.fillText(k.value, kx + geo.kpiPadX, kpiY + geo.kpiValueDY);
+        kx += cardW + Math.round(16 * fs);
       });
-      cy += geo.kpiH + 10;
+      cy += geo.kpiH + 10 * fs;
     }
 
     // 副表（按账户收支等）：KPI 之后、主表之前
@@ -359,15 +392,15 @@
       var sx = mx, sy = st.top;
       if (st.title) {
         ctx.fillStyle = C.title;
-        ctx.font = PANEL_TITLE_FONT;
+        ctx.font = F.PANEL;
         ctx.fillText(st.title, sx, sy);
-        sy += st.titleH + 6;
+        sy += st.titleH + 6 * fs;
       }
       // 表头
       ctx.fillStyle = C.headerBg;
       ctx.fillRect(sx, sy, st.tableW, st.headerH);
       ctx.fillStyle = C.headerFg;
-      ctx.font = FONT_BOLD;
+      ctx.font = F.FONT_BOLD;
       var shx = sx;
       for (var sc = 0; sc < st.nCol; sc++) {
         var shw = st.colW[sc];
@@ -402,7 +435,7 @@
             if (!isNaN(num)) colColor = num < 0 ? C.expense : (num > 0 ? C.income : C.text);
           }
           ctx.fillStyle = colColor;
-          ctx.font = srg.isTotal ? FONT_BOLD : FONT;
+          ctx.font = srg.isTotal ? F.FONT_BOLD : F.FONT;
           for (var sli = 0; sli < slines.length; sli++) {
             var sline = slines[sli];
             if (st.rightCols.indexOf(scc) >= 0) {
@@ -427,9 +460,9 @@
       // 注脚（折行）
       if (st.noteLines && st.noteLines.length) {
         ctx.fillStyle = C.muted;
-        ctx.font = SUB_FONT;
+        ctx.font = F.SUB;
         for (var ni = 0; ni < st.noteLines.length; ni++) {
-          ctx.fillText(st.noteLines[ni], sx, sry + 6 + ni * 19);
+          ctx.fillText(st.noteLines[ni], sx, sry + 6 * fs + ni * st.noteLineH);
         }
       }
     }
@@ -440,7 +473,7 @@
     ctx.fillStyle = C.headerBg;
     ctx.fillRect(tableLeft, tableTop, geo.totalW - mx * 2, geo.headerH);
     ctx.fillStyle = C.headerFg;
-    ctx.font = FONT_BOLD;
+    ctx.font = F.FONT_BOLD;
     var hx = tableLeft;
     for (var c = 0; c < geo.nCol; c++) {
       var hw = geo.colW[c];
@@ -492,7 +525,7 @@
           if (cc === geo.amountCol && rg.amountCls === 'income') txtColor = C.income;
           else if (cc === geo.amountCol && rg.amountCls === 'expense') txtColor = C.expense;
           ctx.fillStyle = txtColor;
-          ctx.font = FONT;
+          ctx.font = F.FONT;
           for (var li = 0; li < lines.length; li++) {
             var line = lines[li];
             if (cc === geo.amountCol) {

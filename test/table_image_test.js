@@ -179,6 +179,44 @@ console.log('[9] _draw 含副表不抛异常且绘制了副表文字');
   ok('绘制了副表与正表的文字', calls.fillText >= 10 + 11);
 })();
 
+console.log('[10b] fontScale（凭证大小→字号）放大几何与字体串');
+(function () {
+  var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
+  var rows = [{ cells: ['2026-08-01', '收入', '项目A', '销售', '微信', '+1,000.00', '得力', '张三', '备注一行', ''], amountCls: 'income' }];
+  var fs = 1.35;
+  var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, fontScale: fs }, measure);
+  ok('表头高按 fs 放大（50→67.5）', Math.abs(g.headerH - 50 * fs) < 1e-6);
+  ok('行高按 fs 放大（26→35.1）', Math.abs(g.lineH - 26 * fs) < 1e-6);
+  ok('仅凭证列宽随 fs 放大（其余列不变）', g.colW[0] === 124 && g.colW[9] === Math.round(268 * fs));
+  ok('文本列总宽基本不变、凭证列变宽 → 字号/框比例变好', (function () {
+    var textSum = g.colW.slice(0, 9).reduce(function (s, w) { return s + w; }, 0);
+    return textSum === 1284; // 9 个文本列和不变
+  })());
+  ok('fonts.FONT 按 fs 放大到约 23px', g.fonts && g.fonts.FONT.indexOf(Math.round(17 * fs) + 'px') >= 0);
+  ok('fonts.TITLE 按 fs 放大到约 38px', g.fonts && g.fonts.TITLE.indexOf(Math.round(28 * fs) + 'px') >= 0);
+})();
+
+console.log('[10c] fontScale 下 _draw 仍不抛异常且用放大字号');
+(function () {
+  var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
+  var rows = [{ cells: ['2026-08-01', '支出', '项目B', '采购', '支付宝', '-200.00', '供应商', '李四', '买物料', ''], amountCls: 'expense' }];
+  var cfg = { head: head, rows: rows, amountCol: 5, imgCol: 9, title: '内账流水明细', fontScale: 1.8 };
+  var geo = T._compute(cfg, measure);
+  var lastFont = '';
+  var mockCtx = {
+    scale: function () {}, fillRect: function () {}, strokeRect: function () {}, fill: function () {}, stroke: function () {},
+    beginPath: function () {}, moveTo: function () {}, lineTo: function () {}, arcTo: function () {}, closePath: function () {}, roundRect: function () {},
+    drawImage: function () {},
+    fillText: function () {},
+    measureText: function (s) { return { width: String(s).length * 7 }; },
+    set fillStyle(v) {}, set strokeStyle(v) {}, set font(v) { lastFont = v; }, set lineWidth(v) {}, set textBaseline(v) {}
+  };
+  var threw = false;
+  try { T._draw(mockCtx, geo, cfg); } catch (e) { threw = true; console.log('  draw error: ' + e.message); }
+  ok('fontScale=1.8 下绘制不抛异常', !threw);
+  ok('绘制用放大后的字号（约 31px / 标题约 50px）', lastFont.indexOf(Math.round(17 * 1.8) + 'px') >= 0 || lastFont.indexOf(Math.round(28 * 1.8) + 'px') >= 0);
+})();
+
 console.log('[10] render() 端到端会把 subtable 透传给 _compute 并真正绘制（回归：曾漏传 subtable 导致副表/互转不显示）');
 (function () {
   // 最小化 mock DOM（node 无真实 canvas）：createElement('canvas') 返回带 mock ctx 的对象
