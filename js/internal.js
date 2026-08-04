@@ -2841,6 +2841,11 @@
     },
     cats: cats,
     internalReconcile: { parseBankRowsCore: parseBankRowsCore, reconcile: reconcile, guessBankMap: guessBankMap, computeAdjust: computeAdjust, dayDiff: dayDiff },
-    accSummaryHtml: accSummaryHtml
+    accSummaryHtml: accSummaryHtml,
+    // 暴露纯函数与表单构造器，供轻量自动化测试直接加载真实模块、防止运行期回归（如 editxProjectText 笔误 / txProjectText 无限递归）
+    txProjectText: txProjectText,
+    txProjectLabel: txProjectLabel,
+    openForm: openForm,
+    allocBoxHtml: allocBoxHtml
   };
 })(window);
