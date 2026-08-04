@@ -1173,7 +1173,7 @@
         if (c1sel) c1sel.onchange = function () { document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); };
         var mg = document.getElementById('mgCats');
         if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
-        if (type === 'expense' || type === 'refund') bindAllocBox();
+        if (type === 'income' || type === 'expense' || type === 'refund') bindAllocBox();
       }
   }
 
@@ -1773,7 +1773,7 @@
         '</div>';
     }).join('');
     return '<div class="alloc-box">' +
-      '<div class="alloc-head">⊞ 费用分摊（一笔支出需归属多个项目时填写）</div>' +
+      '<div class="alloc-head">⊞ 项目分摊（一笔收支需归属多个项目时填写）</div>' +
       '<div class="muted" style="font-size:12px;margin:2px 0 6px">填写后，上方「项目」将被忽略，本笔金额按下列各项目分配；各项目金额合计须等于本笔金额。</div>' +
       '<div id="allocRows">' + rows + '</div>' +
       '<button type="button" class="btn ghost sm alloc-add" id="allocAdd">＋ 添加分摊行</button>' +
@@ -1851,9 +1851,10 @@
     (rows || []).forEach(function (t) {
       if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
       var sign = (t.type === 'refund') ? -1 : 1;
-      var alloc = (t.type !== 'income' && FW.projectCostCalc && FW.projectCostCalc.splitAmounts) ? FW.projectCostCalc.splitAmounts(t) : null;
+      var alloc = (FW.projectCostCalc && FW.projectCostCalc.splitAmounts) ? FW.projectCostCalc.splitAmounts(t) : null;
       if (alloc) {
-        alloc.forEach(function (s) { add(s.project || '未分类项目', 0, s.amount * sign); });
+        if (t.type === 'income') alloc.forEach(function (s) { add(s.project || '未分类项目', s.amount, 0); });
+        else alloc.forEach(function (s) { add(s.project || '未分类项目', 0, s.amount * sign); });
       } else {
         add(t.project || '未分类项目', (t.type === 'income' ? Number(t.amount) : 0), (t.type === 'income' ? 0 : Number(t.amount) * sign));
       }
@@ -1940,8 +1941,8 @@
           rec.equityDir = document.getElementById('f_edir').value;
           rec.account = document.getElementById('f_account').value;
         }
-        // ===== 费用分摊：支出 / 退款可拆分到多个项目 =====
-        if (type === 'expense' || type === 'refund') {
+        // ===== 项目分摊：收入 / 支出 / 退款可拆分到多个项目 =====
+        if (type === 'income' || type === 'expense' || type === 'refund') {
           var valid = allocDraft.filter(function (a) { return (a.project || '').trim() && (parseFloat(a.amount) || 0) > 0; });
           if (valid.length) {
             var validSum = valid.reduce(function (s, a) { return s + parseFloat(a.amount); }, 0);

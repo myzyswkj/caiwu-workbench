@@ -240,5 +240,28 @@ ok('分摊：月度 2026-03 成本 = 28000（分摊落到各项目月份）', (f
 ok('分摊：月度趋势不含 2026-04（无项目无分摊的未分配支出不计入月度趋势，与原有逻辑一致）', da.monthly.labels.indexOf('2026-04') === -1);
 store['internal'] = _backupInternal;
 
+console.log('--- 10) 项目核算：合计收入按 allocations 拆分到多项目 ---');
+var _b2 = store['internal'];
+store['internal'] = [
+  { date: '2026-03-01', type: 'income', amount: 10000, allocations: [{ project: '项目A', amount: 6000 }, { project: '项目B', amount: 4000 }] },
+  { date: '2026-03-02', type: 'income', amount: 8000, allocations: [{ project: '项目A', amount: 3000 }, { project: '项目B', amount: 3000 }, { project: '项目C', amount: 2000 }] }, // 合计=8000 精确
+  { date: '2026-03-03', type: 'income', amount: 5000, project: '项目A', deduct: 500, allocations: [{ project: '项目A', amount: 3000 }, { project: '项目B', amount: 2000 }] }, // 主金额分摊，dv 500 进项目A成本
+  { date: '2026-05-01', type: 'income', project: '项目D', amount: 7000 } // 单项目对照
+];
+var db = C.compute('all');
+var A = db.rows.filter(function (r) { return r.project === '项目A'; })[0];
+var B = db.rows.filter(function (r) { return r.project === '项目B'; })[0];
+var Cc = db.rows.filter(function (r) { return r.project === '项目C'; })[0];
+var D = db.rows.filter(function (r) { return r.project === '项目D'; })[0];
+ok('收入分摊：项目A 收入 = 6000+3000+3000 = 12000', A && approx(A.revenue, 12000));
+ok('收入分摊：项目B 收入 = 4000+3000+2000 = 9000', B && approx(B.revenue, 9000));
+ok('收入分摊：项目C 收入 = 2000（拆分到三项目）', Cc && approx(Cc.revenue, 2000));
+ok('收入分摊：项目D 收入 = 7000（单项目对照）', D && approx(D.revenue, 7000));
+ok('收入分摊：四项目收入合计 = 30000（全部收入 10000+8000+5000+7000）', approx(A.revenue + B.revenue + Cc.revenue + D.revenue, 10000 + 8000 + 5000 + 7000));
+ok('收入分摊：已扣支出(dv=500) 计入项目A 成本（单项目归属）', A && approx(A.flowCost, 500));
+ok('收入分摊：月度 2026-03 收入 = 23000（分摊落到各项目月份）', (function () { var i = db.monthly.labels.indexOf('2026-03'); return i >= 0 && approx(db.monthly.revenue[i], 23000); })());
+ok('收入分摊：月度 2026-05 收入 = 7000（单项目收入对照）', (function () { var i = db.monthly.labels.indexOf('2026-05'); return i >= 0 && approx(db.monthly.revenue[i], 7000); })());
+store['internal'] = _b2;
+
 console.log('\n项目核算 测试：' + pass + ' 通过' + (fail ? (', ' + fail + ' 失败') : '，全部通过 ✅'));
 process.exit(fail ? 1 : 0);

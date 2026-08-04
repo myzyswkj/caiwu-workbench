@@ -26,7 +26,7 @@
   // 完整分类路径（保留 "一级 / 二级" 用于下钻）
   function catFull(t) { return (t.category || '').trim() || '其他 / 其他'; }
 
-  // 把一笔「合计支出 / 退款」按 allocations 拆成各项目应承担额（纯函数，便于测试与外部复用）。
+  // 把一笔「合计收支（收入 / 支出 / 退款）」按 allocations 拆成各项目应承担额（纯函数，便于测试与外部复用）。
   // 返回 [{project, amount}] 或 null（无有效分摊 → 走单项目逻辑）。
   // 规则：仅保留「有项目名且金额>0」的有效行；有效行金额合计 <= 本笔金额时，余差（含无效行金额）归到最后一项；
   //       合计 > 本笔金额时，按比例缩放回本笔金额（避免超额分摊）。保证全部分摊完，总额 = 本笔金额。
@@ -101,19 +101,29 @@
     // 流水：收入 / 支出（仅统计带项目的流水；不带项目的进入未分配）
     txs.forEach(function (t) {
       var dv = (t.type === 'income' && num(t.deduct) > 0) ? num(t.deduct) : 0; // 已扣支出（代付/代扣）
-      // ===== 费用分摊：一笔合计支出 / 退款按 allocations 拆分到多个项目 =====
-      if (t.type === 'expense' || t.type === 'refund') {
+      // ===== 项目分摊：一笔合计收支（收入 / 支出 / 退款）按 allocations 拆分到多个项目 =====
+      if (t.type === 'expense' || t.type === 'refund' || t.type === 'income') {
         var split = splitAmounts(t);
         if (split) {
-          var sgn = t.type === 'refund' ? -1 : 1;
-          split.forEach(function (s) {
-            var d = ensure(s.project);
-            var a2 = s.amount * sgn;
-            d.flowCost += a2;
-            var c = cat1(t), cf = catFull(t);
-            d.byCat[c] = (d.byCat[c] || 0) + a2;
-            d.byCat2[cf] = (d.byCat2[cf] || 0) + a2;
-          });
+          if (t.type === 'income') {
+            // 收入分摊：各项目收入增加；已扣支出(dv)按单项目字段归属成本，无单项目则进未分配
+            split.forEach(function (s) { ensure(s.project).revenue += s.amount; });
+            if (dv > 0) {
+              var dvp = (t.project || '').trim();
+              if (dvp) { var dd = ensure(dvp); dd.flowCost += dv; var dn1 = cat1(t), dn2 = catFull(t); dd.byCat[dn1] = (dd.byCat[dn1] || 0) + dv; dd.byCat2[dn2] = (dd.byCat2[dn2] || 0) + dv; }
+              else { unFlowCount++; unFlowAmt += dv; }
+            }
+          } else {
+            var sgn = t.type === 'refund' ? -1 : 1;
+            split.forEach(function (s) {
+              var d = ensure(s.project);
+              var a2 = s.amount * sgn;
+              d.flowCost += a2;
+              var c = cat1(t), cf = catFull(t);
+              d.byCat[c] = (d.byCat[c] || 0) + a2;
+              d.byCat2[cf] = (d.byCat2[cf] || 0) + a2;
+            });
+          }
           return; // 已按分摊分发，不再走单项目分支（也不计未分配）
         }
       }
@@ -203,12 +213,12 @@
     function mEnsure(k) { if (!mMap[k]) mMap[k] = { rev: 0, cost: 0 }; return mMap[k]; }
     txs.forEach(function (t) {
       var k = (t.date || '').slice(0, 7); if (k.length < 7) return;
-      // 费用分摊：支出 / 退款按 allocations 拆分到各项目的月度成本
-      if (t.type === 'expense' || t.type === 'refund') {
+      // 项目分摊：支出 / 退款 / 收入按 allocations 拆分到各项目的月度趋势
+      if (t.type === 'expense' || t.type === 'refund' || t.type === 'income') {
         var split = splitAmounts(t);
         if (split) {
-          var sgn = t.type === 'refund' ? -1 : 1;
-          split.forEach(function (s) { mEnsure(k).cost += s.amount * sgn; });
+          if (t.type === 'income') split.forEach(function (s) { mEnsure(k).rev += s.amount; });
+          else { var sgn = t.type === 'refund' ? -1 : 1; split.forEach(function (s) { mEnsure(k).cost += s.amount * sgn; }); }
           return;
         }
       }
