@@ -235,7 +235,7 @@
 
     var tb = document.getElementById('inToolbar');
     if (tb) {
-      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="xlsxpic">🖼 Excel（含凭证图）</button><button data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="xlsxpic">🖼 Excel（含凭证图）</button><button data-fmt="img">🖼 导出图片（PNG）</button><button data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
       document.getElementById('openBtn').onclick = openOpenings;
       document.getElementById('accMgrBtn').onclick = openAccManager;
       document.getElementById('budgetBtn').onclick = openBudgetForm;
@@ -253,6 +253,7 @@
             if (fmt === 'xlsx') exportXLSX(false);
             else if (fmt === 'xlsxpic') exportXLSX(true);
             else if (fmt === 'print') openPrintView();
+            else if (fmt === 'img') exportImage();
             else exportTable();
           };
         });
@@ -2128,6 +2129,98 @@
     a.download = '内账流水_' + FW.today() + '.csv';
     a.click();
     FW.toast('已导出 ' + rows.length + ' 笔流水（CSV）');
+  }
+
+  // 导出为图片（PNG）：用原生 Canvas 把手绘成一张明细图，给老板看 / 分享最直观
+  function exportImage() {
+    var rows = filteredRows();
+    if (!rows.length) { FW.toast('没有可导出的流水'); return; }
+    if (!window.FWTableImg) { FW.toast('图片导出组件未加载，请刷新页面后重试'); return; }
+    var f = state.filter;
+    var rng = (f.from || f.to) ? ((f.from || '…') + ' 至 ' + (f.to || '…')) : '全部期间';
+    var scope = [];
+    if (f.account) scope.push('账户：' + f.account);
+    if (f.project) scope.push('项目：' + f.project);
+    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本' }[f.type] || f.type));
+    if (f.kw) scope.push('关键词：' + f.kw);
+    var inc = 0, exp = 0, n = rows.length;
+    rows.forEach(function (t) {
+      var a = Number(t.amount) || 0;
+      if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) inc += a;
+      else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) exp += a;
+    });
+    var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
+    var amountCol = 5, imgCol = 9;
+    var colWidths = [92, 60, 110, 84, 120, 116, 140, 76, 180, 220];
+    var outRows = rows.map(function (t) {
+      var a = Number(t.amount) || 0;
+      var cls = 'neutral', sign = '';
+      if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) { cls = 'income'; sign = '+'; }
+      else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) { cls = 'expense'; sign = '−'; }
+      return {
+        cells: [t.date, typeLabel(t), t.project || '', t.category || '', accountOf(t), sign + FW.fmtMoney(a), t.party || '', t.reimburser || '', (t.remark || '').replace(/[\r\n]+/g, ' '), ''],
+        amountCls: cls
+      };
+    });
+    // 凭证图（JPEG dataURL，来自 IndexedDB，绘制不会污染 canvas），按行下标归集
+    var pics = {};
+    var tasks = [];
+    rows.forEach(function (t, ri) {
+      (t.photos || []).filter(Boolean).forEach(function (pid) {
+        tasks.push(FW.db.getPhoto(pid)
+          .then(function (d) { return d ? shrinkPhotoForXlsx(d) : null; })
+          .then(function (r) { return r ? { ri: ri, dataUrl: r.dataUrl } : null; })
+          .catch(function () { return null; }));
+      });
+    });
+    FW.toast('正在生成图片，请稍候…');
+    Promise.all(tasks).then(function (list) {
+      list.forEach(function (it) {
+        if (!it) return;
+        if (!pics[it.ri]) pics[it.ri] = [];
+        pics[it.ri].push(it.dataUrl);
+      });
+      window.FWTableImg.render({
+        title: '内账流水明细',
+        subtitle: '账套：' + ledgerName() + '　|　期间：' + rng + (scope.length ? '　|　' + scope.join('，') : '') + '　|　导出日期：' + FW.today(),
+        kpis: [
+          { label: '笔数', value: String(n) },
+          { label: '收入合计', value: FW.fmtMoney(inc), cls: 'income' },
+          { label: '支出合计', value: FW.fmtMoney(exp), cls: 'expense' },
+          { label: '净额（收入−支出）', value: FW.fmtMoney(inc - exp) }
+        ],
+        head: head, rows: outRows, colWidths: colWidths,
+        amountCol: amountCol, imgCol: imgCol,
+        pics: pics,
+        picMaxW: 200, picMaxH: 120
+      }).then(function (canvas) {
+        var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
+        var fname = '内账流水' + (picN ? '_含凭证' : '') + '_' + FW.today() + '.png';
+        window.FWTableImg.downloadPNG(canvas, fname);
+        FW.toast('已导出图片（' + n + ' 笔' + (picN ? '，含 ' + picN + ' 张凭证图' : '') + '）');
+      }).catch(function () {
+        FW.toast('图片生成失败，请重试');
+      });
+    }).catch(function () {
+      FW.toast('凭证图片处理失败，已导出不含图片的图片');
+      window.FWTableImg.render({
+        title: '内账流水明细',
+        subtitle: '账套：' + ledgerName() + '　|　期间：' + rng + (scope.length ? '　|　' + scope.join('，') : '') + '　|　导出日期：' + FW.today(),
+        kpis: [
+          { label: '笔数', value: String(n) },
+          { label: '收入合计', value: FW.fmtMoney(inc), cls: 'income' },
+          { label: '支出合计', value: FW.fmtMoney(exp), cls: 'expense' },
+          { label: '净额（收入−支出）', value: FW.fmtMoney(inc - exp) }
+        ],
+        head: head, rows: outRows, colWidths: colWidths,
+        amountCol: amountCol, imgCol: imgCol,
+        pics: {},
+        picMaxW: 200, picMaxH: 120
+      }).then(function (canvas) {
+        window.FWTableImg.downloadPNG(canvas, '内账流水_' + FW.today() + '.png');
+        FW.toast('已导出图片（' + n + ' 笔，不含凭证图）');
+      }).catch(function () { FW.toast('图片生成失败，请重试'); });
+    });
   }
 
   // ===== Excel 凭证图片嵌入 =====
