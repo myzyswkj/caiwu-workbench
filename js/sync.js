@@ -23,6 +23,17 @@
 
   function hasSupabase() { return !!(global.supabase && global.supabase.createClient); }
 
+  // 通用超时包装：网络层挂起时（国内→Supabase 链路不稳/522）主动失败，而不是无限等待
+  function withTimeout(promise, ms, msg) {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var t = setTimeout(function () { if (!done) { done = true; reject(new Error(msg || '请求超时')); } }, ms);
+      promise.then(function (r) { if (!done) { done = true; clearTimeout(t); resolve(r); } },
+                   function (e) { if (!done) { done = true; clearTimeout(t); reject(e); } });
+    });
+  }
+  var NET_HINT = '当前网络到云端不稳定（已等待超时）。可稍后再试；不登录也能正常记账、导出。';
+
   /* ---------- UI 回调（在 ui.js 中定义） ---------- */
   function setAuth(u) { if (FW.ui && FW.ui.setAuth) FW.ui.setAuth(u); }
   function setSync(t) { if (FW.ui && FW.ui.setSyncTime) FW.ui.setSyncTime(t); }
@@ -44,12 +55,13 @@
     // 启动登录入口
     renderAuthArea();
 
-    // 现有会话
-    sb.auth.getSession().then(function (r) {
-      if (r.data && r.data.session) { user = r.data.session.user; onLogin(); }
-    });
+    // 尝试恢复已存会话（带 8s 超时）：网络不稳时不再无限挂起/522，失败则静默保持未登录态。
+    // 恢复成功会自动拉取最新云端数据（多设备习惯不变）
+    withTimeout(sb.auth.getSession(), 8000, '恢复会话超时').then(function (r) {
+      if (r && r.data && r.data.session) { user = r.data.session.user; onLogin(); }
+    }).catch(function () {});
 
-    // 登录态变化
+    // 登录态变化（显式登录/注册/验证码成功时触发）
     sb.auth.onAuthStateChange(function (ev, sess) {
       if (sess && sess.user) { user = sess.user; onLogin(); }
       else { user = null; setAuth(null); }
@@ -131,11 +143,11 @@
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return Promise.resolve(false);
     return FW.db.exportAll().then(function (snap) {
       return FW.db.encryptSnapshot(snap).then(function (payload) {
-        return sb.from('snapshots').upsert({
+        return withTimeout(sb.from('snapshots').upsert({
           user_id: user.id,
           data: payload,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' }).then(function (r) {
+        }, { onConflict: 'user_id' }), 15000, '推送云端超时，网络不稳定').then(function (r) {
           if (r.error) { FW.toast('同步失败：' + r.error.message); return false; }
           markClean();
           return true;
@@ -154,7 +166,7 @@
   //   'error'  拉取/解密失败 —— 调用方严禁继续推送，否则会用本机旧数据覆盖云端导致他端数据丢失
   function pull() {
     if (!user) return Promise.resolve('error');
-    return sb.from('snapshots').select('data').eq('user_id', user.id).maybeSingle().then(function (r) {
+    return withTimeout(sb.from('snapshots').select('data').eq('user_id', user.id).maybeSingle(), 15000, '拉取云端超时，网络不稳定').then(function (r) {
       if (r.error && r.error.code !== 'PGRST116') { FW.toast('拉取失败：' + r.error.message); return 'error'; }
       if (!r.data || !r.data.data) return 'empty'; // 尚无云端数据，可安全推送初始化
       var payload = r.data.data;
@@ -193,7 +205,7 @@
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) { FW.toast('请先解锁加密再同步'); return Promise.resolve(); }
     if (!global.confirm || !global.confirm('将以云端数据完全覆盖本机（本机独有数据将丢失），确定继续？')) return Promise.resolve();
     syncing = true;
-    return sb.from('snapshots').select('data').eq('user_id', user.id).maybeSingle().then(function (r) {
+    return withTimeout(sb.from('snapshots').select('data').eq('user_id', user.id).maybeSingle(), 15000, '拉取云端超时，网络不稳定').then(function (r) {
       if (r.error && r.error.code !== 'PGRST116') { FW.toast('拉取失败：' + r.error.message); syncing = false; return false; }
       if (!r.data || !r.data.data) { FW.toast('云端暂无数据，无法覆盖'); syncing = false; return false; }
       var payload = r.data.data;
@@ -245,6 +257,12 @@
   }
 
   /* ---------- 登录 / 注册界面 ---------- */
+
+  function openLogin() {
+    // 直接弹出登录/注册表单（会话恢复已由 init 的 getSession 兜底，此处不再等待网络）
+    showLoginForm();
+  }
+
   function renderAuthArea() {
     var area = document.getElementById('authArea');
     if (!area) return;
@@ -263,7 +281,8 @@
       document.getElementById('authSyncOpts').onclick = openSyncMenu;
       document.getElementById('authOut').onclick = function () {
         if (dirty) push(); // 退出前尽量保存
-        sb.auth.signOut().then(function () { user = null; setAuth(null); if (brand) brand.textContent = '本地数据'; FW.toast('已退出'); });
+        withTimeout(sb.auth.signOut(), 8000, '退出超时').then(function () { user = null; setAuth(null); if (brand) brand.textContent = '本地数据'; FW.toast('已退出'); })
+          .catch(function () { user = null; setAuth(null); if (brand) brand.textContent = '本地数据'; FW.toast('已退出（网络异常，仅本地退出）'); });
       };
     }
   }
@@ -290,7 +309,7 @@
     });
   }
 
-  function openLogin() {
+  function showLoginForm() {
     var body =
       '<div class="tabs" style="margin-bottom:10px">' +
         '<button class="tab active" id="lgTab">邮箱登录</button>' +
@@ -345,7 +364,7 @@
           // 第一步：发送验证码
           if (document.getElementById('auCodeWrap').style.display === 'none') {
             msg.textContent = '发送中…';
-            sb.auth.signInWithOtp({ phone: phone }).then(function (r) {
+            withTimeout(sb.auth.signInWithOtp({ phone: phone }), 8000, NET_HINT).then(function (r) {
               if (r.error) { msg.textContent = '发送失败：' + r.error.message; return; }
               document.getElementById('auCodeWrap').style.display = '';
               msg.textContent = '验证码已发送，请查收短信';
@@ -357,7 +376,7 @@
           var code = document.getElementById('au_code').value.trim();
           if (!code) { msg.textContent = '请输入验证码'; return; }
           msg.textContent = '验证中…';
-          sb.auth.verifyOtp({ phone: phone, token: code, type: 'sms' }).then(function (r) {
+          withTimeout(sb.auth.verifyOtp({ phone: phone, token: code, type: 'sms' }), 8000, NET_HINT).then(function (r) {
             if (r.error) { msg.textContent = '验证失败：' + r.error.message; return; }
             FW.closeModal(); // onAuthStateChange 会触发拉取
           }).catch(function (e) { msg.textContent = '错误：' + (e && e.message ? e.message : e); });
@@ -369,9 +388,11 @@
         if (!email || !pwd) { msg.textContent = '请输入邮箱和密码'; return; }
         if (pwd.length < 6) { msg.textContent = '密码至少 6 位'; return; }
         msg.textContent = '处理中…';
-        var p = mode === 'reg'
-          ? sb.auth.signUp({ email: email, password: pwd })
-          : sb.auth.signInWithPassword({ email: email, password: pwd });
+        var p = withTimeout(
+          mode === 'reg'
+            ? sb.auth.signUp({ email: email, password: pwd })
+            : sb.auth.signInWithPassword({ email: email, password: pwd }),
+          8000, NET_HINT);
         p.then(function (r) {
           if (r.error) { msg.textContent = '失败：' + r.error.message; return; }
           if (mode === 'reg' && r.data.user && !r.data.session) {
