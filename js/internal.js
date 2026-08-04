@@ -2162,6 +2162,31 @@
         amountCls: cls
       };
     });
+    // 按账户收支副表（与打印视图 / Excel 导出同一套算子：buildAccMap / startBalanceMap / balMapAt）
+    var accMap = buildAccMap(rows);
+    var startBal = startBalanceMap(f), endBal = balMapAt(f.to || FW.today());
+    var accKeys = Object.keys(accMap).sort(function (a, b) {
+      return (accMap[b].income + accMap[b].expense + Math.abs(accMap[b].transfer || 0)) - (accMap[a].income + accMap[a].expense + Math.abs(accMap[a].transfer || 0));
+    });
+    var accRows = [], aInc = 0, aExp = 0, aStart = 0, aEnd = 0, aXfer = 0;
+    accKeys.forEach(function (k) {
+      var v = accMap[k];
+      var s = startBal[k] || 0, e = endBal[k] || 0;
+      accRows.push([k, FW.fmtMoney(s), FW.fmtMoney(v.income), FW.fmtMoney(v.expense), FW.fmtMoney(v.transfer || 0), FW.fmtMoney(v.income - v.expense), FW.fmtMoney(e)]);
+      aInc += v.income; aExp += v.expense; aStart += s; aEnd += e; aXfer += (v.transfer || 0);
+    });
+    accRows.push(['合计（' + accKeys.length + ' 账户）', FW.fmtMoney(aStart), FW.fmtMoney(aInc), FW.fmtMoney(aExp), FW.fmtMoney(aXfer), FW.fmtMoney(aInc - aExp), FW.fmtMoney(aEnd)]);
+    var subtable = {
+      title: '按账户（收支维度）',
+      note: '注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。',
+      head: ['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额'],
+      rows: accRows,
+      colWidths: [200, 180, 150, 150, 150, 150, 218],
+      rightCols: [1, 2, 3, 4, 5, 6],
+      colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed', 'signed'],
+      totalRow: true,
+      headerH: 30
+    };
     // 凭证图（JPEG dataURL，来自 IndexedDB，绘制不会污染 canvas），按行下标归集
     var pics = {};
     var tasks = [];
@@ -2173,14 +2198,8 @@
           .catch(function () { return null; }));
       });
     });
-    FW.toast('正在生成图片，请稍候…');
-    Promise.all(tasks).then(function (list) {
-      list.forEach(function (it) {
-        if (!it) return;
-        if (!pics[it.ri]) pics[it.ri] = [];
-        pics[it.ri].push(it.dataUrl);
-      });
-      window.FWTableImg.render({
+    function buildImgConfig(picMap) {
+      return {
         title: '内账流水明细',
         subtitle: '账套：' + ledgerName() + '　|　期间：' + rng + (scope.length ? '　|　' + scope.join('，') : '') + '　|　导出日期：' + FW.today(),
         kpis: [
@@ -2191,9 +2210,20 @@
         ],
         head: head, rows: outRows, colWidths: colWidths,
         amountCol: amountCol, imgCol: imgCol,
-        pics: pics,
-        picMaxW: 200, picMaxH: 120
-      }).then(function (canvas) {
+        pics: picMap || {},
+        picMaxW: 200, picMaxH: 120,
+        subtable: subtable
+      };
+    }
+
+    FW.toast('正在生成图片，请稍候…');
+    Promise.all(tasks).then(function (list) {
+      list.forEach(function (it) {
+        if (!it) return;
+        if (!pics[it.ri]) pics[it.ri] = [];
+        pics[it.ri].push(it.dataUrl);
+      });
+      window.FWTableImg.render(buildImgConfig(pics)).then(function (canvas) {
         var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
         var fname = '内账流水' + (picN ? '_含凭证' : '') + '_' + FW.today() + '.png';
         window.FWTableImg.downloadPNG(canvas, fname);
@@ -2203,20 +2233,7 @@
       });
     }).catch(function () {
       FW.toast('凭证图片处理失败，已导出不含图片的图片');
-      window.FWTableImg.render({
-        title: '内账流水明细',
-        subtitle: '账套：' + ledgerName() + '　|　期间：' + rng + (scope.length ? '　|　' + scope.join('，') : '') + '　|　导出日期：' + FW.today(),
-        kpis: [
-          { label: '笔数', value: String(n) },
-          { label: '收入合计', value: FW.fmtMoney(inc), cls: 'income' },
-          { label: '支出合计', value: FW.fmtMoney(exp), cls: 'expense' },
-          { label: '净额（收入−支出）', value: FW.fmtMoney(inc - exp) }
-        ],
-        head: head, rows: outRows, colWidths: colWidths,
-        amountCol: amountCol, imgCol: imgCol,
-        pics: {},
-        picMaxW: 200, picMaxH: 120
-      }).then(function (canvas) {
+      window.FWTableImg.render(buildImgConfig({})).then(function (canvas) {
         window.FWTableImg.downloadPNG(canvas, '内账流水_' + FW.today() + '.png');
         FW.toast('已导出图片（' + n + ' 笔，不含凭证图）');
       }).catch(function () { FW.toast('图片生成失败，请重试'); });

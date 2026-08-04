@@ -39,6 +39,7 @@
   var SUB_FONT = '12px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
   var KPI_LABEL_FONT = '12px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
   var KPI_VALUE_FONT = '700 16px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var PANEL_TITLE_FONT = '700 15px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
 
   // ---------- 纯函数：文本折行（按字符，兼容中英文混排） ----------
   function wrapText(measure, text, maxWidth) {
@@ -136,6 +137,15 @@
     var subtitleH = cfg.subtitle ? 20 : 0;
     var kpiH = (cfg.kpis && cfg.kpis.length) ? 52 : 0;
     var cursorY = marginY + titleH + (cfg.title ? 8 : 0) + subtitleH + (cfg.subtitle ? 6 : 0) + kpiH + (kpiH ? 10 : 0);
+
+    // 副表（按账户收支等小表）：放在 KPI 与主表之间，左对齐、宽度与主表一致
+    var subtable = null;
+    if (cfg.subtable && cfg.subtable.head && cfg.subtable.head.length) {
+      subtable = computeSubTable(cfg.subtable, measure, { padX: padX, lineH: lineH, padY: padY, availW: tableW });
+      subtable.top = cursorY;
+      cursorY += subtable.totalH + (subtable.noteLines.length ? 8 : 14);
+    }
+
     var tableTop = cursorY;
 
     var rowGeom = [];
@@ -168,7 +178,52 @@
       tableTop: tableTop, headerH: headerH,
       colW: colW, padX: padX, padY: padY, lineH: lineH, gap: gap,
       amountCol: amountCol, imgCol: imgCol,
-      nCol: nCol, head: head, rows: rowGeom
+      nCol: nCol, head: head, rows: rowGeom,
+      subtable: subtable
+    };
+  }
+
+  // ---------- 纯函数：副表（按账户收支等小表）布局 ----------
+  // cfg: { title?, note?, head, rows:[[cell,...]], colWidths?, headerH?, rightCols?, colCls?,
+  //         totalRow? }  colCls 每项: 'neutral'|'income'|'expense'|'signed'
+  // opt: { padX, lineH, padY, availW }
+  function computeSubTable(cfg, measure, opt) {
+    var head = cfg.head || [];
+    var rows = cfg.rows || [];
+    var nCol = head.length;
+    var colW = (cfg.colWidths && cfg.colWidths.length === nCol) ? cfg.colWidths : head.map(function () { return 120; });
+    var padX = opt.padX, lineH = opt.lineH, padY = opt.padY;
+    var headerH = cfg.headerH != null ? cfg.headerH : 30;
+    var rightCols = cfg.rightCols || [];
+    var titleH = cfg.title ? 22 : 0;
+    var rowGeom = [];
+    var y = 0;
+    for (var r = 0; r < rows.length; r++) {
+      var cells = rows[r] || [];
+      var maxLines = 1, cellLines = [];
+      for (var c = 0; c < nCol; c++) {
+        var txt = (cells[c] == null) ? '' : cells[c];
+        var lines = wrapText(measure, String(txt), colW[c] - padX * 2);
+        if (!lines.length) lines = [''];
+        cellLines.push(lines);
+        if (lines.length > maxLines) maxLines = lines.length;
+      }
+      var rowH = maxLines * lineH + 2 * padY;
+      rowGeom.push({ top: y, height: rowH, cellLines: cellLines, isTotal: !!cfg.totalRow && (r === rows.length - 1) });
+      y += rowH;
+    }
+    var tableH = y;
+    var noteLines = cfg.note ? wrapText(measure, cfg.note, opt.availW) : [];
+    var noteH = noteLines.length * 15;
+    var gapNote = noteLines.length ? 6 : 0;
+    var totalH = titleH + (cfg.title ? 6 : 0) + tableH + gapNote + noteH;
+    var tableW = colW.reduce(function (s, w) { return s + w; }, 0);
+    return {
+      title: cfg.title || '', note: cfg.note || '', noteLines: noteLines,
+      head: head, rows: rowGeom, colW: colW, nCol: nCol,
+      headerH: headerH, lineH: lineH, padX: padX, padY: padY,
+      rightCols: rightCols, colCls: cfg.colCls || [], totalRow: !!cfg.totalRow,
+      tableW: tableW, totalH: totalH, titleH: titleH, noteH: noteH
     };
   }
 
@@ -290,6 +345,87 @@
         kx += cardW + 14;
       });
       cy += geo.kpiH + 10;
+    }
+
+    // 副表（按账户收支等）：KPI 之后、主表之前
+    if (geo.subtable) {
+      var st = geo.subtable;
+      var sx = mx, sy = st.top;
+      if (st.title) {
+        ctx.fillStyle = C.title;
+        ctx.font = PANEL_TITLE_FONT;
+        ctx.fillText(st.title, sx, sy);
+        sy += st.titleH + 6;
+      }
+      // 表头
+      ctx.fillStyle = C.headerBg;
+      ctx.fillRect(sx, sy, st.tableW, st.headerH);
+      ctx.fillStyle = C.headerFg;
+      ctx.font = FONT_BOLD;
+      var shx = sx;
+      for (var sc = 0; sc < st.nCol; sc++) {
+        var shw = st.colW[sc];
+        var sht = String(st.head[sc] == null ? '' : st.head[sc]);
+        if (st.rightCols.indexOf(sc) >= 0) {
+          var stw = ctx.measureText(sht).width;
+          ctx.fillText(sht, shx + shw - st.padX - stw, sy + (st.headerH - st.lineH) / 2);
+        } else {
+          ctx.fillText(sht, shx + st.padX, sy + (st.headerH - st.lineH) / 2);
+        }
+        shx += shw;
+      }
+      // 表体
+      var sry = sy + st.headerH;
+      for (var sr = 0; sr < st.rows.length; sr++) {
+        var srg = st.rows[sr];
+        if (srg.isTotal || sr % 2 === 1) {
+          ctx.fillStyle = C.rowAlt;
+          ctx.fillRect(sx, sry, st.tableW, srg.height);
+        }
+        var scl = sx;
+        for (var scc = 0; scc < st.nCol; scc++) {
+          var scw = st.colW[scc];
+          var slines = srg.cellLines[scc] || [''];
+          var scls = st.colCls[scc] || 'neutral';
+          var colColor = C.text;
+          if (scls === 'income') colColor = C.income;
+          else if (scls === 'expense') colColor = C.expense;
+          else if (scls === 'signed') {
+            var raw = String(slines.join('')).replace(/[^0-9.\-−]/g, '').replace(/−/g, '-');
+            var num = parseFloat(raw);
+            if (!isNaN(num)) colColor = num < 0 ? C.expense : (num > 0 ? C.income : C.text);
+          }
+          ctx.fillStyle = colColor;
+          ctx.font = srg.isTotal ? FONT_BOLD : FONT;
+          for (var sli = 0; sli < slines.length; sli++) {
+            var sline = slines[sli];
+            if (st.rightCols.indexOf(scc) >= 0) {
+              var slw = ctx.measureText(sline).width;
+              ctx.fillText(sline, scl + scw - st.padX - slw, sry + st.padY + sli * st.lineH);
+            } else {
+              ctx.fillText(sline, scl + st.padX, sry + st.padY + sli * st.lineH);
+            }
+          }
+          scl += scw;
+        }
+        ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx, sry + srg.height + 0.5);
+        ctx.lineTo(sx + st.tableW, sry + srg.height + 0.5);
+        ctx.stroke();
+        sry += srg.height;
+      }
+      // 外边框
+      ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+      ctx.strokeRect(sx + 0.5, sy + 0.5, st.tableW - 1, (sry - sy) + 0.5);
+      // 注脚（折行）
+      if (st.noteLines && st.noteLines.length) {
+        ctx.fillStyle = C.muted;
+        ctx.font = SUB_FONT;
+        for (var ni = 0; ni < st.noteLines.length; ni++) {
+          ctx.fillText(st.noteLines[ni], sx, sry + 6 + ni * 15);
+        }
+      }
     }
 
     var tableLeft = mx;

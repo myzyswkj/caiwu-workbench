@@ -113,6 +113,72 @@ console.log('[7] _draw 用 mock canvas 实际绘制不抛异常且调用正确')
   ok('绘制了外边框 strokeRect', calls.strokeRect === 1);
 })();
 
+console.log('[8] _compute 含副表（按账户收支）几何');
+(function () {
+  var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
+  var rows = [{ cells: ['x', '收入', '', '', '', '', '', '', '', ''], amountCls: 'income' }];
+  var sub = {
+    title: '按账户（收支维度）',
+    note: '注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。' +
+          '注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。',
+    head: ['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额'],
+    rows: [['现金', '¥1,000.00', '¥300.00', '¥120.00', '¥0.00', '¥180.00', '¥1,180.00'],
+           ['微信', '¥500.00', '¥0.00', '¥50.00', '¥50.00', '−¥50.00', '¥500.00'],
+           ['合计（2 账户）', '¥1,500.00', '¥300.00', '¥170.00', '¥50.00', '¥130.00', '¥1,680.00']],
+    colWidths: [200, 180, 150, 150, 150, 150, 218],
+    rightCols: [1, 2, 3, 4, 5, 6],
+    colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed', 'signed'],
+    totalRow: true,
+    headerH: 30
+  };
+  var g = T._compute({ head: head, rows: rows, amountCol: 5, imgCol: 9, title: '内账流水明细', subtable: sub }, measure);
+  ok('返回了副表几何', !!(g.subtable && g.subtable.head));
+  ok('副表行数 = 数据行 + 合计行', g.subtable.rows.length === 3);
+  ok('末行 isTotal 标记', g.subtable.rows[2].isTotal === true);
+  ok('colCls 透传（收入列=income）', g.subtable.colCls[2] === 'income');
+  ok('右对齐列透传', g.subtable.rightCols.indexOf(2) >= 0);
+  ok('副表总宽 = 主表总宽（同宽）', Math.abs(g.subtable.tableW - (g.totalW - 32)) < 0.001);
+  ok('主表起始位置被副表下推', g.tableTop > g.marginY + g.titleH);
+  ok('长注脚被折成多行', g.subtable.noteLines.length > 1);
+  ok('总高因副表而增大', g.totalH > g.tableTop + g.headerH);
+})();
+
+console.log('[9] _draw 含副表不抛异常且绘制了副表文字');
+(function () {
+  var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
+  var rows = [{ cells: ['2026-08-01', '收入', '项目A', '销售', '微信', '+1,000.00', '得力', '张三', '备注一行', ''], amountCls: 'income' }];
+  var sub = {
+    title: '按账户（收支维度）',
+    note: '注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。',
+    head: ['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额'],
+    rows: [['现金', '¥1,000.00', '¥300.00', '¥120.00', '¥0.00', '¥180.00', '¥1,180.00'],
+           ['合计（1 账户）', '¥1,000.00', '¥300.00', '¥120.00', '¥0.00', '¥180.00', '¥1,180.00']],
+    colWidths: [200, 180, 150, 150, 150, 150, 218],
+    rightCols: [1, 2, 3, 4, 5, 6],
+    colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed', 'signed'],
+    totalRow: true, headerH: 30
+  };
+  var cfg = {
+    head: head, rows: rows, amountCol: 5, imgCol: 9, title: '内账流水明细',
+    kpis: [{ label: '笔数', value: '1' }], subtable: sub, pics: {}
+  };
+  var geo = T._compute(cfg, measure);
+  var calls = { fillText: 0, drawImage: 0, fillRect: 0, strokeRect: 0 };
+  var mockCtx = {
+    scale: function () {}, fillRect: function () { calls.fillRect++; }, strokeRect: function () { calls.strokeRect++; }, fill: function () { calls.fillRect++; },
+    beginPath: function () {}, moveTo: function () {}, lineTo: function () {}, stroke: function () {},
+    fillText: function () { calls.fillText++; }, drawImage: function () { calls.drawImage++; },
+    measureText: function (s) { return { width: String(s).length * 7 }; },
+    roundRect: function () {}, arcTo: function () {}, closePath: function () {},
+    set fillStyle(v) {}, set strokeStyle(v) {}, set font(v) {}, set lineWidth(v) {}, set textBaseline(v) {}
+  };
+  var threw = false;
+  try { T._draw(mockCtx, geo, cfg); } catch (e) { threw = true; console.log('  draw error: ' + e.message); }
+  ok('含副表绘制不抛异常', !threw);
+  // 副表至少含：标题1 + 表头7 + 数据2 = 10 个文字；主表至少 表头10 + 数据1
+  ok('绘制了副表与正表的文字', calls.fillText >= 10 + 11);
+})();
+
 console.log('');
 console.log('PASS ' + pass + ' / FAIL ' + fail);
 if (fail) process.exit(1);
