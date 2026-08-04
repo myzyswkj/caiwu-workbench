@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>导出图片 · 仪表盘风预览</title>
+<style>
+  body { margin: 0; background: #e9ece9; font-family: "PingFang SC","Microsoft YaHei",sans-serif; color: #1B2733; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .tip { color: #5B6A7A; font-size: 13px; margin: 0 0 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); overflow:auto; }
+  canvas { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .bar { margin: 12px 0; display:flex; gap:10px; align-items:center; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #c9a227; background: #c9a227; color: #fff; cursor: pointer; }
+  button.ghost { background:#fff; color:#0B1A2E; border-color:#ccc; }
+  select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>导出图片 · 仪表盘风（真实渲染）</h1>
+  <p class="tip">下方由真实 <code>js/table_image.js</code> 渲染，配色跟随主题。可切换字号看效果，点「下载 PNG」拿到成品。</p>
+  <div class="bar">
+    <label>字号：<select id="fs">
+      <option value="1">标准 17px</option>
+      <option value="1.35" selected>大 23px</option>
+      <option value="1.8">特大 31px</option>
+    </select></label>
+    <button class="ghost" id="dl">下载 PNG</button>
+  </div>
+  <div class="card"><div id="out">渲染中…</div></div>
+</div>
+
+<script src="../js/table_image.js"></script>
+<script>
+(function () {
+  function pad2(n){return (n<10?'0':'')+n;}
+  var d = new Date();
+  var stamp = d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+' '+pad2(d.getHours())+':'+pad2(d.getMinutes());
+
+  // 一张占位凭证图（红底灰字），证明「凭证」列渲染正常
+  var voucher = (function () {
+    var c = document.createElement('canvas'); c.width = 320; c.height = 220;
+    var x = c.getContext('2d');
+    x.fillStyle = '#f4f4f4'; x.fillRect(0,0,320,220);
+    x.fillStyle = '#c9a227'; x.fillRect(0,0,320,34);
+    x.fillStyle = '#fff'; x.font = '600 16px sans-serif'; x.fillText('增值税普通发票', 12, 23);
+    x.fillStyle = '#333'; x.font = '13px sans-serif';
+    x.fillText('销售方：示例科技有限公司', 14, 62);
+    x.fillText('金额：¥1,280.00', 14, 88);
+    x.fillText('税额：¥148.67', 14, 114);
+    x.fillText('价税合计：¥1,428.67', 14, 140);
+    x.fillText('NO. 44132000  0441 8821', 14, 176);
+    x.fillText('开票日期：2026-07-12', 14, 200);
+    return c.toDataURL('image/png');
+  })();
+
+  var head = ['日期','类型','项目','分类','账户','金额','对方单位/个人','报销人','备注','凭证'];
+  var colWidths = [124,84,144,114,156,148,184,106,224,268];
+  var rows = [
+    { cells:['2026-07-03','收入','项目A回款','销售','微信','+12,000.00','得力办公','张三','客户回款一笔',''], amountCls:'income' },
+    { cells:['2026-07-08','支出','采购物料','采购','支付宝','-3,200.00','供应商B','李四','买办公用品一批',''], amountCls:'expense' },
+    { cells:['2026-07-12','支出','服务费','技术','银行卡','-1,428.67','示例科技','王五','发票见凭证',''], amountCls:'expense' },
+    { cells:['2026-07-15','收入','服务收入','咨询','微信','+28,500.00','甲方公司','张三','月度服务费',''], amountCls:'income' },
+    { cells:['2026-07-22','支出','房租','行政','银行卡','-9,600.00','房东','赵六','季度房租',''], amountCls:'expense' }
+  ];
+  var cfg = {
+    title:'内账流水明细',
+    eyebrow:'财务工作台 · 内账流水',
+    subtitle:'账套：默认　|　期间：2026-07-01 至 2026-07-31　|　导出日期：2026-08-05',
+    footer:'由 财务工作台 导出 · '+stamp+' · 仅供内部参考',
+    kpis:[
+      { label:'笔数', value:'5' },
+      { label:'收入合计', value:'¥40,500.00', cls:'income' },
+      { label:'支出合计', value:'¥14,228.67', cls:'expense' },
+      { label:'净额（收入−支出）', value:'¥26,271.33' }
+    ],
+    head:head, rows:rows, colWidths:colWidths, amountCol:5, imgCol:9,
+    pics:{ 2:[voucher] },
+    picMaxW:220, picMaxH:130, gap:8
+  };
+
+  var lastCanvas = null;
+  function render(fs) {
+    cfg.fontScale = fs;
+    var out = document.getElementById('out');
+    out.textContent = '渲染中…';
+    FWTableImg.render(cfg).then(function (cv) {
+      lastCanvas = cv;
+      out.innerHTML = '';
+      out.appendChild(cv);
+    }).catch(function (e) {
+      out.textContent = '渲染失败：' + (e && e.message);
+    });
+  }
+  document.getElementById('fs').onchange = function () { render(parseFloat(this.value)); };
+  document.getElementById('dl').onclick = function () {
+    if (lastCanvas) FWTableImg.downloadPNG(lastCanvas, '内账流水明细_仪表盘风.png');
+  };
+  render(parseFloat(document.getElementById('fs').value));
+})();
+</script>
+</body>
+</html>

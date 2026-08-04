@@ -30,7 +30,16 @@
     panel: '#FFFFFF',
     income: '#C8102E',   // 收入=红（A股约定）
     expense: '#1F9D55',  // 支出=绿（A股约定）
-    gold: '#C9A227'
+    gold: '#C9A227',
+    // —— 仪表盘风视觉 ——
+    pageBg: '#F4F6F2',       // 浅灰页面底（悬浮白卡之外）
+    cardBorder: '#E2E6E2',   // 白卡细边框
+    goldText: '#C9A227',     // 金色眉标
+    kpiGoldBg: '#FBF6E8',    // KPI 笔数/净额 淡金底
+    kpiIncomeBg: '#FCEDEE',  // KPI 收入 淡红底
+    kpiExpenseBg: '#EAF6EF', // KPI 支出 淡绿底
+    amtIncomeBg: '#FCEDEE',  // 收入列底纹
+    amtExpenseBg: '#EAF6EF'  // 支出列底纹
   };
 
   var FONT = '17px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
@@ -40,6 +49,8 @@
   var KPI_LABEL_FONT = '16px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
   var KPI_VALUE_FONT = '700 22px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
   var PANEL_TITLE_FONT = '700 20px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var EYEBROW_FONT = '500 13px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
+  var FOOTER_FONT = '13px "PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif';
 
   // 按「字号缩放系数 fs」生成整套字体串（fs=1 即上面的基准值）。
   // 凭证大小(用户旋钮) → fontScale → 字号随凭证一起变大，但只有「凭证」列宽随 fs 放大，
@@ -54,7 +65,9 @@
       SUB: px(16) + ' ' + fam,
       KPI_LABEL: px(16) + ' ' + fam,
       KPI_VALUE: '700 ' + px(22) + ' ' + fam,
-      PANEL: '700 ' + px(20) + ' ' + fam
+      PANEL: '700 ' + px(20) + ' ' + fam,
+      EYEBROW: '500 ' + px(13) + ' ' + fam,
+      FOOTER: px(13) + ' ' + fam
     };
   }
 
@@ -165,10 +178,11 @@
     var noteLineH = 19 * fs;
 
     // 顶部区块高度预算（随 fs 放大，保持与放大后的字号协调）
+    var eyebrowH = cfg.eyebrow ? 20 * fs : 0;
     var titleH = cfg.title ? 36 * fs : 0;
     var subtitleH = cfg.subtitle ? 24 * fs : 0;
     var kpiH = (cfg.kpis && cfg.kpis.length) ? 70 * fs : 0;
-    var cursorY = marginY + titleH + (cfg.title ? 8 * fs : 0) + subtitleH + (cfg.subtitle ? 6 * fs : 0) + kpiH + (kpiH ? 10 * fs : 0);
+    var cursorY = marginY + eyebrowH + (cfg.eyebrow ? 4 * fs : 0) + titleH + (cfg.title ? 8 * fs : 0) + subtitleH + (cfg.subtitle ? 6 * fs : 0) + kpiH + (kpiH ? 10 * fs : 0);
 
     // 副表（按账户收支等小表）：放在 KPI 与主表之间，左对齐、宽度与主表一致
     var subtable = null;
@@ -203,10 +217,13 @@
     }
 
     var totalH = y + marginY;
+    // 底部页脚（仪表盘风：导出署名），仅当传入 footer 时占高
+    var footerH = cfg.footer ? Math.round(34 * fs) : 0;
+    if (footerH) totalH = y + footerH + marginY;
     return {
       totalW: totalW, totalH: totalH,
       marginX: marginX, marginY: marginY,
-      titleH: titleH, subtitleH: subtitleH, kpiH: kpiH,
+      titleH: titleH, subtitleH: subtitleH, kpiH: kpiH, eyebrowH: eyebrowH, footerH: footerH,
       tableTop: tableTop, headerH: headerH,
       colW: colW, padX: padX, padY: padY, lineH: lineH, gap: gap,
       amountCol: amountCol, imgCol: imgCol,
@@ -343,12 +360,23 @@
   function draw(ctx, geo, config) {
     var mx = geo.marginX, my = geo.marginY;
     var F = geo.fonts, fs = geo.fs;
-    // 背景
-    ctx.fillStyle = C.panel;
+    // 仪表盘风：浅灰页面底 + 悬浮白色圆角卡片
+    var pagePad = Math.round(14 * fs);
+    ctx.fillStyle = C.pageBg;
     ctx.fillRect(0, 0, geo.totalW, geo.totalH);
+    ctx.fillStyle = C.panel;
+    rr(ctx, pagePad, pagePad, geo.totalW - 2 * pagePad, geo.totalH - 2 * pagePad, Math.round(16 * fs));
+    ctx.fill();
+    ctx.strokeStyle = C.cardBorder; ctx.lineWidth = 1; ctx.stroke();
 
-    // 标题
+    // 标题区（眉标 → 标题 → 副标题），统一在白卡内
     var cy = my;
+    if (config.eyebrow) {
+      ctx.fillStyle = C.goldText;
+      ctx.font = F.EYEBROW;
+      ctx.fillText(config.eyebrow, mx, cy);
+      cy += geo.eyebrowH + 4 * fs;
+    }
     if (config.title) {
       ctx.fillStyle = C.title;
       ctx.font = F.TITLE;
@@ -362,7 +390,7 @@
       ctx.fillText(config.subtitle, mx, cy);
       cy += geo.subtitleH + 6 * fs;
     }
-    // KPI 卡片
+    // KPI 卡片（品牌色底：笔数/净额淡金、收入淡红、支出淡绿）
     if (config.kpis && config.kpis.length) {
       var kpiY = cy;
       var kx = mx;
@@ -373,9 +401,10 @@
         var valW = ctx.measureText(k.value).width;
         var cardW = Math.max(Math.round(140 * fs), labelW + valW + geo.kpiPadX * 2);
         var cardH = geo.cardH;
-        ctx.fillStyle = '#F2F5F9';
-        rr(ctx, kx, kpiY, cardW, cardH, Math.round(9 * fs)); ctx.fill();
-        ctx.strokeStyle = C.border; ctx.lineWidth = 1; ctx.stroke();
+        var bg = k.cls === 'income' ? C.kpiIncomeBg : (k.cls === 'expense' ? C.kpiExpenseBg : C.kpiGoldBg);
+        ctx.fillStyle = bg;
+        rr(ctx, kx, kpiY, cardW, cardH, Math.round(10 * fs)); ctx.fill();
+        ctx.strokeStyle = C.cardBorder; ctx.lineWidth = 1; ctx.stroke();
         ctx.fillStyle = C.muted; ctx.font = F.KPI_LABEL;
         ctx.fillText(k.label, kx + geo.kpiPadX, kpiY + geo.kpiLabelDY);
         ctx.fillStyle = k.cls === 'income' ? C.income : (k.cls === 'expense' ? C.expense : C.text);
@@ -507,6 +536,11 @@
       var cl = cellLeft;
       for (var cc = 0; cc < geo.nCol; cc++) {
         var cw = geo.colW[cc];
+        // 金额列底纹（收入淡红 / 支出淡绿），仅作为背景，文字随后覆盖
+        if (cc === geo.amountCol) {
+          var amtTint = rg.amountCls === 'income' ? C.amtIncomeBg : (rg.amountCls === 'expense' ? C.amtExpenseBg : null);
+          if (amtTint) { ctx.fillStyle = amtTint; ctx.fillRect(cl, rowTop, cw, rg.height); }
+        }
         if (cc === geo.imgCol) {
           // 凭证图：横向居中铺在凭证列
           if (rg.imgs && rg.imgs.length) {
@@ -543,6 +577,15 @@
     // 外边框
     ctx.strokeStyle = C.border; ctx.lineWidth = 1;
     ctx.strokeRect(tableLeft + 0.5, tableTop + 0.5, geo.totalW - mx * 2 - 1, (geo.rows.length ? (geo.rows[geo.rows.length - 1].top + geo.rows[geo.rows.length - 1].height - tableTop) : geo.headerH) + 0.5);
+
+    // 底部页脚（仪表盘风：导出署名）
+    if (config.footer && geo.footerH) {
+      var lastRow = geo.rows.length ? geo.rows[geo.rows.length - 1] : null;
+      var fy = lastRow ? (lastRow.top + lastRow.height) : (tableTop + geo.headerH);
+      ctx.fillStyle = C.muted;
+      ctx.font = F.FOOTER;
+      ctx.fillText(config.footer, mx, fy + (geo.footerH - 16 * fs) / 2);
+    }
   }
 
   // 单张凭证图加载：加超时（部分 JPEG/PNG 在某些浏览器上 onload/onerror 都不触发，会让 Promise 永远 pending）

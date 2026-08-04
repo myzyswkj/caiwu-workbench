@@ -2460,9 +2460,14 @@
       });
     });
     function buildImgConfig(picMap, fs) {
+      function pad2(n) { return (n < 10 ? '0' : '') + n; }
+      var d = new Date();
+      var stamp = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
       return {
         title: '内账流水明细',
+        eyebrow: '财务工作台 · 内账流水',
         subtitle: '账套：' + ledgerName() + '　|　期间：' + rng + (scope.length ? '　|　' + scope.join('，') : '') + '　|　导出日期：' + FW.today(),
+        footer: '由 财务工作台 导出 · ' + stamp + ' · 仅供内部参考',
         kpis: [
           { label: '笔数', value: String(n) },
           { label: '收入合计', value: FW.fmtMoney(inc), cls: 'income' },
