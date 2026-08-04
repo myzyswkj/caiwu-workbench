@@ -2479,90 +2479,77 @@
       };
     }
 
-    FW.toast('正在生成预览，请稍候…');
+    FW.toast('正在准备导出图片，请稍候…');
     Promise.all(tasks).then(function (list) {
       list.forEach(function (it) {
         if (!it) return;
         if (!pics[it.ri]) pics[it.ri] = [];
         pics[it.ri].push(it.dataUrl);
       });
-      openImagePreview(pics, n);
+      promptFontSize(pics, n);
     }).catch(function () {
-      FW.toast('凭证图片处理失败，已生成不含凭证图的预览');
-      openImagePreview({}, n);
+      FW.toast('凭证图片处理失败，已生成不含凭证图的导出');
+      promptFontSize({}, n);
     });
   }
 
-  // 导出图片预览弹窗：可先预览、用「字号」滑块自己调大小，满意后下载
-  function openImagePreview(pics, n) {
+  // 选导出字号 → 直接生成并下载 PNG（不做预览，避免宽表渲染卡顿/卡死）
+  function promptFontSize(pics, n) {
     var bodyHtml =
       '<div class="tx-prev">' +
         '<div class="tx-prev-bar">' +
-          '<label class="tx-size-label">字号：' +
+          '<label class="tx-size-label">导出字号：' +
             '<input type="range" id="picSizeRange" min="14" max="48" step="1" value="23">' +
             '<span id="picSizeVal" class="tx-size-val">23px</span>' +
           '</label>' +
+          '<span class="muted">（仅影响导出图片，不改原始数据）</span>' +
           '<span class="tx-prev-spacer"></span>' +
-          '<span class="muted" id="txPrevSize" style="font-size:12px;"></span>' +
-          '<span class="muted">可横向滚动查看完整图片</span>' +
         '</div>' +
-        '<div class="tx-prev-scroll" id="prevScroll"><div class="tx-loading" id="txPrevStatus">正在生成预览…</div></div>' +
+        '<div class="tx-msg" id="txMsg" style="min-height:18px;margin:4px 0 2px;color:#C8102E;font-size:13px;"></div>' +
         '<div class="form-actions">' +
           '<button type="button" class="btn ghost" id="prevCancel">取消</button>' +
-          '<button type="button" class="btn" id="prevDownload">下载 PNG</button>' +
+          '<button type="button" class="btn" id="prevDownload">导出 PNG</button>' +
         '</div>' +
       '</div>';
-    FW.openModal('导出图片预览', bodyHtml, function (body) {
-      var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
-      var cur = null; // 当前预览 canvas（下载用）
-      var pxOf = function (fs) { return Math.round(17 * fs); };
-      var fsOf = function (px) { return (Number(px) || 23) / 17; };
-      function setStatus(t) { var s = body.querySelector('#txPrevStatus'); if (s) s.textContent = t; }
-      function setSize(t)  { var s = body.querySelector('#txPrevSize'); if (s) s.textContent = t; }
-      function refresh(px) {
-        var fs = fsOf(px);
-        var scroll = body.querySelector('#prevScroll');
-        var valEl = body.querySelector('#picSizeVal');
-        if (valEl) valEl.textContent = px + 'px';
-        // 凭证图总张数
-        var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
-        setStatus('正在加载凭证图（' + picN + ' 张）…');
-        setSize('字号 ' + px + 'px' + (picN ? ' · 含凭证' : ' · 无凭证'));
-        var t0 = Date.now();
-        window.FWTableImg.render(buildImgConfig(pics, fs)).then(function (canvas) {
-          setStatus('正在绘制（已用 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's）…');
-          cur = canvas;
-          // 以「逻辑宽度」显示（dpr=2 → canvas.width/2），不缩放挤压，字号即屏幕真实大小；过宽容器横向滚动
-          canvas.style.width = Math.round(canvas.width / 2) + 'px';
-          canvas.style.maxWidth = 'none';
-          canvas.style.height = 'auto';
-          canvas.style.borderRadius = '8px';
-          canvas.style.display = 'block';
-          if (scroll) { scroll.innerHTML = ''; scroll.appendChild(canvas); }
-          setSize('字号 ' + px + 'px · 导出 ' + canvas.width + '×' + canvas.height);
-        }).catch(function (err) {
-          console.error('[导出图片预览] render 失败：', err);
-          if (scroll) scroll.innerHTML = '<div class="tx-loading" style="color:#C8102E;">预览生成失败：' + (err && err.message ? err.message : err) + '<br><span style="font-size:12px;color:var(--muted);">已用 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's，可按 F12 看 console</span></div>';
-        });
-      }
+    FW.openModal('导出图片（选择字号）', bodyHtml, function (body) {
       var range = body.querySelector('#picSizeRange');
-      if (range) range.oninput = function () { refresh(parseInt(range.value, 10) || 23); };
-      var cancel = body.querySelector('#prevCancel'); if (cancel) cancel.onclick = FW.closeModal;
+      var valEl = body.querySelector('#picSizeVal');
+      var msg = body.querySelector('#txMsg');
+      var cancel = body.querySelector('#prevCancel');
       var dl = body.querySelector('#prevDownload');
+      var busy = false;
+      if (range) range.oninput = function () { if (valEl) valEl.textContent = (range.value || 23) + 'px'; };
+      if (cancel) cancel.onclick = FW.closeModal;
       if (dl) dl.onclick = function () {
-        if (!cur) { FW.toast('预览尚未生成，请稍候'); return; }
-        var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
-        var fname = '内账流水' + (picN ? '_含凭证' : '') + '_' + FW.today() + '.png';
+        if (busy) return;
+        var px = parseInt(range ? range.value : '23', 10) || 23;
+        var fs = px / 17;
+        busy = true; if (dl) dl.disabled = true; if (cancel) cancel.disabled = true;
+        if (msg) msg.textContent = '正在生成图片…';
+        // 防御：buildImgConfig / render 任何同步或异步异常都捕获并上屏
+        var cfg;
         try {
-          window.FWTableImg.downloadPNG(cur, fname);
-          FW.toast('已导出图片（' + n + ' 笔' + (picN ? '，含 ' + picN + ' 张凭证图' : '') + '）');
+          cfg = buildImgConfig(pics, fs);
         } catch (e) {
-          console.error('[导出图片] 下载失败：', e);
-          FW.toast('导出失败：' + (e && err.message ? err.message : e));
+          console.error('[导出图片] 构建配置失败：', e);
+          if (msg) msg.textContent = '构建配置失败：' + (e && e.message ? e.message : e);
+          busy = false; if (dl) dl.disabled = false; if (cancel) cancel.disabled = false;
+          return;
         }
-        FW.closeModal();
+        Promise.resolve().then(function () {
+          return window.FWTableImg.render(cfg);
+        }).then(function (canvas) {
+          var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
+          var fname = '内账流水' + (picN ? '_含凭证' : '') + '_' + FW.today() + '.png';
+          window.FWTableImg.downloadPNG(canvas, fname);
+          FW.toast('已导出图片（' + n + ' 笔' + (picN ? '，含 ' + picN + ' 张凭证图' : '') + '）');
+          FW.closeModal();
+        }).catch(function (err) {
+          console.error('[导出图片] 渲染/下载失败：', err);
+          if (msg) msg.textContent = '导出失败：' + (err && err.message ? err.message : err) + '（可按 F12 看 console）';
+          busy = false; if (dl) dl.disabled = false; if (cancel) cancel.disabled = false;
+        });
       };
-      refresh(23);
     });
   }
 
