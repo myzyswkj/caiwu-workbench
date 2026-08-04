@@ -2493,64 +2493,67 @@
     });
   }
 
-  // 导出图片预览弹窗：可先预览、再用「凭证大小」旋钮调整字号，满意后下载
+  // 导出图片预览弹窗：可先预览、用「字号」滑块自己调大小，满意后下载
   function openImagePreview(pics, n) {
     var bodyHtml =
       '<div class="tx-prev">' +
         '<div class="tx-prev-bar">' +
-          '<label>凭证大小 / 字号：' +
-            '<select id="picSizeSel">' +
-              '<option value="1">小（标准 17px）</option>' +
-              '<option value="1.35" selected>中（偏大 约23px）</option>' +
-              '<option value="1.8">大（约31px）</option>' +
-              '<option value="2.4">特大（约41px）</option>' +
-            '</select>' +
+          '<label class="tx-size-label">字号：' +
+            '<input type="range" id="picSizeRange" min="14" max="48" step="1" value="23">' +
+            '<span id="picSizeVal" class="tx-size-val">23px</span>' +
           '</label>' +
-          '<span class="muted" id="picSizeHint"></span>' +
           '<span class="tx-prev-spacer"></span>' +
           '<span class="muted">可横向滚动查看完整图片</span>' +
         '</div>' +
         '<div class="tx-prev-scroll" id="prevScroll"><div class="tx-loading">正在生成预览…</div></div>' +
         '<div class="form-actions">' +
-          '<button class="btn ghost" id="prevCancel">取消</button>' +
-          '<button class="btn" id="prevDownload">下载 PNG</button>' +
+          '<button type="button" class="btn ghost" id="prevCancel">取消</button>' +
+          '<button type="button" class="btn" id="prevDownload">下载 PNG</button>' +
         '</div>' +
       '</div>';
     FW.openModal('导出图片预览', bodyHtml, function (body) {
       var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
       var cur = null; // 当前预览 canvas（下载用）
-      function refresh(fs) {
+      var pxOf = function (fs) { return Math.round(17 * fs); };
+      var fsOf = function (px) { return (Number(px) || 23) / 17; };
+      function refresh(px) {
+        var fs = fsOf(px);
         var scroll = body.querySelector('#prevScroll');
-        if (scroll) scroll.innerHTML = '<div class="tx-loading">正在生成预览…</div>';
+        var valEl = body.querySelector('#picSizeVal');
+        if (valEl) valEl.textContent = px + 'px';
+        if (scroll) scroll.innerHTML = '<div class="tx-loading">正在生成预览（' + px + 'px）…</div>';
         window.FWTableImg.render(buildImgConfig(pics, fs)).then(function (canvas) {
           cur = canvas;
-          // 以「逻辑宽度」显示（dpr=2），字号即为屏幕上的真实大小；过宽时容器横向滚动
+          // 以「逻辑宽度」显示（dpr=2 → canvas.width/2），不缩放挤压，字号即屏幕真实大小；过宽容器横向滚动
           canvas.style.width = Math.round(canvas.width / 2) + 'px';
-          canvas.style.maxWidth = '100%';
+          canvas.style.maxWidth = 'none';
           canvas.style.height = 'auto';
           canvas.style.borderRadius = '8px';
           canvas.style.display = 'block';
           if (scroll) { scroll.innerHTML = ''; scroll.appendChild(canvas); }
-          var hint = body.querySelector('#picSizeHint');
-          if (hint) hint.textContent = '当前字号约 ' + Math.round(17 * fs) + 'px（导出 PNG：' + canvas.width + '×' + canvas.height + '）';
-        }).catch(function () {
-          if (scroll) scroll.innerHTML = '<div class="tx-loading">预览生成失败，请重试</div>';
+        }).catch(function (err) {
+          console.error('[导出图片预览] render 失败：', err);
+          if (scroll) scroll.innerHTML = '<div class="tx-loading">预览生成失败：' + (err && err.message ? err.message : err) + '</div>';
         });
       }
-      var sel = body.querySelector('#picSizeSel');
-      sel.value = '1.35';
-      sel.onchange = function () { refresh(parseFloat(sel.value) || 1); };
+      var range = body.querySelector('#picSizeRange');
+      if (range) range.oninput = function () { refresh(parseInt(range.value, 10) || 23); };
       var cancel = body.querySelector('#prevCancel'); if (cancel) cancel.onclick = FW.closeModal;
       var dl = body.querySelector('#prevDownload');
       if (dl) dl.onclick = function () {
-        if (!cur) return;
+        if (!cur) { FW.toast('预览尚未生成，请稍候'); return; }
         var picN = Object.keys(pics).reduce(function (s, k) { return s + pics[k].length; }, 0);
         var fname = '内账流水' + (picN ? '_含凭证' : '') + '_' + FW.today() + '.png';
-        window.FWTableImg.downloadPNG(cur, fname);
-        FW.toast('已导出图片（' + n + ' 笔' + (picN ? '，含 ' + picN + ' 张凭证图' : '') + '）');
+        try {
+          window.FWTableImg.downloadPNG(cur, fname);
+          FW.toast('已导出图片（' + n + ' 笔' + (picN ? '，含 ' + picN + ' 张凭证图' : '') + '）');
+        } catch (e) {
+          console.error('[导出图片] 下载失败：', e);
+          FW.toast('导出失败：' + (e && e.message ? e.message : e));
+        }
         FW.closeModal();
       };
-      refresh(1.35);
+      refresh(23);
     });
   }
 

@@ -533,6 +533,9 @@ td.photo-cell { vertical-align: top; }
 .tx-prev { display: flex; flex-direction: column; }
 .tx-prev-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .tx-prev-bar select { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: #fff; font-size: 13px; color: var(--text); }
+.tx-size-label { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); }
+.tx-size-label input[type=range] { width: 200px; accent-color: var(--income, #C8102E); }
+.tx-size-val { min-width: 42px; font-weight: 700; color: var(--income, #C8102E); }
 .tx-prev-spacer { flex: 1; }
 .tx-prev-scroll { overflow: auto; background: #f4f6f2; border: 1px solid var(--border); border-radius: 10px; padding: 12px; min-height: 160px; max-height: 62vh; }
 .tx-prev-scroll canvas { background: #fff; }

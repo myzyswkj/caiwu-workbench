@@ -556,11 +556,32 @@
   }
 
   function downloadPNG(canvas, filename) {
-    var url = canvas.toDataURL('image/png');
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = filename || ('export_' + Date.now() + '.png');
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    filename = filename || ('export_' + Date.now() + '.png');
+    // 优先用 toBlob + ObjectURL：比 toDataURL 的 data: URL 更可靠，
+    // 避免浏览器（尤其 Chrome）因 data: URL 过大而静默拦截下载。
+    if (canvas.toBlob) {
+      canvas.toBlob(function (blob) {
+        if (!blob) { fallbackDataURL(canvas, filename); return; }
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      }, 'image/png');
+    } else {
+      fallbackDataURL(canvas, filename);
+    }
+  }
+  function fallbackDataURL(canvas, filename) {
+    try {
+      var url = canvas.toDataURL('image/png');
+      var a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    } catch (e) {
+      console.error('[导出图片] 下载失败：', e);
+      try { window.open(canvas.toDataURL('image/png'), '_blank'); } catch (e2) {}
+    }
   }
 
   return {
