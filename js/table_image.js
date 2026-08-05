@@ -4,7 +4,7 @@
  * 设计要点：
  *  - 纯原生 Canvas 2D，不引入任何第三方库（html2canvas 等），保持项目「纯静态离线」架构。
  *  - 凭证图用 dataURL 直接 drawImage，不会污染（taint）canvas，toDataURL 可正常导出。
- *  - 配色对齐当前主题：深墨蓝表头 #0B1A2E、收入红 #C8102E、支出绿 #1F9D55。
+ *  - 配色对齐当前主题：深墨绿表头 #14342B、收入红 #C8102E、支出绿 #1F9D55。
  *  - 关键布局算法（wrapText / _compute）是纯函数，可在 node 中桩 measureText 做单测。
  *
  * 对外 API：
