@@ -515,7 +515,7 @@
       if (!pcount) vcell = '<span class="muted">—</span>';
       else if (!state.showVoucher) vcell = '<span class="v-count" title="该笔有 ' + pcount + ' 张凭证">📎 ' + pcount + '</span>';
       else vcell = '<div class="v-imgs">' + t.photos.filter(Boolean).map(function (pid) {
-        return '<img class="v-inline" data-pid="' + pid + '" data-load="' + pid + '" src="" alt="凭证" title="点击查看大图">';
+        return '<img class="v-inline" data-pid="' + pid + '" data-load="' + pid + '" alt="凭证" title="点击查看大图">';
       }).join('') + '</div>';
       return '<tr>' + selTd +
         '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
@@ -601,10 +601,20 @@
         if (done) return;
         markBad('凭证图加载超时（pid=' + pid + '）');
       }, 8000);
-      img.onerror = function () { markBad('凭证图加载失败（pid=' + pid + '），可能数据损坏'); };
+      // 修：<img src=""> 初始空 src 会在浏览器立即触发 onerror，被误判为"加载失败"→ 设 0.4 透明度盖住真图
+      // 双保险：onerror 忽略 src 为空/无效的误触；同时拿到 d 后清掉可能的残留 opacity
+      img.onerror = function () {
+        if (!img.src || img.src === window.location.href || /^data:,$/.test(img.src)) return;
+        markBad('凭证图加载失败（pid=' + pid + '），可能数据损坏');
+      };
       FW.db.getPhoto(pid).then(function (d) {
         if (done) return;
-        if (d) { img.src = d; done = true; _finished++; }
+        if (d) {
+          img.onerror = null;        // 拿到真图后关 onerror，避免后续重新加载时误触
+          img.style.opacity = '';    // 兜底清除旧 markBad 残留的 0.4 透明度
+          img.src = d;
+          done = true; _finished++;
+        }
         else markBad('凭证图数据为空（pid=' + pid + '）');
       }).catch(function (e) {
         markBad('凭证图读取异常：' + (e && e.message ? e.message : e));
