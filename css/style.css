@@ -218,6 +218,18 @@ td.num.refund { color: #0d9488; }
 .tag.income { background: #fdeaec; color: var(--income); }
 .tag.expense { background: #e7f6ee; color: var(--expense); }
 .row-actions { display: flex; gap: 6px; }
+/* 列宽拖拽（登记内账流水表） */
+#txWrap { overflow-x: auto; }
+#txTable { table-layout: fixed; width: max-content; min-width: 100%; }
+#txTable col { width: auto; }
+#txTable th { position: relative; overflow: hidden; }
+#txTable th, #txTable td { white-space: nowrap; }
+#txTable .photo-cell, #txTable td.remark, #txTable td:nth-child(7) { white-space: normal; }
+.col-resizer {
+  position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+  cursor: col-resize; z-index: 3; touch-action: none;
+}
+.col-resizer:hover, .col-resizer.dragging { background: var(--info); opacity: .35; }
 
 /* 表单：分组区块 + 组内 2 列，块间留白，避免「挤」 */
 /* 注：专用 .tx-section / .tx-title 前缀，避免与项目核算下钻弹窗的 .form-section 冲突覆盖 */

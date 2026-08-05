@@ -425,6 +425,7 @@
           '<button class="btn ghost sm" id="fReset">重置</button>' +
           '<label class="chk-inline"><input type="checkbox" id="fNoAlloc"' + (f.noAlloc ? ' checked' : '') + '> 仅看未分摊</label>' +
           '<label class="chk-inline"><input type="checkbox" id="fVoucher"' + (state.showVoucher ? ' checked' : '') + '> 显示凭证图</label>' +
+          '<button class="btn ghost sm" id="fResetColW" title="恢复默认列宽">重置列宽</button>' +
         '</div>' +
         (state.selMode ? bulkBarHtml() : '') +
         '<div id="txWrap"></div>' +
@@ -462,6 +463,7 @@
     g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '', noAlloc: false }; drawList(); };
     g('fNoAlloc').onchange = function () { state.filter.noAlloc = this.checked; drawTable(); };
     g('fVoucher').onchange = function () { state.showVoucher = this.checked; drawTable(); };
+    g('fResetColW').onclick = resetColWidths;
   }
 
   function drawTable() {
@@ -490,6 +492,8 @@
     FW.qa('#txTable .row-del').forEach(function (b) { b.onclick = function () { delTx(b.dataset.id); }; });
     FW.qa('#txTable .photo-cell img').forEach(function (img) { img.onclick = function () { previewPhoto(img.dataset.pid); }; });
     loadThumbs();
+    applyColWidths();
+    bindColResize();
     if (state.selMode) bindBulkRowEvents();
   }
 
@@ -501,6 +505,11 @@
     if (t.type === 'equity') return { tag: (t.equityDir === 'out' ? '股本抽回' : '股本注入'), cls: 'equity' };
     return { tag: t.type || '—', cls: '' };
   }
+
+  // 流水表列定义（用于 colgroup + 表头拖拽手柄）
+  var TX_COLS = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证', '对方/个人', '报销人', '操作'];
+  var TX_DEF_W = { 0: 100, 1: 92, 2: 132, 3: 104, 4: 116, 5: 112, 6: 172, 7: 96, 8: 124, 9: 92, 10: 116 };
+  var COLW_KEY = 'fw_tx_colwidths';
 
   function tableHtml(rows) {
     var trs = rows.map(function (t) {
@@ -532,8 +541,22 @@
         '</tr>';
     }).join('');
     var selHead = state.selMode ? '<th><input type="checkbox" id="selAll" title="全选当前列表"></th>' : '';
-    return '<table id="txTable"><thead><tr>' + selHead +
-      '<th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th class="num">金额</th><th>备注</th><th>凭证</th><th>对方/个人</th><th>报销人</th><th>操作</th>' +
+    // colgroup：每列一个 <col>，data-col 索引与表头一致，宽度由 localStorage 持久化 + 默认兜底
+    var colTags = '';
+    if (state.selMode) colTags += '<col data-col="0">';
+    TX_COLS.forEach(function (c, i) {
+      colTags += '<col data-col="' + (state.selMode ? i + 1 : i) + '">';
+    });
+    // 表头：除最后一列外，每个 th 右侧加拖拽手柄
+    var headCells = TX_COLS.map(function (c, i) {
+      var idx = state.selMode ? i + 1 : i;
+      var isLast = (i === TX_COLS.length - 1);
+      var cls = (c === '金额') ? ' class="num"' : '';
+      var rz = isLast ? '' : '<span class="col-resizer" data-col="' + idx + '" title="拖拽调整列宽"></span>';
+      return '<th' + cls + '>' + c + rz + '</th>';
+    }).join('');
+    return '<table id="txTable"><colgroup>' + colTags + '</colgroup><thead><tr>' + selHead +
+      headCells +
       '</tr></thead><tbody>' + trs + '</tbody></table>';
   }
 
@@ -620,6 +643,74 @@
         markBad('凭证图读取异常：' + (e && e.message ? e.message : e));
       });
     });
+  }
+
+  /* ---------- 列宽拖拽（用户可自定义流水表列宽，localStorage 持久化） ---------- */
+  function getColWidths() {
+    try { return JSON.parse(localStorage.getItem(COLW_KEY) || '{}') || {}; }
+    catch (e) { return {}; }
+  }
+  function setColWidths(obj) {
+    try { localStorage.setItem(COLW_KEY, JSON.stringify(obj)); } catch (e) {}
+  }
+  // 列索引 → 默认宽度（含批量模式多出的全选列，索引 0）
+  function defaultWidthFor(colIdx, hasSel) {
+    if (hasSel && colIdx === 0) return 38;
+    var base = hasSel ? colIdx - 1 : colIdx;
+    return TX_DEF_W[base] != null ? TX_DEF_W[base] : 100;
+  }
+  function applyColWidths() {
+    var tbl = document.getElementById('txTable');
+    if (!tbl) return;
+    var cg = tbl.querySelector('colgroup');
+    if (!cg) return;
+    var widths = getColWidths();
+    var cols = cg.querySelectorAll('col');
+    cols.forEach(function (col, i) {
+      var w = widths[i] != null ? widths[i] : defaultWidthFor(i, state.selMode);
+      if (w) col.style.width = w + 'px';
+    });
+  }
+  function bindColResize() {
+    var wrap = document.getElementById('txWrap');
+    if (!wrap || wrap._colBound) return;
+    wrap._colBound = true;
+    wrap.addEventListener('mousedown', function (e) {
+      var rz = e.target && e.target.closest ? e.target.closest('.col-resizer') : null;
+      if (!rz) return;
+      e.preventDefault();
+      var colIdx = parseInt(rz.dataset.col, 10);
+      var tbl = document.getElementById('txTable');
+      var col = tbl.querySelector('colgroup col[data-col="' + colIdx + '"]');
+      if (!col) return;
+      rz.classList.add('dragging');
+      var startX = e.clientX;
+      var startW = col.getBoundingClientRect().width;
+      var curW = startW;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      function onMove(ev) {
+        curW = Math.max(40, startW + (ev.clientX - startX));
+        col.style.width = curW + 'px';
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        rz.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        var w = getColWidths();
+        w[colIdx] = Math.round(curW);
+        setColWidths(w);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+  function resetColWidths() {
+    try { localStorage.removeItem(COLW_KEY); } catch (e) {}
+    applyColWidths();
+    if (FW.toast) FW.toast('已重置列宽');
   }
 
   /* ---------- 统计分析（逻辑分层 + 对账校验） ---------- */
