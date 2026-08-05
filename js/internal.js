@@ -2771,22 +2771,27 @@
       else { cls += ' neutral'; }
       return '<td class="' + cls + '">' + sign + FW.fmtMoney(a) + '</td>';
     }
-    var html =
-      '<div class="flow-print print-area vsz-m">' +
+    var subLine = '账套：' + FW.esc(ledgerName()) + '　|　期间：' + FW.esc(rng) + (scope.length ? '　|　' + FW.esc(scope.join('，')) : '') + '　|　导出日期：' + FW.today();
+    var titleBlock =
         '<h2>内账流水明细</h2>' +
-        '<div class="fp-sub">账套：' + FW.esc(ledgerName()) + '　|　期间：' + FW.esc(rng) + (scope.length ? '　|　' + FW.esc(scope.join('，')) : '') + '　|　导出日期：' + FW.today() + '</div>' +
+        '<div class="fp-sub">' + subLine + '</div>' +
         '<div class="fp-kpis">' +
           '<div class="fp-kpi">笔数<b>' + rows.length + '</b></div>' +
           '<div class="fp-kpi">收入合计<b class="income">' + FW.fmtMoney(inc) + '</b></div>' +
           '<div class="fp-kpi">支出合计<b class="expense">' + FW.fmtMoney(exp) + '</b></div>' +
           '<div class="fp-kpi">净额（收入−支出）<b>' + FW.fmtMoney(inc - exp) + '</b></div>' +
-        '</div>' +
+        '</div>';
+    // 每页重复用的紧凑标题（仅报表名 + 账套/期间，不含 KPI，放进明细表 thead 由浏览器自动跨页重复）
+    var titleCompact = '<h2 class="fp-run">内账流水明细</h2><div class="fp-sub">' + subLine + '</div>';
+    var html =
+      '<div class="flow-print print-area vsz-m">' +
+        '<div class="fp-title" id="fpTitle">' + titleBlock + '</div>' +
         // 按账户收支维度：老板看流水时通常最关心"每个账户赚了/花了多少"
         '<h4 class="fp-h4">按账户（收支维度）</h4>' +
         '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true) + '</div>' +
         '<div class="fp-note">注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
         '<h4 class="fp-h4">流水明细</h4>' +
-        '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>' +
+        '<table id="fpDetailTable"><thead id="fpDetailHead"><tr class="fp-colhead"><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>' +
         rows.map(function (t, i) {
           var np = (t.photos || []).filter(Boolean).length;
           var vcell = '<td class="fp-vcell" data-vi="' + i + '">' +
@@ -2798,6 +2803,7 @@
         '</tbody></table>' +
       '</div>' +
       '<div class="form-actions no-print" style="margin-top:14px">' +
+        '<label class="fp-inc"><input type="checkbox" id="fpTitleEvery"> 每页带标题</label>' +
         '<label class="fp-inc"><input type="checkbox" id="fpIncImg" checked> 包含凭证图片</label>' +
         '<label class="fp-inc">凭证图大小 <select id="fpVSize"><option value="vsz-s">小</option><option value="vsz-m" selected>中</option><option value="vsz-l">大</option></select></label>' +
         '<button class="btn" id="fpPrint">🖨 打印 / 保存为 PDF</button>' +
@@ -2818,6 +2824,11 @@
           wrap.classList.remove('vsz-s', 'vsz-m', 'vsz-l');
           wrap.classList.add(szSel.value);
         };
+      }
+      var titleChk = body.querySelector('#fpTitleEvery');
+      if (titleChk) {
+        titleChk.onchange = function () { toggleTitleEvery(body); };
+        toggleTitleEvery(body);
       }
     });
 
@@ -2858,6 +2869,26 @@
         });
         body.__fpVLoaded = true;
       });
+    }
+
+    // 每页带标题：勾选时把紧凑标题注入明细表 thead 首行，浏览器原生 table-header-group 会让它跨页每页重复；
+    // 取消勾选则移除该行（恢复为仅第 1 页顶部有标题的默认行为）。
+    function toggleTitleEvery(body) {
+      var head = body.querySelector('#fpDetailHead');
+      var chk = body.querySelector('#fpTitleEvery');
+      if (!head || !chk) return;
+      var ex = head.querySelector('.fp-title-row');
+      if (chk.checked && !ex) {
+        var tr = document.createElement('tr');
+        tr.className = 'fp-title-row';
+        var td = document.createElement('td');
+        td.colSpan = 10; // 与明细表列数一致（日期/类型/项目/分类/账户/金额/对方/报销人/备注/凭证）
+        td.innerHTML = titleCompact;
+        tr.appendChild(td);
+        head.insertBefore(tr, head.firstChild);
+      } else if (!chk.checked && ex) {
+        ex.parentNode.removeChild(ex);
+      }
     }
   }
 
