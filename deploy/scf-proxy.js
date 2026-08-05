@@ -34,6 +34,12 @@ const server = http.createServer(function (req, res) {
       var buf = Buffer.from(await r.arrayBuffer());
       var respHeaders = {};
       r.headers.forEach(function (v, k) { respHeaders[k] = v; });
+      // fetch 已自动解压 gzip/br 且 body 已重新打包，逐字透传下面这些头
+      // 会让响应头与实际 body 不符（畸形响应，浏览器 ERR_INVALID_RESPONSE），必须删
+      delete respHeaders['content-encoding'];
+      delete respHeaders['content-length'];
+      delete respHeaders['transfer-encoding'];
+      delete respHeaders['connection'];
       // 确保 CORS 开放（Supabase 源站本身就是 *，这里兜底）
       if (!respHeaders['access-control-allow-origin']) {
         respHeaders['access-control-allow-origin'] = '*';

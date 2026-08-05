@@ -4,7 +4,7 @@
  * 留空则应用保持「纯本地模式」，不影响现有功能。
  * ============================================================ */
 window.APP_CONFIG = {
-  // 反代入口（腾讯云 SCF Web 函数，香港·公网）→ 转发到 Supabase 源站
-  SUPABASE_URL: 'https://1459233211-6ybko6xjw1.ap-hongkong.tencentscf.com',
+  // 反代入口（腾讯云 SCF 事件函数，香港·公网）→ 转发到 Supabase 源站
+  SUPABASE_URL: 'https://1459233211-229dj02clb.ap-hongkong.tencentscf.com',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dmd2b2N1c3JwZmFramV2Ym50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUwNjUwNDMsImV4cCI6MjEwMDY0MTA0M30.vSNISAYune22X8Bh-t5CUmvEBg4rdDZ54I2h1Djxd0o'
 };
