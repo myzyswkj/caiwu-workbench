@@ -2459,7 +2459,7 @@
           .catch(function () { return null; }));
       });
     });
-    function buildImgConfig(picMap, fs) {
+    function buildImgConfig(picMap, fs, scaledColWidths) {
       function pad2(n) { return (n < 10 ? '0' : '') + n; }
       var d = new Date();
       var stamp = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
@@ -2474,7 +2474,7 @@
           { label: '支出合计', value: FW.fmtMoney(exp), cls: 'expense' },
           { label: '区间收支合计', value: FW.fmtMoney(inc - exp) }
         ],
-        head: head, rows: outRows, colWidths: colWidths,
+        head: head, rows: outRows, colWidths: scaledColWidths || colWidths,
         amountCol: amountCol, imgCol: imgCol,
         pics: picMap || {},
         picMaxW: 220, picMaxH: 130,
@@ -2506,6 +2506,10 @@
               '<input type="range" id="picSizeRange" min="14" max="48" step="1" value="23">' +
               '<span id="picSizeVal" class="tx-size-val">23px</span>' +
             '</label>' +
+            '<label class="tx-size-label">图片宽度：' +
+              '<input type="number" id="picWidthRange" min="800" max="2400" step="32" value="1552" style="width:90px">' +
+              '<span class="muted">px（800–2400，越宽列越宽）</span>' +
+            '</label>' +
             '<span class="muted">（仅影响导出图片，不改原始数据）</span>' +
             '<span class="tx-prev-spacer"></span>' +
           '</div>' +
@@ -2515,9 +2519,10 @@
             '<button type="button" class="btn" id="prevDownload">导出 PNG</button>' +
           '</div>' +
         '</div>';
-      FW.openModal('导出图片（选择字号）', bodyHtml, function (body) {
+      FW.openModal('导出图片（选择字号 + 宽度）', bodyHtml, function (body) {
         var range = body.querySelector('#picSizeRange');
         var valEl = body.querySelector('#picSizeVal');
+        var width = body.querySelector('#picWidthRange');
         var msg = body.querySelector('#txMsg');
         var cancel = body.querySelector('#prevCancel');
         var dl = body.querySelector('#prevDownload');
@@ -2528,12 +2533,19 @@
           if (busy) return;
           var px = parseInt(range ? range.value : '23', 10) || 23;
           var fs = px / 17;
+          // 图片宽度：按 defaultTotalW 等比缩放各列宽
+          var defaultTotalW = colWidths.reduce(function (s, w) { return s + w; }, 0);
+          var userW = parseInt(width ? width.value : String(defaultTotalW), 10);
+          if (!isFinite(userW) || userW < 800) userW = 800;
+          if (userW > 2400) userW = 2400;
+          var scale = userW / defaultTotalW;
+          var scaledColWidths = colWidths.map(function (w) { return Math.round(w * scale); });
           busy = true; if (dl) dl.disabled = true; if (cancel) cancel.disabled = true;
           if (msg) msg.textContent = '正在生成图片…';
           // 防御：buildImgConfig / render 任何同步或异步异常都捕获并上屏
           var cfg;
           try {
-            cfg = buildImgConfig(pics, fs);
+            cfg = buildImgConfig(pics, fs, scaledColWidths);
           } catch (e) {
             console.error('[导出图片] 构建配置失败：', e);
             if (msg) msg.textContent = '构建配置失败：' + (e && e.message ? e.message : e);

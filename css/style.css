@@ -211,6 +211,9 @@ tbody tr:nth-child(even) td { background: #E7EFEA; }
 tbody tr:hover td { background: #C2D9CD; }
 tbody tr:hover { background: #C2D9CD; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: .3px; }
+td.num.income { color: var(--income); }
+td.num.expense { color: var(--expense); }
+td.num.refund { color: #0d9488; }
 .tag { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; background: var(--primary-soft); color: var(--primary); }
 .tag.income { background: #fdeaec; color: var(--income); }
 .tag.expense { background: #e7f6ee; color: var(--expense); }
