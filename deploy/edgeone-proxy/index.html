@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>supabase-proxy · EdgeOne Pages</title>
+</head>
+<body style="font-family:system-ui,sans-serif;max-width:640px;margin:60px auto;padding:0 20px;color:#333">
+<h1>supabase-proxy</h1>
+<p>这是财务工作台的 Supabase 反代边缘函数，部署在 EdgeOne Pages。</p>
+<p>反代入口：<code>/proxy/*</code> → <code>https://uuvgvocusrpfakjevbnt.supabase.co/*</code></p>
+<p>健康检查：访问 <code>/proxy/auth/v1/health</code>，返回 Supabase 的 JSON 应答即正常。</p>
+</body>
+</html>

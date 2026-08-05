@@ -26,12 +26,19 @@ function pickPath(event) {
 }
 
 function pickQuery(event) {
-  if (typeof event.queryString === 'string' && event.queryString) return '?' + event.queryString;
-  var q = event.queryStringParameters;
+  // 腾讯云函数 URL 默认模式下 queryString 可能是「对象」而非字符串，两种都要处理
+  var q = event.queryString;
+  if (typeof q === 'string' && q) return '?' + q;
   if (q && typeof q === 'object') {
     var parts = [];
     for (var k in q) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(q[k]));
     if (parts.length) return '?' + parts.join('&');
+  }
+  var q2 = event.queryStringParameters;
+  if (q2 && typeof q2 === 'object') {
+    var parts2 = [];
+    for (var k2 in q2) parts2.push(encodeURIComponent(k2) + '=' + encodeURIComponent(q2[k2]));
+    if (parts2.length) return '?' + parts2.join('&');
   }
   return '';
 }
@@ -83,11 +90,14 @@ exports.main_handler = async function (event) {
     respHeaders['access-control-allow-methods'] = '*';
     respHeaders['access-control-allow-headers'] = '*';
 
+    // 函数 URL 默认模式不处理 isBase64Encoded（会把 base64 原文当附件返回，
+    // 加 Content-Disposition: attachment → 浏览器 ERR_INVALID_RESPONSE）。
+    // Supabase 响应全是 JSON 文本，直接 UTF-8 字符串返回。
     return {
       statusCode: r.status,
       headers: respHeaders,
-      body: buf.toString('base64'),
-      isBase64Encoded: true
+      body: buf.toString('utf8'),
+      isBase64Encoded: false
     };
   } catch (e) {
     return {
