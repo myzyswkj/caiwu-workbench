@@ -537,40 +537,77 @@
       '</tr></thead><tbody>' + trs + '</tbody></table>';
   }
 
+  // 凭证图全部加载失败时页面顶部横幅（用户无需跑 Console）
+  function showPhotoDiagBanner(total) {
+    if (document.getElementById('photoDiagBanner')) return;
+    var b = document.createElement('div');
+    b.id = 'photoDiagBanner';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#C8102E;color:#fff;padding:10px 16px;font-size:13px;display:flex;gap:12px;align-items:center;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+    b.innerHTML = '<span style="flex:1">⚠️ 检测到 ' + total + ' 张凭证图全部加载失败，可能是数据丢失或浏览器权限问题</span>' +
+      '<button id="photoDiagBtn" style="background:#fff;color:#C8102E;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-weight:600">查看诊断</button>' +
+      '<button id="photoDiagClose" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.6);padding:5px 10px;border-radius:6px;cursor:pointer">关闭</button>';
+    document.body.appendChild(b);
+    b.querySelector('#photoDiagBtn').onclick = diagnosePhotosDetail;
+    b.querySelector('#photoDiagClose').onclick = function () { b.remove(); };
+  }
+
+  // 直接读 IndexedDB 诊断凭证数据状态（不依赖业务代码）
+  function diagnosePhotosDetail() {
+    try {
+      if (!global.indexedDB) { FW.toast('当前浏览器不支持 IndexedDB'); return; }
+      var req = indexedDB.open('fw_photos', 1);
+      req.onsuccess = function () {
+        var db = req.result;
+        var tx = db.transaction('photos', 'readonly');
+        var all = tx.objectStore('photos').getAll();
+        all.onsuccess = function () {
+          var list = all.result || [];
+          var total = list.length, valid = 0;
+          list.forEach(function (p) {
+            var d = p && p.data;
+            if (typeof d === 'string' && d.indexOf('data:image') === 0) valid++;
+          });
+          var lines = ['凭证数据库诊断', '─────────────', '数据库：fw_photos（版本 ' + db.version + '）', '凭证记录总数：' + total + ' 张', '有效图片：' + valid + ' 张'];
+          if (total === 0) lines.push('⚠️ 数据为空：凭证图可能已丢失（清过浏览器数据？或从备份/Supabase 恢复）');
+          else if (valid < total) lines.push('⚠️ 有 ' + (total - valid) + ' 张数据损坏（非图片格式），需重新上传');
+          else lines.push('✅ 数据正常，可能是显示逻辑问题，请联系我修复');
+          FW.openModal('凭证诊断', '<pre style="white-space:pre-wrap;font-size:13px;line-height:1.8;margin:0">' + lines.join('\n') + '</pre>');
+        };
+        all.onerror = function () { FW.toast('读取失败：' + (all.error && all.error.message)); };
+      };
+      req.onerror = function () { FW.toast('数据库打不开：' + (req.error && req.error.message) + '（可能是浏览器权限或隐私模式）'); };
+      req.onupgradeneeded = function () { FW.toast('⚠️ 数据库需要升级，可能数据结构已变'); };
+    } catch (e) { FW.toast('诊断出错：' + e.message); }
+  }
+
   function loadThumbs() {
-    FW.qa('#txTable img[data-load]').forEach(function (img) {
+    var imgs = FW.qa('#txTable img[data-load]');
+    if (!imgs.length) return;
+    var _total = imgs.length, _finished = 0, _failed = 0;
+    imgs.forEach(function (img) {
       var pid = img.dataset.load;
-      // 加超时兜底：部分异常 dataURL 会导致 onload/onerror 都不触发（已踩坑）
       var done = false;
+      function markBad(reason) {
+        if (done) return;
+        done = true; _finished++; _failed++;
+        clearTimeout(timer);
+        img.style.opacity = '0.4';
+        img.title = reason;
+        console.warn('[loadThumbs] ' + reason);
+        if (_finished === _total && _failed === _total) showPhotoDiagBanner(_total);
+      }
+      // 加超时兜底：部分异常 dataURL 会导致 onload/onerror 都不触发（已踩坑）
       var timer = setTimeout(function () {
         if (done) return;
-        done = true;
-        if (!img.src || img.naturalWidth === 0) {
-          img.style.opacity = '0.4';
-          img.title = '凭证图加载超时（pid=' + pid + '）';
-        }
+        markBad('凭证图加载超时（pid=' + pid + '）');
       }, 8000);
-      img.onerror = function () {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        console.warn('[loadThumbs] 凭证图加载失败 pid=' + pid);
-        img.style.opacity = '0.4';
-        img.title = '凭证图加载失败（pid=' + pid + '），可能数据损坏';
-      };
+      img.onerror = function () { markBad('凭证图加载失败（pid=' + pid + '），可能数据损坏'); };
       FW.db.getPhoto(pid).then(function (d) {
         if (done) return;
-        if (d) { img.src = d; }
-        else {
-          console.warn('[loadThumbs] 凭证图数据为空 pid=' + pid);
-          img.style.opacity = '0.4';
-          img.title = '凭证图数据为空（pid=' + pid + '）';
-        }
+        if (d) { img.src = d; done = true; _finished++; }
+        else markBad('凭证图数据为空（pid=' + pid + '）');
       }).catch(function (e) {
-        if (done) return;
-        console.warn('[loadThumbs] getPhoto 异常 pid=' + pid, e);
-        img.style.opacity = '0.4';
-        img.title = '凭证图读取异常：' + (e && e.message ? e.message : e);
+        markBad('凭证图读取异常：' + (e && e.message ? e.message : e));
       });
     });
   }
