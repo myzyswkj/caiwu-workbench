@@ -151,15 +151,51 @@
     return FW.crypto.decrypt(encKey, payload).catch(function () { return payload; });
   }
 
+  // 存图自动压缩：长边缩到 ~1000px、铺白底、转 JPEG(0.7)，把 2~6MB 原图压到 ~100~300KB。
+  // 目的：① 凭证图打包进云同步快照时不易撞 SCF/网关的 body 上限；② 本地库更小。
+  // 任何失败（无 Image/canvas、异常编码、超时、PDF 等非位图）都回退存原图，绝不丢图。
+  function compressPhoto(dataUrl, maxSide, quality) {
+    maxSide = maxSide || 1000;
+    quality = (quality == null) ? 0.7 : quality;
+    return new Promise(function (resolve) {
+      if (typeof dataUrl !== 'string' || dataUrl.indexOf('data:image') !== 0) { resolve(dataUrl); return; }
+      if (typeof Image === 'undefined' || typeof document === 'undefined') { resolve(dataUrl); return; } // node 桩环境
+      var img = new Image();
+      var done = false;
+      function finish(v) { if (done) return; done = true; clearTimeout(tmo); resolve(v); }
+      var tmo = setTimeout(function () { finish(dataUrl); }, 8000); // 超时回退原图
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+          if (!w || !h) { finish(dataUrl); return; }
+          var s = Math.min(1, maxSide / Math.max(w, h));
+          var cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(h * s));
+          if (s >= 1 && /^data:image\/jpe?g/i.test(dataUrl)) { finish(dataUrl); return; } // 已是小 JPEG 不重压
+          var cv = document.createElement('canvas');
+          cv.width = cw; cv.height = ch;
+          var cx = cv.getContext('2d');
+          cx.fillStyle = '#FFFFFF'; cx.fillRect(0, 0, cw, ch); // 白底防透明变黑
+          cx.drawImage(img, 0, 0, cw, ch);
+          var out = cv.toDataURL('image/jpeg', quality);
+          finish(out && out.length < dataUrl.length ? out : dataUrl); // 压缩后更大则保留原图
+        } catch (e) { finish(dataUrl); }
+      };
+      img.onerror = function () { finish(dataUrl); };
+      try { img.src = dataUrl; } catch (e) { finish(dataUrl); }
+    });
+  }
+
   function savePhoto(dataUrl) {
-    return openPhotoDB().then(function (db) {
-      return encPhoto(dataUrl).then(function (store) {
-        return new Promise(function (resolve, reject) {
-          var id = uid('p_');
-          var tx = db.transaction(PHOTO_STORE, 'readwrite');
-          tx.objectStore(PHOTO_STORE).put({ id: id, data: store, enc: encMode, ts: Date.now() });
-          tx.oncomplete = function () { resolve(id); };
-          tx.onerror = function () { reject(tx.error); };
+    return compressPhoto(dataUrl).then(function (d) {
+      return openPhotoDB().then(function (db) {
+        return encPhoto(d).then(function (store) {
+          return new Promise(function (resolve, reject) {
+            var id = uid('p_');
+            var tx = db.transaction(PHOTO_STORE, 'readwrite');
+            tx.objectStore(PHOTO_STORE).put({ id: id, data: store, enc: encMode, ts: Date.now() });
+            tx.oncomplete = function () { resolve(id); };
+            tx.onerror = function () { reject(tx.error); };
+          });
         });
       });
     });
@@ -481,6 +517,7 @@
     getList: getList, saveList: saveList, upsert: upsert, remove: remove, getById: getById,
     uid: uid,
     savePhoto: savePhoto, getPhoto: getPhoto, deletePhoto: deletePhoto, deletePhotos: deletePhotos,
+    compressPhoto: compressPhoto,
     getAllPhotos: getAllPhotos, putPhotoById: putPhotoById,
     exportAll: exportAll, importAll: importAll,
     contentKey: contentKey, dedupeByContent: dedupeByContent,
