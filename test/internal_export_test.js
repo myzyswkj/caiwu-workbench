@@ -88,7 +88,7 @@ assert.strictEqual(prevDay('2026-03-01'), '2026-02-28', '平年2月末');
 assert.strictEqual(prevDay('2024-03-01'), '2024-02-29', '闰年2月末');
 assert.strictEqual(prevDay(''), '', '空日期返回空');
 
-// ===== 余额恒等式：剩余余额 − 开始余额 = 收入 − 支出 + 退款 + 互转净 + 股本净 =====
+// ===== 余额恒等式：区间期末余额 − 区间期初 = 收入 − 支出 + 退款 + 互转净 + 股本净 =====
 // 与 accountBreakdown 的余额模型一致（bal = opening + flow + move）
 function balanceOf(rows, openings) {
   var open = {}, flow = {}, move = {};

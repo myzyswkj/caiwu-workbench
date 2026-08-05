@@ -732,11 +732,11 @@
     });
     if (!keys.length) return '<div class="empty">暂无数据</div>';
     var head = '<th>' + fmtKey + '</th>';
-    if (balMaps) head += '<th class="num">开始余额</th>';
+    if (balMaps) head += '<th class="num">区间期初</th>';
     head += '<th class="num">收入</th><th class="num">支出</th>';
     if (showTransfer) head += '<th class="num">互转</th>';
-    head += '<th class="num">净额</th>';
-    if (balMaps) head += '<th class="num">剩余余额</th>';
+    head += '<th class="num">区间收支合计</th>';
+    if (balMaps) head += '<th class="num">区间期末余额</th>';
     var trs = keys.map(function (k) {
       var v = map[k];
       var cells = '<td>' + FW.esc(k) + '</td>';
@@ -764,11 +764,11 @@
     }
   }
 
-  // 流水明细页的「按账户（收支维度）」小表（界面版，6 列紧凑表：账户/开始时间余额/收入/支出/互转/当前余额(净额)）。
+  // 流水明细页的「按账户（收支维度）」小表（界面版，6 列紧凑表：账户/区间期初/收入/支出/互转/区间期末余额）。
   // 与打印视图 / Excel / 图片导出口径一致（共用 buildAccMap + startBalanceMap + balMapAt），随筛选实时重算。
   // 输入：rows = 当前筛选后的流水（filteredRows 口径，含 transfer 互转数据）；f = 当前筛选（用于取开始/期末余额）。
-  // 口径：开始时间余额 = startBalanceMap(f)[账户]（筛选开始前的账户余额，含期初/互转/股本）；
-  //       当前余额（净额） = balMapAt(f.to || 今天)[账户]（筛选期末的真实账户余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动）。
+  // 口径：区间期初 = startBalanceMap(f)[账户]（筛选开始前的账户余额，含期初/互转/股本）；
+  //       区间期末余额 = balMapAt(f.to || 今天)[账户]（筛选期末的真实账户余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动）。
   // 输出：HTML 字符串；无账户或无数据时返回 ''。
   function accSummaryHtml(rows, f) {
     if (!rows || !rows.length) return '';
@@ -810,8 +810,8 @@
       '<td class="num ' + signedCls(totalCur) + '"><b>' + FW.fmtMoney(totalCur) + '</b></td>' +
       '</tr>';
     return '<div class="flow-acc-head">按账户（收支维度）</div>' +
-      '<table class="flow-acc-tbl"><thead><tr><th>账户</th><th class="num">开始时间余额</th><th class="num">收入</th><th class="num">支出</th><th class="num">互转</th><th class="num">当前余额（净额）</th></tr></thead><tbody>' + trs + '</tbody></table>' +
-      '<div class="flow-acc-note">开始时间余额 = 筛选开始前的账户余额；当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的账户余额。互转 = 转入 − 转出（账户互转净头寸，单列不影响收支净额）。</div>';
+      '<table class="flow-acc-tbl"><thead><tr><th>账户</th><th class="num">区间期初</th><th class="num">收入</th><th class="num">支出</th><th class="num">互转</th><th class="num">区间期末余额</th></tr></thead><tbody>' + trs + '</tbody></table>' +
+      '<div class="flow-acc-note">区间期初 = 筛选开始前的账户余额；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的账户余额。互转 = 转入 − 转出（账户互转净头寸，单列不影响收支）。</div>';
   }
 
   /* ---------- 资金变动明细（账户互转 / 股本，不影响收支） ---------- */
@@ -2439,8 +2439,8 @@
     accRows.push(['合计（' + accKeys.length + ' 账户）', FW.fmtMoney(aStart), FW.fmtMoney(aInc), FW.fmtMoney(aExp), FW.fmtMoney(aXfer), FW.fmtMoney(aEnd)]);
     var subtable = {
       title: '按账户（收支维度）',
-      note: '注：开始时间余额 = 筛选开始前的账户余额；当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的真实账户余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额。',
-      head: ['账户', '开始时间余额', '收入', '支出', '互转（转入−转出）', '当前余额（净额）'],
+      note: '注：区间期初 = 筛选开始前的账户余额；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的真实账户余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支。',
+      head: ['账户', '区间期初', '收入', '支出', '互转（转入−转出）', '区间期末余额'],
       rows: accRows,
       colWidths: [276, 258, 232, 232, 264, 290],
       rightCols: [1, 2, 3, 4, 5],
@@ -2472,7 +2472,7 @@
           { label: '笔数', value: String(n) },
           { label: '收入合计', value: FW.fmtMoney(inc), cls: 'income' },
           { label: '支出合计', value: FW.fmtMoney(exp), cls: 'expense' },
-          { label: '净额（收入−支出）', value: FW.fmtMoney(inc - exp) }
+          { label: '区间收支合计', value: FW.fmtMoney(inc - exp) }
         ],
         head: head, rows: outRows, colWidths: colWidths,
         amountCol: amountCol, imgCol: imgCol,
@@ -2701,12 +2701,12 @@
     }
     ws['!cols'] = cols;
     x.utils.book_append_sheet(wb, ws, '内账流水');
-    // 第二张表：按账户收支（老板视角），含开始余额与剩余余额
+    // 第二张表：按账户收支（老板视角），含区间期初与区间期末余额
     var f = state.filter;
     var accMap = buildAccMap(rows);
     var startBal = startBalanceMap(f), endBal = balMapAt(f.to || FW.today());
     var accKeys = Object.keys(accMap).sort(function (a, b) { return (accMap[b].income + accMap[b].expense + Math.abs(accMap[b].transfer || 0)) - (accMap[a].income + accMap[a].expense + Math.abs(accMap[a].transfer || 0)); });
-    var accAoa = [['账户', '开始余额', '收入', '支出', '互转（转入−转出）', '净额（收入−支出）', '剩余余额']];
+    var accAoa = [['账户', '区间期初', '收入', '支出', '互转（转入−转出）', '区间收支合计', '区间期末余额']];
     var accSumInc = 0, accSumExp = 0, accSumStart = 0, accSumEnd = 0, accSumXfer = 0;
     accKeys.forEach(function (k) {
       var v = accMap[k];
@@ -2779,7 +2779,7 @@
           '<div class="fp-kpi">笔数<b>' + rows.length + '</b></div>' +
           '<div class="fp-kpi">收入合计<b class="income">' + FW.fmtMoney(inc) + '</b></div>' +
           '<div class="fp-kpi">支出合计<b class="expense">' + FW.fmtMoney(exp) + '</b></div>' +
-          '<div class="fp-kpi">净额（收入−支出）<b>' + FW.fmtMoney(inc - exp) + '</b></div>' +
+          '<div class="fp-kpi">区间收支合计<b>' + FW.fmtMoney(inc - exp) + '</b></div>' +
         '</div>';
     // 每页重复用的紧凑标题（仅报表名 + 账套/期间，不含 KPI，放进明细表 thead 由浏览器自动跨页重复）
     var titleCompact = '<h2 class="fp-run">内账流水明细</h2><div class="fp-sub">' + subLine + '</div>';
@@ -2789,7 +2789,7 @@
         // 按账户收支维度：老板看流水时通常最关心"每个账户赚了/花了多少"
         '<h4 class="fp-h4">按账户（收支维度）</h4>' +
         '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true) + '</div>' +
-        '<div class="fp-note">注：开始余额 / 剩余余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支净额；剩余余额 = 开始余额 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
+        '<div class="fp-note">注：区间期初 / 区间期末余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
         '<h4 class="fp-h4">流水明细</h4>' +
         '<table id="fpDetailTable"><thead id="fpDetailHead"><tr class="fp-colhead"><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>' +
         rows.map(function (t, i) {

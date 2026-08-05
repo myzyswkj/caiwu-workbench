@@ -1,4 +1,4 @@
-// 流水明细页「按账户（收支维度）」小表：随筛选实时重算，6 列紧凑表（账户/开始时间余额/收入/支出/互转/当前余额(净额)）。
+// 流水明细页「按账户（收支维度）」小表：随筛选实时重算，6 列紧凑表（账户/区间期初/收入/支出/互转/区间期末余额）。
 // 锁定 HTML 结构 + 数据口径（含互转 transfer 处理、开始/期末余额恒等式），保证后续修改不会破坏老板视角的核心数据展示。
 // 风格与 test/internal_export_test.js 一致：把函数逻辑复制进测试做纯函数验证（FW.db 等运行时不在此处调用）。
 'use strict';
@@ -76,8 +76,8 @@ function accSummaryHtml(rows, f, opts) {
     '<td class="num ' + signedCls(totalCur) + '"><b>' + fmtMoney(totalCur) + '</b></td>' +
     '</tr>';
   return '<div class="flow-acc-head">按账户（收支维度）</div>' +
-    '<table class="flow-acc-tbl"><thead><tr><th>账户</th><th class="num">开始时间余额</th><th class="num">收入</th><th class="num">支出</th><th class="num">互转</th><th class="num">当前余额（净额）</th></tr></thead><tbody>' + trs + '</tbody></table>' +
-    '<div class="flow-acc-note">开始时间余额 = 筛选开始前的账户余额；当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的账户余额。互转 = 转入 − 转出（账户互转净头寸，单列不影响收支净额）。</div>';
+    '<table class="flow-acc-tbl"><thead><tr><th>账户</th><th class="num">区间期初</th><th class="num">收入</th><th class="num">支出</th><th class="num">互转</th><th class="num">区间期末余额</th></tr></thead><tbody>' + trs + '</tbody></table>' +
+    '<div class="flow-acc-note">区间期初 = 筛选开始前的账户余额；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的账户余额。互转 = 转入 − 转出（账户互转净头寸，单列不影响收支）。</div>';
 }
 
 // ===== 1. 空数据返回空字符串 =====
@@ -85,7 +85,7 @@ assert.strictEqual(accSummaryHtml([]), '', '空 rows 返回空字符串');
 assert.strictEqual(accSummaryHtml(null), '', 'null rows 返回空字符串');
 assert.strictEqual(accSummaryHtml(undefined), '', 'undefined rows 返回空字符串');
 
-// ===== 2. 6 列顺序：账户/开始时间余额/收入/支出/互转/当前余额（净额） =====
+// ===== 2. 6 列顺序：账户/区间期初/收入/支出/互转/区间期末余额 =====
 var rows = [
   { type: 'income',  account: '公户账户', amount: 49230.37 },
   { type: 'expense', account: '公户账户', amount: 5000 }
@@ -94,13 +94,13 @@ var html = accSummaryHtml(rows);
 var headMatch = html.match(/<thead>[\s\S]*?<\/thead>/);
 assert.ok(headMatch, '存在表头块');
 var thCount = (headMatch[0].match(/<\/th>/g) || []).length;
-assert.strictEqual(thCount, 6, '6 个表头列（账户/开始时间余额/收入/支出/互转/当前余额(净额)）');
+assert.strictEqual(thCount, 6, '6 个表头列（账户/区间期初/收入/支出/互转/区间期末余额）');
 assert.ok(html.indexOf('>账户</th>') > -1, '表头包含「账户」');
-assert.ok(html.indexOf('>开始时间余额</th>') > -1, '表头包含「开始时间余额」');
+assert.ok(html.indexOf('>区间期初</th>') > -1, '表头包含「区间期初」');
 assert.ok(html.indexOf('>收入</th>') > -1, '表头包含「收入」');
 assert.ok(html.indexOf('>支出</th>') > -1, '表头包含「支出」');
 assert.ok(html.indexOf('>互转</th>') > -1, '表头包含「互转」');
-assert.ok(html.indexOf('>当前余额（净额）</th>') > -1, '表头包含「当前余额（净额）」');
+assert.ok(html.indexOf('>区间期末余额</th>') > -1, '表头包含「区间期末余额」');
 
 // ===== 3. 互转正负着色（>0 income 红，<0 expense 绿，=0 无色） =====
 var trRows = [
@@ -114,16 +114,16 @@ assert.ok(/A[\s\S]{0,500}?num expense">-400\.00/.test(trHtml), 'A 互转 -400 �
 // B 的互转 = +600 → income 色（红）
 assert.ok(/B[\s\S]{0,500}?num income">600\.00/.test(trHtml), 'B 互转 +600 着色为 income（红）');
 
-// ===== 4. 当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转（恒等式，含 refund 抵减） =====
+// ===== 4. 区间期末余额 = 区间期初 + 收入 − 支出 + 互转（恒等式，含 refund 抵减） =====
 var netRows = [
   { type: 'income',  account: 'X', amount: 1000 },
   { type: 'expense', account: 'X', amount: 300 },
   { type: 'refund',  account: 'X', amount: 200 }  // expense -= 200 → 净支出 100
 ];
-// X 开始余额 5000；互转 0；当前余额 = 5000 + 1000 - 100 = 5900
+// X 区间期初 5000；互转 0；区间期末余额 = 5000 + 1000 - 100 = 5900
 var netHtml = accSummaryHtml(netRows, null, { startBal: { X: 5000 }, endBal: { X: 5900 } });
-assert.ok(/X[\s\S]{0,500}?num (income|expense)">5,000\.00/.test(netHtml), 'X 开始时间余额 = 5,000.00');
-assert.ok(/X[\s\S]{0,800}?num (income|expense)"><b>5,900\.00/.test(netHtml), 'X 当前余额（净额） = 5,900.00（= 5000 + 1000 - 100）');
+assert.ok(/X[\s\S]{0,500}?num (income|expense)">5,000\.00/.test(netHtml), 'X 区间期初 = 5,000.00');
+assert.ok(/X[\s\S]{0,800}?num (income|expense)"><b>5,900\.00/.test(netHtml), 'X 区间期末余额 = 5,900.00（= 5000 + 1000 - 100）');
 assert.ok(/X[\s\S]{0,500}?num income">1,000\.00/.test(netHtml), 'X 收入 1,000.00 着色 income');
 assert.ok(/X[\s\S]{0,500}?num expense">100\.00/.test(netHtml), 'X 支出净额 = 300-200 = 100，expense 色');
 
@@ -137,7 +137,7 @@ var sumRows = [
 // P 开始 2000 当前 2600；Q 开始 3000 当前 3300
 var sumHtml = accSummaryHtml(sumRows, null, { startBal: { P: 2000, Q: 3000 }, endBal: { P: 2600, Q: 3300 } });
 assert.ok(/合计（2 账户）/.test(sumHtml), '合计行标 2 账户');
-assert.ok(/合计（2 账户）[\s\S]{0,500}?5,000\.00/.test(sumHtml), '合计收入 1,500 + ... （含开始余额 5,000 也出现）');
+assert.ok(/合计（2 账户）[\s\S]{0,500}?5,000\.00/.test(sumHtml), '合计收入 1,500 + ... （含区间期初 5,000 也出现）');
 assert.ok(/合计（2 账户）[\s\S]{0,900}?5,900\.00/.test(sumHtml), '合计当前余额 = 2600+3300 = 5,900');
 assert.ok(/acc-sum-row/.test(sumHtml), '合计行带 acc-sum-row 类（用于金底/金线样式）');
 
@@ -161,10 +161,10 @@ assert.ok(onlyHtml.length > 0, '仅含 transfer 也能渲染小表');
 assert.ok(/A[\s\S]{0,500}?num expense">-500\.00/.test(onlyHtml), 'A 转出 -500 expense 色');
 assert.ok(/B[\s\S]{0,500}?num income">500\.00/.test(onlyHtml), 'B 转入 +500 income 色');
 
-// ===== 8. 标题 + 注脚（含开始时间余额口径说明） =====
+// ===== 8. 标题 + 注脚（含区间期初口径说明） =====
 assert.ok(html.indexOf('按账户（收支维度）') > -1, '包含「按账户（收支维度）」标题');
-assert.ok(html.indexOf('开始时间余额 = 筛选开始前的账户余额') > -1, '包含开始时间余额口径注脚');
-assert.ok(html.indexOf('当前余额（净额） = 开始时间余额 + 收入 − 支出 + 互转 + 股本净变动') > -1, '包含当前余额恒等式注脚');
+assert.ok(html.indexOf('区间期初 = 筛选开始前的账户余额') > -1, '包含区间期初口径注脚');
+assert.ok(html.indexOf('区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动') > -1, '包含区间期末余额恒等式注脚');
 
 // ===== 9. 互转权重参与排序：仅靠互转入账的账户也参与排序 =====
 var weightRows = [
@@ -189,6 +189,6 @@ assert.ok(/合计[\s\S]{0,800}?>\s*0\.00\s*</.test(zeroHtml), '合计行互转 =
 var equityRows = [{ type: 'income', account: 'E', amount: 1000 }];
 var equityHtml = accSummaryHtml(equityRows, null, { startBal: { E: 8000 }, endBal: { E: 9999 } });
 // 当前余额应等于注入的 endBal（9999），而非 8000+1000 = 9000 —— 证明取的是真实余额（含股本变动）
-assert.ok(/E[\s\S]{0,900}?num (income|expense)"><b>9,999\.00/.test(equityHtml), '当前余额（净额）取真实账户余额（含期初+股本），= 9,999 而非 rows 派生的 9,000');
+assert.ok(/E[\s\S]{0,900}?num (income|expense)"><b>9,999\.00/.test(equityHtml), '区间期末余额取真实账户余额（含期初+股本），= 9,999 而非 rows 派生的 9,000');
 
 console.log('ALL_OK');
