@@ -540,7 +540,38 @@
   function loadThumbs() {
     FW.qa('#txTable img[data-load]').forEach(function (img) {
       var pid = img.dataset.load;
-      FW.db.getPhoto(pid).then(function (d) { if (d) img.src = d; }).catch(function () {});
+      // 加超时兜底：部分异常 dataURL 会导致 onload/onerror 都不触发（已踩坑）
+      var done = false;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        if (!img.src || img.naturalWidth === 0) {
+          img.style.opacity = '0.4';
+          img.title = '凭证图加载超时（pid=' + pid + '）';
+        }
+      }, 8000);
+      img.onerror = function () {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        console.warn('[loadThumbs] 凭证图加载失败 pid=' + pid);
+        img.style.opacity = '0.4';
+        img.title = '凭证图加载失败（pid=' + pid + '），可能数据损坏';
+      };
+      FW.db.getPhoto(pid).then(function (d) {
+        if (done) return;
+        if (d) { img.src = d; }
+        else {
+          console.warn('[loadThumbs] 凭证图数据为空 pid=' + pid);
+          img.style.opacity = '0.4';
+          img.title = '凭证图数据为空（pid=' + pid + '）';
+        }
+      }).catch(function (e) {
+        if (done) return;
+        console.warn('[loadThumbs] getPhoto 异常 pid=' + pid, e);
+        img.style.opacity = '0.4';
+        img.title = '凭证图读取异常：' + (e && e.message ? e.message : e);
+      });
     });
   }
 
