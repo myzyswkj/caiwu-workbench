@@ -619,6 +619,8 @@ td.photo-cell { vertical-align: top; }
 .flow-print table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .flow-print th, .flow-print td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
 .flow-print thead th { background: var(--bg); color: var(--text); font-weight: 600; }
+/* 列头行：取消「每页带标题」时会被移到 tbody，这里保证它在 thead/tbody 都有表头底色 */
+.flow-print .fp-colhead th { background: #e8eeea; color: var(--text); font-weight: 600; }
 /* 「每页带标题」注入到明细表 thead 首行的重复标题：白底、底部划线，跨页每页自动重复 */
 .flow-print thead .fp-title-row td { background: #fff; padding: 8px 2px 6px; border: none; border-bottom: 2px solid var(--border); }
 .flow-print thead .fp-title-row .fp-run { font-size: 15px; margin: 0 0 2px; color: var(--text); }

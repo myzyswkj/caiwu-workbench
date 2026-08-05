@@ -2827,8 +2827,8 @@
       }
       var titleChk = body.querySelector('#fpTitleEvery');
       if (titleChk) {
-        titleChk.onchange = function () { toggleTitleEvery(body); };
-        toggleTitleEvery(body);
+        titleChk.onchange = function () { applyTitleEvery(body); };
+        applyTitleEvery(body);
       }
     });
 
@@ -2871,23 +2871,32 @@
       });
     }
 
-    // 每页带标题：勾选时把紧凑标题注入明细表 thead 首行，浏览器原生 table-header-group 会让它跨页每页重复；
-    // 取消勾选则移除该行（恢复为仅第 1 页顶部有标题的默认行为）。
-    function toggleTitleEvery(body) {
+    // 每页带标题：勾选时把「报告标题行 + 列头行」都放进明细表 thead，浏览器原生 table-header-group
+    // 会让 thead 跨页每页重复，于是每页都有标题 + 列头；
+    // 取消勾选则：① 移除报告标题行，② 把列头行从 thead 移到 tbody 首行（tbody 不重复），
+    // 这样只有第 1 页顶部有表头，后续页是纯数据行，实现「每页不带标题」。
+    function applyTitleEvery(body) {
+      var table = body.querySelector('#fpDetailTable');
       var head = body.querySelector('#fpDetailHead');
       var chk = body.querySelector('#fpTitleEvery');
-      if (!head || !chk) return;
-      var ex = head.querySelector('.fp-title-row');
-      if (chk.checked && !ex) {
-        var tr = document.createElement('tr');
-        tr.className = 'fp-title-row';
-        var td = document.createElement('td');
-        td.colSpan = 10; // 与明细表列数一致（日期/类型/项目/分类/账户/金额/对方/报销人/备注/凭证）
-        td.innerHTML = titleCompact;
-        tr.appendChild(td);
-        head.insertBefore(tr, head.firstChild);
-      } else if (!chk.checked && ex) {
-        ex.parentNode.removeChild(ex);
+      if (!table || !head || !chk) return;
+      var tbody = table.querySelector('tbody');
+      var colhead = head.querySelector('.fp-colhead') || (tbody && tbody.querySelector('.fp-colhead'));
+      var titleRow = head.querySelector('.fp-title-row');
+      if (chk.checked) {
+        if (!titleRow) {
+          titleRow = document.createElement('tr');
+          titleRow.className = 'fp-title-row';
+          var td = document.createElement('td');
+          td.colSpan = 10; // 与明细表列数一致（日期/类型/项目/分类/账户/金额/对方/报销人/备注/凭证）
+          td.innerHTML = titleCompact;
+          titleRow.appendChild(td);
+          head.insertBefore(titleRow, head.firstChild);
+        }
+        if (colhead && colhead.parentNode !== head) head.appendChild(colhead);
+      } else {
+        if (titleRow && titleRow.parentNode) titleRow.parentNode.removeChild(titleRow);
+        if (colhead && tbody && colhead.parentNode !== tbody) tbody.insertBefore(colhead, tbody.firstChild);
       }
     }
   }
