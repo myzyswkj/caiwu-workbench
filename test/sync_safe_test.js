@@ -73,7 +73,7 @@ global.FW = {
   }
 };
 
-// 加载 sync.js（会执行 init，自动触发一次双向同步）
+// 加载 sync.js（执行 init：恢复登录态，但**不再**自动同步；同步需手动调用 syncNow）
 require(path.resolve(__dirname, '../js/sync.js'));
 
 var pass = 0, fail = 0;
@@ -81,12 +81,15 @@ function ok(name, cond) { if (cond) { pass++; console.log('  ✓ ' + name); } el
 function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 (async function () {
-  // 等待 init 自动触发的同步（pullScenario='data'）完成
+  // init 不应自动同步（手动同步设计）：先验证「未自动」，再手动触发
   await delay(200);
+  ok('init 后未自动同步：upsert 调用次数为 0（手动同步设计）', upsertCalls === 0);
+  ok('init 后未自动同步：merge 未触发', lastMerge === null);
 
-  // Case 1：自动同步（云端有数据）应合并并推送
-  ok('自动同步-云端有数据：已调用 upsert 推送合并数据', upsertCalls === 1);
-  ok('自动同步-合并模式 merge=true', lastMerge === true);
+  // Case 1：手动调用 syncNow（云端有数据）应合并并推送
+  await global.FW.sync.syncNow();
+  ok('手动同步-云端有数据：已调用 upsert 推送合并数据', upsertCalls === 1);
+  ok('手动同步-合并模式 merge=true', lastMerge === true);
 
   // Case 2：拉取出错时，绝不推送覆盖云端
   pullScenario = 'error';

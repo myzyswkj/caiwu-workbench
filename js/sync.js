@@ -3,7 +3,7 @@
  * - 登录 / 注册 / 退出（邮箱 / 手机短信）
  * - 把整个应用状态当作「快照」实时存到 Supabase
  * - 启用本地加密时：上传的是密文快照，密钥仅在本机内存，云端/他端均无法解密
- * - 包裹 FW.db 的写方法自动标记 dirty，定时 + 关页前推送
+ * - 包裹 FW.db 的写方法自动标记 dirty（仅标记，不再自动推送；同步完全手动，点「立即同步」触发）
  * - 未配置 APP_CONFIG 时自动降级为纯本地模式（不报错）
  * ============================================================ */
 (function (global) {
@@ -108,14 +108,16 @@
     setAuth(user);
     // 已启用加密但尚未解锁：先不拉取，等解锁后由 afterUnlock 触发
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return;
-    syncNow();
+    // 取消自动同步：登录/恢复会话后不再自动 pull/push，避免云端与本机数据在用户不知情时互相覆盖。
+    // 数据同步完全交给用户手动点「立即同步」。
+    updateDirtyBadge();
   }
 
-  // 解锁完成后由 main.boot 调用：若已登录则拉取/推送
+  // 解锁完成后由 main.boot 调用：仅刷新登录态/未同步标记，不再自动拉取/推送
   function afterUnlock() {
     if (!user) return;
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return;
-    syncNow();
+    updateDirtyBadge();
   }
 
   /* ---------- 包裹写方法，自动标记 dirty ---------- */
@@ -134,8 +136,15 @@
     });
   }
 
-  function markDirty() { dirty = true; }
-  function markClean() { dirty = false; setSync(new Date()); }
+  function markDirty() { dirty = true; updateDirtyBadge(); }
+  function markClean() { dirty = false; setSync(new Date()); updateDirtyBadge(); }
+  // 顶栏同步状态徽标：有未同步改动时标红「待同步」，否则显示「已同步」
+  function updateDirtyBadge() {
+    var el = document.getElementById('authState');
+    if (!el || !user) return;
+    if (dirty) { el.textContent = '● 待同步'; el.className = 'auth-state warn'; }
+    else { el.textContent = '☁ 已同步'; el.className = 'auth-state'; }
+  }
 
   /* ---------- 推送（本地 → 云端） ---------- */
   function push(force) {
@@ -247,12 +256,12 @@
     });
   }
 
-  /* ---------- 自动保存 ---------- */
+  /* ---------- 手动同步（已取消自动同步） ---------- */
   function startAutosave() {
-    timer = setInterval(function () { if (user && dirty) push(); }, 15000);
-    global.addEventListener('beforeunload', function () { if (user && dirty) push(); });
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'hidden' && user && dirty) push();
+    // 已取消自动同步：不再定时/页面隐藏时自动推送本地数据到云端，全部由用户手动点「立即同步」。
+    // 仅保留关闭/刷新页面时的「未同步提醒」：有关键改动未上传时给一次确认，避免静默丢失用户感知。
+    global.addEventListener('beforeunload', function (e) {
+      if (user && dirty) { e.preventDefault(); e.returnValue = ''; }
     });
   }
 
@@ -279,8 +288,10 @@
         '<button class="auth-btn" id="authOut">退出(' + FW.esc(user.email || '用户') + ')</button>';
       document.getElementById('authSync').onclick = syncNow;
       document.getElementById('authSyncOpts').onclick = openSyncMenu;
+      updateDirtyBadge();
       document.getElementById('authOut').onclick = function () {
-        if (dirty) push(); // 退出前尽量保存
+        // 取消自动同步：退出前不再静默推送。若本地有未同步改动，先征求确认以免数据「消失」。
+        if (dirty && global.confirm && !global.confirm('本地有未同步的改动，退出后这些改动不会自动上传云端。\n重新登录后点「立即同步」即可上传。确定退出？')) return;
         withTimeout(sb.auth.signOut(), 8000, '退出超时').then(function () { user = null; setAuth(null); if (brand) brand.textContent = '本地数据'; FW.toast('已退出'); })
           .catch(function () { user = null; setAuth(null); if (brand) brand.textContent = '本地数据'; FW.toast('已退出（网络异常，仅本地退出）'); });
       };

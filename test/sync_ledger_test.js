@@ -69,28 +69,36 @@ window.FW.refreshLedgers = function () { spy.called++; };
 window.FW.db.setLedgers([{ id: 'L1', name: '默认账本' }]);
 window.FW.db.setCurrentLedger('L1');
 
-load('sync.js'); // init() 自动跑：getSession → onLogin → syncNow → pull(云端) → importAll
+load('sync.js'); // init() 自动跑：getSession → onLogin（仅恢复登录态，**不**自动同步，符合「手动同步」设计，防数据乱）
 
 setTimeout(function () {
-  console.log('--- 1) 拉取同步后账本应刷新并合并 ---');
-  assert(spy.called > 0, '云端同步后调用了 FW.refreshLedgers（账本切换器已刷新）');
-  const ids = window.FW.db.getLedgers().map(l => l.id);
-  assert(ids.indexOf('L1') >= 0 && ids.indexOf('L2') >= 0, '本地账本列表已合并云端账本 L2 -> ' + JSON.stringify(ids));
-  assert(window.FW.db.getCurrentLedger() === 'L1', '当前账本保持本地选中(L1)，未被云端 currentLedger 覆盖');
+  console.log('--- 0) 手动同步模式：init 不应自动拉取云端（防数据乱）---');
+  const ids0 = window.FW.db.getLedgers().map(l => l.id);
+  assert(ids0.indexOf('L2') < 0, 'init 后未自动合并云端账本 L2（手动模式，本地仍只有 L1）-> ' + JSON.stringify(ids0));
+  assert(spy.called === 0, 'init 后未自动调用 FW.refreshLedgers（无自动同步）');
 
-  console.log('--- 2) 新建账本应经 dirty 标记进入推送快照 ---');
-  window.FW.db.setLedgers([
-    { id: 'L1', name: '默认账本' },
-    { id: 'L2', name: '公司账(云端)' },
-    { id: 'L3', name: '新建本地账本' }
-  ]);
-  window.FW.sync.push(true).then(function () {
-    const rawLedgers = captured.upsert && captured.upsert.data && captured.upsert.data.raw && captured.upsert.data.raw.ledgers;
-    assert(rawLedgers && rawLedgers.some(l => l.id === 'L3'), '新建账本 L3 已进入推送快照(ledgers)');
-    console.log(failures === 0 ? '\n全部通过 ✅' : ('\n失败 ' + failures + ' 项 ❌'));
-    process.exit(failures === 0 ? 0 : 1);
-  }).catch(function (e) {
-    console.error('push 验证异常', e);
-    process.exit(1);
-  });
+  console.log('--- 1) 手动点「立即同步」后账本应刷新并合并 ---');
+  window.FW.sync.syncNow();
+  setTimeout(function () {
+    assert(spy.called > 0, '手动同步后调用了 FW.refreshLedgers（账本切换器已刷新）');
+    const ids = window.FW.db.getLedgers().map(l => l.id);
+    assert(ids.indexOf('L1') >= 0 && ids.indexOf('L2') >= 0, '本地账本列表已合并云端账本 L2 -> ' + JSON.stringify(ids));
+    assert(window.FW.db.getCurrentLedger() === 'L1', '当前账本保持本地选中(L1)，未被云端 currentLedger 覆盖');
+
+    console.log('--- 2) 新建账本应经 dirty 标记进入推送快照 ---');
+    window.FW.db.setLedgers([
+      { id: 'L1', name: '默认账本' },
+      { id: 'L2', name: '公司账(云端)' },
+      { id: 'L3', name: '新建本地账本' }
+    ]);
+    window.FW.sync.push(true).then(function () {
+      const rawLedgers = captured.upsert && captured.upsert.data && captured.upsert.data.raw && captured.upsert.data.raw.ledgers;
+      assert(rawLedgers && rawLedgers.some(l => l.id === 'L3'), '新建账本 L3 已进入推送快照(ledgers)');
+      console.log(failures === 0 ? '\n全部通过 ✅' : ('\n失败 ' + failures + ' 项 ❌'));
+      process.exit(failures === 0 ? 0 : 1);
+    }).catch(function (e) {
+      console.error('push 验证异常', e);
+      process.exit(1);
+    });
+  }, 400);
 }, 400);
