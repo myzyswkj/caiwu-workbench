@@ -223,13 +223,29 @@ td.num.refund { color: #0d9488; }
 #txTable { table-layout: fixed; width: max-content; min-width: 100%; }
 #txTable col { width: auto; }
 #txTable th { position: relative; overflow: hidden; }
-#txTable th, #txTable td { white-space: nowrap; }
+#txTable th, #txTable td { white-space: nowrap; padding: 9px 11px; }  /* 比全局 th,td (11/14) 略紧凑，留给手柄视觉位 */
 #txTable .photo-cell, #txTable td.remark, #txTable td:nth-child(7) { white-space: normal; }
+/* 拖拽手柄：常驻可见（细线 grip），hover/拖拽 强化；点击区保持 7px 容易点中 */
 .col-resizer {
-  position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+  position: absolute; top: 6px; bottom: 6px; right: -3px; width: 7px;
   cursor: col-resize; z-index: 3; touch-action: none;
+  display: flex; align-items: center; justify-content: center;
 }
-.col-resizer:hover, .col-resizer.dragging { background: var(--info); opacity: .35; }
+.col-resizer::before {
+  content: ''; width: 2px; height: 100%; border-radius: 1px;
+  background: var(--info); opacity: .28; transition: opacity .15s, width .15s;
+}
+.col-resizer:hover::before, .col-resizer.dragging::before {
+  background: var(--info); opacity: .85; width: 3px;
+}
+.col-resizer:hover, .col-resizer.dragging { background: rgba(44,122,107,.06); }
+.col-resizer::after {
+  /* grip 三点提示，hover/拖拽 才显示，更容易定位 */
+  content: '⋯'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 11px; line-height: 1; color: var(--info); opacity: 0;
+  pointer-events: none; letter-spacing: 1px;
+}
+.col-resizer:hover::after, .col-resizer.dragging::after { opacity: .8; }
 
 /* 表单：分组区块 + 组内 2 列，块间留白，避免「挤」 */
 /* 注：专用 .tx-section / .tx-title 前缀，避免与项目核算下钻弹窗的 .form-section 冲突覆盖 */

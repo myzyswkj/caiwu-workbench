@@ -510,7 +510,8 @@
   var TX_COLS = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证', '对方/个人', '报销人', '操作'];
   // 与 TX_COLS 一一对应的语义 id：屏幕列宽按此键持久化，导出（Excel/图片/PDF）复用同一套宽度
   var TX_COL_IDS = ['date', 'type', 'project', 'category', 'account', 'amount', 'remark', 'voucher', 'party', 'reimburser', 'op'];
-  var TX_DEF_W = { 0: 100, 1: 92, 2: 132, 3: 104, 4: 116, 5: 112, 6: 172, 7: 96, 8: 124, 9: 92, 10: 116 };
+  // 默认列宽：紧凑版（间距 11+内 padding 9/11），让初始看起来不那么"远"；还嫌宽的话继续拖
+  var TX_DEF_W = { 0: 92, 1: 84, 2: 116, 3: 96, 4: 104, 5: 108, 6: 148, 7: 96, 8: 112, 9: 84, 10: 108 };
   var COLW_KEY = 'fw_tx_colwidths';
 
   function tableHtml(rows) {
@@ -665,8 +666,8 @@
     var px = screenColPx();
     return ids.map(function (id) { var i = TX_COL_IDS.indexOf(id); return i >= 0 ? px[i] : 100; });
   }
-  // 拖拽下限：允许列缩到更窄，方便把"距离"压小（之前 40 太宽缩不动）
-  var COL_MIN_W = 28;
+  // 拖拽下限：允许列缩到更窄，方便把"距离"压小（之前 40 → 28 → 20）
+  var COL_MIN_W = 20;
   function applyColWidths() {
     var tbl = document.getElementById('txTable');
     if (!tbl) return;
@@ -685,6 +686,22 @@
     var wrap = document.getElementById('txWrap');
     if (!wrap || wrap._colBound) return;
     wrap._colBound = true;
+    // 双击手柄：重置该列到默认宽度（不需点"重置列宽"按钮）
+    wrap.addEventListener('dblclick', function (e) {
+      var rz = e.target && e.target.closest ? e.target.closest('.col-resizer') : null;
+      if (!rz) return;
+      e.preventDefault();
+      var semantic = parseInt(rz.dataset.col, 10);
+      var def = TX_DEF_W[semantic] != null ? TX_DEF_W[semantic] : 100;
+      var tbl = document.getElementById('txTable');
+      var col = tbl.querySelector('colgroup col[data-col="' + semantic + '"]');
+      if (col) col.style.width = def + 'px';
+      var w = getColWidths();
+      delete w[semantic];                      // 持久化里也清掉
+      if (Object.keys(w).length) setColWidths(w);
+      else { try { localStorage.removeItem(COLW_KEY); } catch (e) {} }
+      if (FW.toast) FW.toast('该列已恢复默认');
+    });
     wrap.addEventListener('mousedown', function (e) {
       var rz = e.target && e.target.closest ? e.target.closest('.col-resizer') : null;
       if (!rz) return;

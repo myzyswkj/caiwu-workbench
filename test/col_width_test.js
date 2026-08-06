@@ -95,11 +95,43 @@ document.dispatchEvent(mu);
 var saved = JSON.parse(localStorage.getItem('fw_tx_colwidths') || '{}');
 assert.strictEqual(saved[2], beforeW + 100, '拖拽后应写入 localStorage[fW_tx_colwidths][2]，实际=' + JSON.stringify(saved));
 
-// ---- 5. 重置列宽 ----
+// ---- 5. 双击手柄单列重置（不让一处拖坏需要重置整表）----
+var rz2 = resizers[7]; // 凭证列
+// 先把该列拖到 60px，再双击手柄看是否回到默认
+var md2 = new dom.window.MouseEvent('mousedown', { clientX: 200, bubbles: true });
+rz2.dispatchEvent(md2);
+var mm2 = new dom.window.MouseEvent('mousemove', { clientX: 240, bubbles: true }); // +40
+document.dispatchEvent(mm2);
+var mu2 = new dom.window.MouseEvent('mouseup', { clientX: 240, bubbles: true });
+document.dispatchEvent(mu2);
+var dbl = new dom.window.MouseEvent('dblclick', { bubbles: true });
+rz2.dispatchEvent(dbl);
+assert.strictEqual(cols[7].style.width, '96px', '双击凭证列手柄后应恢复默认 96px');
+
+// ---- 6. 拖拽下限保护：拖到极小不会越界 ----
+var rzMin = resizers[1]; // 类型列
+var beforeMin = parseInt(cols[1].style.width, 10);
+rzMin.dispatchEvent(new dom.window.MouseEvent('mousedown', { clientX: 100, bubbles: true }));
+// 极端左移到 -1000 → 数学结果 < 20 → 应被夹到 20
+document.dispatchEvent(new dom.window.MouseEvent('mousemove', { clientX: -1000, bubbles: true }));
+var minW = parseInt(cols[1].style.width, 10);
+assert.ok(minW >= 20, '拖拽下限应保护在 20px 以上，实际=' + minW);
+document.dispatchEvent(new dom.window.MouseEvent('mouseup', { clientX: -1000, bubbles: true }));
+// 持久化里也应被夹住
+var saved2 = JSON.parse(localStorage.getItem('fw_tx_colwidths') || '{}');
+assert.ok(!saved2[1] || saved2[1] >= 20, '持久化的列宽也应 >= 20');
+
+// ---- 7. 重置列宽 ----
 document.getElementById('fResetColW').click();
 var cleared = localStorage.getItem('fw_tx_colwidths');
 assert.ok(cleared === null || Object.keys(JSON.parse(cleared || '{}')).length === 0, '重置后列宽配置应被清空');
 // 重置后默认宽度仍生效（凭证列 96px）
 assert.strictEqual(cols[7].style.width, '96px', '重置后默认宽度仍生效');
 
-console.log('✅ 列宽拖拽：colgroup/手柄生成、默认宽度、拖拽持久化、重置 全部通过');
+// ---- 8. 紧凑默认值校验 ----
+var DEFS = FW.modules.internal.TX_DEF_W || null; // 可能未暴露
+var cur = FW.modules.internal.screenColPx();
+// 没持久化时 = 默认；[日期, 类型, 项目, 分类, 账户, 金额, 备注, 凭证, 对方, 报销人, 操作]
+assert.deepStrictEqual(cur, [92, 84, 116, 96, 104, 108, 148, 96, 112, 84, 108], '无持久化时 screenColPx 应返回紧凑默认列宽');
+
+console.log('✅ 列宽拖拽：colgroup/手柄生成、默认宽度、拖拽持久化、双击单列重置、下限保护、重置 全部通过');

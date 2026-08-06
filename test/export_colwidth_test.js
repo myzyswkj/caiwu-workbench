@@ -47,16 +47,16 @@ global.FW = global.window.FW = {
 eval(fs.readFileSync(path.join(__dirname, '..', 'js', 'db.js'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'js', 'internal.js'), 'utf8'));
 
-// ---- 1. screenColPx 直接反映自定义宽度，未自定义列回退默认 ----
+// ---- 1. screenColPx 直接反映自定义宽度，未自定义列回退默认（紧凑默认）----
 var px = FW.modules.internal.screenColPx();
 assert.strictEqual(px.length, 11, '应有 11 个语义列宽度');
 assert.strictEqual(px[2], 200, '项目列应读自定义 200px');
 assert.strictEqual(px[7], 60, '凭证列应读自定义 60px');
-assert.strictEqual(px[0], 100, '未自定义的日期列应回退默认 100px');
+assert.strictEqual(px[0], 92, '未自定义的日期列应回退紧凑默认 92px');
 
 // ---- 2. txExportColWidths 按语义 id 映射（图片/PDF 顺序）----
 var imgW = FW.modules.internal.txExportColWidths(['date', 'type', 'project', 'category', 'account', 'amount', 'party', 'reimburser', 'remark', 'voucher']);
-assert.deepStrictEqual(imgW, [100, 92, 200, 104, 116, 112, 124, 92, 172, 60], '图片列宽应=屏幕宽度（含自定义 200/60）');
+assert.deepStrictEqual(imgW, [92, 84, 200, 96, 104, 108, 112, 84, 148, 60], '图片列宽应=屏幕宽度（含自定义 200/60 + 紧凑默认）');
 
 // ---- 3. Excel 映射公式与 buildXLSX 内一致：wch = round(px/7.5)，专属列用默认 ----
 // 复刻 buildXLSX 的 XLSX_COL_IDS / 默认，确保导出确实继承屏幕宽度
@@ -69,9 +69,9 @@ function wchOf(id, idx) {
   return Math.max(4, Math.round(px[i] / 7.5));
 }
 var excelWch = XLSX_COL_IDS.map(function (id, idx) { return wchOf(id, idx); });
-// 项目列(索引2)自定义200 → round(200/7.5)=27；日期(0)100→13；凭证数(9,null)→8
+// 项目列(索引2)自定义200 → round(200/7.5)=27；日期(0)92→12；凭证数(9,null)→8
 assert.strictEqual(excelWch[2], 27, 'Excel 项目列 wch 应=round(200/7.5)=27');
-assert.strictEqual(excelWch[0], 13, 'Excel 日期列 wch 应=round(100/7.5)=13');
+assert.strictEqual(excelWch[0], 12, 'Excel 日期列 wch 应=round(92/7.5)=12');
 assert.strictEqual(excelWch[9], 8, 'Excel 凭证数列(专属)应=默认 8');
 // 凭证列(屏幕60)在图片端保底 160，在 Excel 端是「凭证数」列(专属)不受影响；这里只验证映射链路正确
 assert.ok(excelWch[7] >= 4, 'Excel 金额关联列 wch 应有效');
