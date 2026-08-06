@@ -134,6 +134,37 @@ Promise.resolve()
     ok('弹窗打开即出预览 schedulePreview', src4.indexOf('schedulePreview();  // 打开弹窗即出预览') >= 0);
     ok('下载调用带备注/凭证参数', src4.indexOf('buildImgConfig(pics, fs, scaledColWidths, { rows: outRows, remarkW: remarkW, picScale: picScale })') >= 0);
 
+    console.log('[6] 整站深蓝白主题：CSS 关键变量与表格配色已切到深蓝');
+    var css = fs.readFileSync(__dirname + '/../css/style.css', 'utf8');
+    // 根变量已切到深蓝
+    ok('--sidebar-bg = #1F4E79（深蓝侧栏）', /--sidebar-bg:\s*#1F4E79;/.test(css));
+    ok('--primary = #1F4E79（深蓝主色，原#C8102E暖红已切）', /--primary:\s*#1F4E79;/.test(css));
+    ok('--info = #2E75B6（中深蓝信息色，原#2C7A6B青绿已切）', /--info:\s*#2E75B6;/.test(css));
+    // A 股配色保留（收入红/支出绿不能动）
+    ok('--income = #C8102E（A股收入红保留）', /--income:\s*#C8102E;/.test(css));
+    ok('--expense = #1F9D55（A股支出绿保留）', /--expense:\s*#1F9D55;/.test(css));
+    // 全局 th 已用深蓝字+淡蓝底
+    ok('全局 th 文字色 #1F4E79', /th\s*\{\s*color:\s*#1F4E79;/.test(css));
+    ok('全局 th 底色 #DCE6F1', /th\s*\{[^}]*background:\s*#DCE6F1;/.test(css));
+    // 流水表 th 用深蓝底白字（截图风格）
+    ok('#txTable th 深蓝底白字', /#txTable th\s*\{[^}]*background:\s*#1F4E79;[^}]*color:\s*#fff;/.test(css));
+    // PDF 打印表头同步深蓝
+    ok('PDF 打印表头深蓝', /\.flow-print\s+\.fp-colhead th[^}]*background:\s*#1F4E79;/.test(css));
+    // 侧栏 logo 渐变也切到蓝
+    ok('brand-logo 渐变已切到蓝', /linear-gradient\(135deg,\s*#1F4E79/.test(css));
+    // 顶栏 border-bottom 由金变蓝
+    ok('topbar 边框已由金变蓝', /\.topbar\s*\{[^}]*border-bottom:\s*2px solid var\(--info\)/.test(css));
+    // 暗的列宽拖拽背景也切到蓝
+    ok('resizer hover 背景已切到蓝', /rgba\(46,117,182/.test(css));
+    // 不再含旧墨绿/金色硬编码（关键的几处）
+    ok('无旧墨绿 #14342B 残留', css.indexOf('#14342B') < 0);
+    ok('无旧金色硬编码 #C9A227 残留（变量可保留为旧色但应不再使用——本次完全清掉）', css.indexOf('#C9A227') < 0);
+    ok('无旧红浅底 #FBEAE2 残留', css.indexOf('#FBEAE2') < 0);
+    ok('无旧金浅底 #F7ECCF 残留', css.indexOf('#F7ECCF') < 0);
+    ok('无旧灰绿 #e8eeea 残留', css.indexOf('#e8eeea') < 0);
+    ok('无旧淡灰绿 #f4f7f5 残留', css.indexOf('#f4f7f5') < 0);
+    ok('无旧绿灰 hover #C2D9CD 残留', css.indexOf('#C2D9CD') < 0);
+
     console.log((fail ? 'SOME FAILED' : 'ALL_OK') + '  pass=' + pass + ' fail=' + fail);
     if (fail) process.exitCode = 1;
   })

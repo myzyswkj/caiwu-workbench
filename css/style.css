@@ -1,22 +1,22 @@
 :root {
-  /* 墨绿财富主题：深墨绿侧栏 + 暖灰绿页面底 + 金/红双强调 + 青绿信息色 */
-  --bg: #F4F6F2;            /* 浅灰绿页面底 */
+  /* 深蓝白主题（2026-08-06）：深蓝主色 + 白底 + 淡蓝表头/边线，A 股红绿金额保留不动 */
+  --bg: #F5F8FB;            /* 极浅蓝页面底 */
   --panel: #ffffff;
-  --sidebar-bg: #14342B;    /* 深墨绿侧栏 */
-  --sidebar-fg: #C9D4CC;    /* 侧栏浅灰绿文字 */
-  --sidebar-active: #C9A227;/* 金色激活 */
-  --text: #1B2A23;          /* 近黑墨绿文字 */
-  --muted: #5E6B62;         /* 弱文字（墨绿灰） */
-  --border: #E0E5DD;        /* 淡灰绿边线 */
-  --primary: #C8102E;       /* 暖红主色 */
-  --primary-soft: #FBEAE2;  /* 红浅底 */
-  --gold: #C9A227;          /* 金强调 */
-  --gold-soft: #F7ECCF;     /* 金浅底 */
-  --income: #C8102E;        /* 收入=红（A股约定） */
-  --expense: #1F9D55;       /* 支出=绿（A股约定） */
-  --warn: #C9A227;          /* 金 */
-  --info: #2C7A6B;          /* 青绿信息色，统一替代零散蓝/青 */
-  --shadow: 0 2px 12px rgba(11,40,30,.10);
+  --sidebar-bg: #1F4E79;    /* 深蓝侧栏 */
+  --sidebar-fg: #C5D2E0;    /* 侧栏浅蓝文字 */
+  --sidebar-active: #5B9BD5;/* 中蓝激活（蓝色主题下不用金） */
+  --text: #1F2D3D;          /* 深蓝灰文字 */
+  --muted: #5A6B7E;         /* 弱文字（蓝灰） */
+  --border: #D4DDE6;        /* 淡蓝灰边线 */
+  --primary: #1F4E79;       /* 深蓝主色 */
+  --primary-soft: #DCE6F1;  /* 淡蓝底（原红浅底） */
+  --gold: #5B9BD5;          /* 中蓝强调（蓝色主题下替换金色） */
+  --gold-soft: #DCE6F1;     /* 淡蓝底 */
+  --income: #C8102E;        /* 收入=红（A股约定，不动） */
+  --expense: #1F9D55;       /* 支出=绿（A股约定，不动） */
+  --warn: #C9302C;          /* 警告红橙（蓝色主题下保留警示感） */
+  --info: #2E75B6;          /* 中深蓝信息色（替换原青绿） */
+  --shadow: 0 2px 12px rgba(31,78,121,.10);
   --radius: 12px;
 }
 
@@ -47,10 +47,10 @@ body {
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; }
 .brand-logo {
   width: 38px; height: 38px; border-radius: 10px;
-  background: linear-gradient(135deg, #C8102E, #C9A227);
+  background: linear-gradient(135deg, #1F4E79, #5B9BD5);
   color: #fff; display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 18px;
-  box-shadow: 0 2px 8px rgba(200,16,46,.35);
+  box-shadow: 0 2px 8px rgba(31,78,121,.35);
 }
 .brand-title { color: #fff; font-weight: 700; font-size: 16px; }
 .brand-sub { font-size: 11px; color: #9FB4C8; margin-top: 2px; }
@@ -63,7 +63,7 @@ body {
   font-size: 14px; text-align: left; transition: .15s;
 }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
-.nav-item.active { background: var(--sidebar-active); color: #3A0F14; font-weight: 700; box-shadow: 0 2px 8px rgba(201,162,39,.35); }
+.nav-item.active { background: var(--sidebar-active); color: #fff; font-weight: 700; box-shadow: 0 2px 8px rgba(91,155,213,.35); }
 .nav-ico { font-size: 16px; width: 20px; text-align: center; }
 
 /* 导航分组（可折叠） */
@@ -84,7 +84,7 @@ body {
 .nav-child { padding: 7px 10px; border-radius: 8px; font-size: 13px; }
 
 /* 侧栏子导航：由各模块内顶部标签折叠而来，挂在主导航之下 */
-.subnav { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 8px 14px; padding-left: 12px; border-left: 2px solid rgba(201,162,39,.5); }
+.subnav { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 8px 14px; padding-left: 12px; border-left: 2px solid rgba(91,155,213,.5); }
 .subnav:empty { display: none; }
 .subnav-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
@@ -93,7 +93,7 @@ body {
   font-size: 13px; text-align: left; transition: .15s; line-height: 1.2;
 }
 .subnav-item:hover { background: rgba(255,255,255,.07); color: #fff; }
-.subnav-item.active { background: rgba(201,162,39,.28); color: #FFE9B8; font-weight: 600; }
+.subnav-item.active { background: rgba(91,155,213,.28); color: #DCE6F1; font-weight: 600; }
 .subnav-item .sn-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .55; flex: 0 0 auto; }
 
 .sites { flex: 1; min-height: 60px; }
@@ -131,7 +131,7 @@ body {
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .topbar {
   height: 56px; flex: 0 0 56px; background: var(--panel);
-  border-bottom: 2px solid var(--gold);
+  border-bottom: 2px solid var(--info);
   display: flex; align-items: center; justify-content: flex-start; gap: 14px;
   padding: 0 22px; box-shadow: var(--shadow); z-index: 5;
 }
@@ -187,7 +187,7 @@ body {
 .ov-total-label { font-size: 12px; color: var(--muted); }
 .ov-total-val { font-size: 30px; font-weight: 800; color: var(--text); line-height: 1.15; letter-spacing: .5px; }
 .ov-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.ov-kpi { background: #f4f7f5; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.ov-kpi { background: #EEF3F8; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
 .ov-kpi-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 .ov-kpi-val { font-size: 18px; font-weight: 700; }
 .ov-kpi-val.income { color: var(--income); }
@@ -196,7 +196,7 @@ body {
 .ov-accs-title { font-size: 12px; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
 .ov-acc-row { display: grid; grid-template-columns: 84px 1fr 110px; align-items: center; gap: 10px; margin-bottom: 8px; }
 .ov-acc-name { font-size: 13px; color: var(--text); }
-.ov-acc-track { background: #e8eeea; border-radius: 6px; height: 14px; overflow: hidden; }
+.ov-acc-track { background: #DCE6F1; border-radius: 6px; height: 14px; overflow: hidden; }
 .ov-acc-fill { height: 100%; border-radius: 6px; }
 .ov-acc-amt { font-size: 13px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .ov-acc-amt.income { color: var(--income); }
@@ -206,10 +206,10 @@ body {
 /* 表格 */
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-th { color: var(--muted); font-weight: 600; background: #f4f7f5; }
-tbody tr:nth-child(even) td { background: #E7EFEA; }
-tbody tr:hover td { background: #C2D9CD; }
-tbody tr:hover { background: #C2D9CD; }
+th { color: #1F4E79; font-weight: 700; background: #DCE6F1; }
+tbody tr:nth-child(even) td { background: #F0F4F8; }
+tbody tr:hover td { background: #C8D6E5; }
+tbody tr:hover { background: #C8D6E5; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: .3px; }
 td.num.income { color: var(--income); }
 td.num.expense { color: var(--expense); }
@@ -222,9 +222,12 @@ td.num.refund { color: #0d9488; }
 #txWrap { overflow-x: auto; }
 #txTable { table-layout: fixed; width: max-content; min-width: 100%; }
 #txTable col { width: auto; }
-#txTable th { position: relative; overflow: hidden; }
+#txTable th { position: relative; overflow: hidden; background: #1F4E79; color: #fff; border-bottom: 1px solid #163E63; }
 #txTable th, #txTable td { white-space: nowrap; padding: 9px 11px; }  /* 比全局 th,td (11/14) 略紧凑，留给手柄视觉位 */
 #txTable .photo-cell, #txTable td.remark, #txTable td:nth-child(7) { white-space: normal; }
+#txTable tbody tr:nth-child(even) td { background: #F0F4F8; }
+#txTable tbody tr:hover td { background: #C8D6E5; }
+#txTable tbody tr:hover { background: #C8D6E5; }
 /* 金额列按用户要求靠左：用 ID 选择器覆盖全局 td.num/th.num 的 right（不影响其他表的右对齐金额） */
 #txTable th.num, #txTable td.num { text-align: left; }
 /* 用相邻列 padding 控制「列间距离」（不画线，纯间距）：
@@ -246,7 +249,7 @@ td.num.refund { color: #0d9488; }
 .col-resizer:hover::before, .col-resizer.dragging::before {
   background: var(--info); opacity: .85; width: 3px;
 }
-.col-resizer:hover, .col-resizer.dragging { background: rgba(44,122,107,.06); }
+.col-resizer:hover, .col-resizer.dragging { background: rgba(46,117,182,.08); }
 .col-resizer::after {
   /* grip 三点提示，hover/拖拽 才显示，更容易定位 */
   content: '⋯'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -275,8 +278,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 /* 筛选条 */
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
 .filter-bar { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }
-.bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 12px; background: #e8eeea; border: 1px solid #cfe0d8; border-radius: 10px; }
-.bulk-bar .bulk-info { font-size: 13px; color: #3A4A42; }
+.bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 12px; background: #EEF3F8; border: 1px solid #D4DDE6; border-radius: 10px; }
+.bulk-bar .bulk-info { font-size: 13px; color: #1F2D3D; }
 .bulk-bar .bulk-info b { color: var(--sidebar-bg); }
 .bulk-bar #bulkCount { color: #C8102E; }
 .toolbar .field { flex: 0 0 auto; }
@@ -329,11 +332,11 @@ td.photo-cell { vertical-align: top; }
 .kb-list { display: flex; flex-direction: column; gap: 12px; }
 .kb-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
 .kb-card h4 { margin: 0 0 8px; font-size: 15px; }
-.kb-card p { margin: 0 0 8px; color: #3A4A42; line-height: 1.7; }
-.kb-card code { background: #eef2ef; padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+.kb-card p { margin: 0 0 8px; color: #1F2D3D; line-height: 1.7; }
+.kb-card code { background: #EEF3F8; padding: 1px 6px; border-radius: 5px; font-size: 12px; }
 .kb-card pre { background: #0f1830; color: #d7e2ff; padding: 12px; border-radius: 9px; overflow-x: auto; font-size: 12.5px; line-height: 1.6; }
 .search-box { width: 100%; margin-bottom: 12px; }
-.bs-head { background:#f4f7f5; font-weight:600; }
+.bs-head { background:#DCE6F1; color:#1F4E79; font-weight:700; }
 
 /* 模态 */
 .modal-mask { position: fixed; inset: 0; background: rgba(15,24,48,.45); display: none; z-index: 100; }
@@ -365,7 +368,7 @@ td.photo-cell { vertical-align: top; }
 .chart-legend .lg-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
 /* 预算进度条 */
-.budget-bar { height: 10px; border-radius: 6px; background: #e8eeea; overflow: hidden; }
+.budget-bar { height: 10px; border-radius: 6px; background: #DCE6F1; overflow: hidden; }
 .budget-fill { height: 100%; border-radius: 6px; transition: width .3s; }
 .budget-card { padding: 14px 18px; }
 
@@ -417,7 +420,7 @@ td.photo-cell { vertical-align: top; }
 .acc-clean-info .muted { font-weight: 400; }
 .acc-clean-act { display: flex; align-items: center; gap: 8px; }
 .acc-clean-target { border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px; background: #fff; outline: none; }
-.acc-clean-target:focus { border-color: var(--info, #2C7A6B); box-shadow: 0 0 0 2px rgba(44,122,107,.12); }
+.acc-clean-target:focus { border-color: var(--info, #2E75B6); box-shadow: 0 0 0 2px rgba(46,117,182,.12); }
 .dash-pnl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .dash-pnl-table th, .dash-pnl-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
 .dash-pnl-table thead th { background: #eef2ef; color: var(--muted); font-weight: 600; }
@@ -454,8 +457,8 @@ td.photo-cell { vertical-align: top; }
 .aging { display: flex; flex-direction: column; gap: 10px; }
 .aging-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .aging-label { width: 72px; color: var(--muted); flex: 0 0 72px; }
-.aging-bar { flex: 1; height: 12px; background: #e8eeea; border-radius: 6px; overflow: hidden; }
-.aging-fill { display: block; height: 100%; background: linear-gradient(90deg, #C8102E, #C9A227); border-radius: 6px; }
+.aging-bar { flex: 1; height: 12px; background: #DCE6F1; border-radius: 6px; overflow: hidden; }
+.aging-fill { display: block; height: 100%; background: linear-gradient(90deg, #1F4E79, #5B9BD5); border-radius: 6px; }
 .aging-val { width: 110px; text-align: right; font-variant-numeric: tabular-nums; flex: 0 0 110px; }
 
 /* 预算设置 */
@@ -464,7 +467,7 @@ td.photo-cell { vertical-align: top; }
 .bud-row span { width: 56px; color: var(--muted); flex: 0 0 56px; }
 .bud-row input { padding: 6px 8px; }
 
-.settle-info { background: #f4f7f5; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 13px; color: var(--text); }
+.settle-info { background: #EEF3F8; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 13px; color: var(--text); }
 
 /* ===== 账本切换器 ===== */
 .ledger-switch { position: relative; }
@@ -477,21 +480,21 @@ td.photo-cell { vertical-align: top; }
 .ls-item.active .ls-name::after { content: ' ✓'; color: var(--primary); }
 .ls-ops { display: flex; gap: 4px; }
 .ls-op { border: none; background: transparent; cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 6px; color: var(--muted); }
-.ls-op:hover { background: #e8eeea; color: var(--text); }
+.ls-op:hover { background: #EEF3F8; color: var(--text); }
 .ls-add { color: var(--primary); font-weight: 600; border-top: 1px solid var(--border); margin-top: 4px; border-radius: 0 0 8px 8px; }
 
 /* ===== 税负测算结论 ===== */
 .tcout { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
 .tcout-ok { background: #eafaf0; color: #1f7a3d; border: 1px solid #bfe6cd; }
 .tcout-warn { background: #fff6e6; color: #a8650b; border: 1px solid #f4d79a; }
-.tcout-info { background: #F7ECCF; color: #9A7B12; border: 1px solid #E4CE8E; }
+.tcout-info { background: #DCE6F1; color: #1F4E79; border: 1px solid #B0C5DC; }
 .tcout-danger { background: #fdeaea; color: #C8102E; border: 1px solid #f1bcbc; }
 
 /* ===== 小规模升一般纳税人预警 ===== */
-.sg-bar { height: 18px; border-radius: 9px; background: #e8eeea; overflow: hidden; margin: 10px 0 6px; }
+.sg-bar { height: 18px; border-radius: 9px; background: #DCE6F1; overflow: hidden; margin: 10px 0 6px; }
 .sg-bar > span { display: block; height: 100%; border-radius: 9px; transition: width .3s; }
 .sg-bar.safe > span { background: #1F9D55; }
-.sg-bar.warn > span { background: #C9A227; }
+.sg-bar.warn > span { background: #5B9BD5; }
 .sg-bar.danger > span { background: #C8102E; }
 .sg-progress-tip { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .sg-stat-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
@@ -517,7 +520,7 @@ td.photo-cell { vertical-align: top; }
 .tpl-ops { display: flex; gap: 6px; flex: 0 0 auto; }
 
 /* ===== 内账：转账/股本类型标签 & 中性金额 ===== */
-.tag.transfer { background: #F7ECCF; color: #9A7B12; border: 1px solid #E4CE8E; }
+.tag.transfer { background: #DCE6F1; color: #1F4E79; border: 1px solid #B0C5DC; }
 .tag.equity { background: #f3ecff; color: #7b3fd1; border: 1px solid #dcc9ff; }
 .tag.refund { background: #e6f7f4; color: #0d9488; border: 1px solid #b5e3dc; }
 .num.refund { color: #0d9488; }
@@ -557,7 +560,7 @@ td.photo-cell { vertical-align: top; }
 .cat-l1-head { display: flex; align-items: center; }
 .cat-l1-head b { margin-right: auto; }
 .cat-l2 { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); padding: 5px 0 5px 14px; border-radius: 6px; margin-top: 3px; }
-.cat-l2:hover { background: #f4f7f5; }
+.cat-l2:hover { background: #EEF3F8; }
 
 /* 会计科目表管理 */
 .acc-hint { font-size: 12px; margin-bottom: 10px; }
@@ -588,15 +591,15 @@ td.photo-cell { vertical-align: top; }
 .vp-field input, .vp-field select { width: auto; min-width: 96px; padding: 6px 9px; border-radius: 7px; }
 .vp-table { width: 100%; border-collapse: collapse; }
 .vp-table th, .vp-table td { border: 1px solid #c9d2e3; padding: 0; }
-.vp-table th { background: #F7ECCF; color: #7A1E22; font-weight: 600; font-size: 13px; padding: 9px 12px; text-align: center; }
+.vp-table th { background: #DCE6F1; color: #1F4E79; font-weight: 700; font-size: 13px; padding: 9px 12px; text-align: center; }
 .vp-table td { vertical-align: middle; }
 .vp-table .num { text-align: right; }
 .vp-table input { border: none; border-radius: 0; background: transparent; width: 100%; padding: 9px 11px; font-size: 13px; font-family: inherit; color: var(--text); }
 .vp-table .e_sum, .vp-table .e_acc { text-align: left; }
-.vp-table input:focus { background: #FBEAE2; outline: none; box-shadow: inset 0 0 0 2px var(--primary); }
+.vp-table input:focus { background: #DCE6F1; outline: none; box-shadow: inset 0 0 0 2px var(--primary); }
 .vp-table .acc-tip { display: block; padding: 0 11px 6px; }
 .vp-table .acc-fill { font-size: 11px; padding: 2px 8px; }
-.vp-table tfoot td { padding: 9px 11px; font-weight: 700; background: #FBEAE2; color: #7A1E22; }
+.vp-table tfoot td { padding: 9px 11px; font-weight: 700; background: #1F4E79; color: #fff; }
 .vp-total-label { text-align: left; }
 .vp-c-op, .vp-op { width: 40px; text-align: center; }
 .vp-table .e_del { margin: 0 auto; }
@@ -617,7 +620,7 @@ td.photo-cell { vertical-align: top; }
 .lm-sub-tab:hover { border-color: var(--primary); }
 .lm-sub-tab.active { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 600; }
 .lm-gl-block { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px; overflow: hidden; }
-.lm-gl-head { background: #f4f7f5; padding: 9px 14px; font-weight: 600; border-bottom: 1px solid var(--border); font-size: 13px; }
+.lm-gl-head { background: #EEF3F8; padding: 9px 14px; font-weight: 600; border-bottom: 1px solid var(--border); font-size: 13px; }
 .lm-gl-block table { font-size: 13px; }
 .lm-gl-block td { padding: 7px 12px; border-bottom: 1px solid var(--border); }
 .lm-gl-block tr:last-child td { border-bottom: none; }
@@ -663,7 +666,7 @@ td.photo-cell { vertical-align: top; }
 .flow-print th, .flow-print td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
 .flow-print thead th { background: var(--bg); color: var(--text); font-weight: 600; }
 /* 列头行：取消「每页带标题」时会被移到 tbody，这里保证它在 thead/tbody 都有表头底色 */
-.flow-print .fp-colhead th { background: #e8eeea; color: var(--text); font-weight: 600; }
+.flow-print .fp-colhead th { background: #1F4E79; color: #fff; font-weight: 700; }
 /* 「每页带标题」注入到明细表 thead 首行的重复标题：白底、底部划线，跨页每页自动重复 */
 .flow-print thead .fp-title-row td { background: #fff; padding: 8px 2px 6px; border: none; border-bottom: 2px solid var(--border); }
 .flow-print thead .fp-title-row .fp-run { font-size: 15px; margin: 0 0 2px; color: var(--text); }
@@ -707,7 +710,7 @@ td.photo-cell { vertical-align: top; }
   color: var(--text);
 }
 .flow-acc-tbl tbody tr:last-child td { border-bottom: none; }
-.flow-acc-tbl tbody tr:nth-child(even) td { background: #f4f7f5; }
+.flow-acc-tbl tbody tr:nth-child(even) td { background: #F0F4F8; }
 .flow-acc-tbl tbody tr:hover td { background: #e7efea; }
 .flow-acc-tbl td.num, .flow-acc-tbl th.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .flow-acc-tbl td.num.income { color: var(--income); }
@@ -831,7 +834,7 @@ td.photo-cell { vertical-align: top; }
 .lock-overlay {
   position: fixed; inset: 0; z-index: 9999;
   display: none;
-  background: linear-gradient(160deg, #14342B 0%, #0A1F18 100%);
+  background: linear-gradient(160deg, #1F4E79 0%, #163E63 100%);
 }
 .lock-overlay:not([hidden]) {
   display: flex; align-items: center; justify-content: center;
@@ -979,7 +982,7 @@ td.photo-cell { vertical-align: top; }
 .pc-row { cursor: pointer; transition: background .12s; }
 .pc-row:hover { background: #f1f5f2; }
 .pc-row.open { background: #eef4ee; }
-.pc-caret { display: inline-block; color: #C9A227; font-size: 12px; transition: transform .12s; }
+.pc-caret { display: inline-block; color: #5B9BD5; font-size: 12px; transition: transform .12s; }
 .pc-detail-row > td { background: #f6f8f6; padding: 0 !important; }
 .pc-detail { display: flex; flex-wrap: wrap; gap: 16px; padding: 14px 18px; }
 .pc-detail-block { flex: 1 1 300px; min-width: 280px; }
@@ -1000,7 +1003,7 @@ td.photo-cell { vertical-align: top; }
 .pc-correct-table thead th { background: #EEF2EF; color: var(--info); font-weight: 600; padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: left; position: sticky; top: 0; }
 .pc-correct-table tbody td { padding: 5px 10px; border-bottom: 1px solid #eef3f9; }
 .pc-correct-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.pc-correct-table .pc-actual { color: #C9A227; font-weight: 600; }
+.pc-correct-table .pc-actual { color: #5B9BD5; font-weight: 600; }
 .pc-correct-table input.pc-deduct-in { text-align: right; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; }
 
 /* 项目明细录入 */
@@ -1082,7 +1085,7 @@ td.photo-cell { vertical-align: top; }
   width: 96px; flex: 0 0 96px; text-align: right; color: #3A4A42;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.pc-rate-track { flex: 1; height: 14px; background: #e8eeea; border-radius: 7px; overflow: hidden; }
+.pc-rate-track { flex: 1; height: 14px; background: #DCE6F1; border-radius: 7px; overflow: hidden; }
 .pc-rate-fill { display: block; height: 100%; border-radius: 7px; }
 .pc-rate-val { width: 58px; flex: 0 0 58px; text-align: right; font-weight: 600; }
 
@@ -1092,7 +1095,7 @@ td.photo-cell { vertical-align: top; }
   width: 72px; box-sizing: border-box; padding: 4px 6px; font-size: 13px; text-align: right;
   border: 1px solid var(--border, #cdd8d2); border-radius: 6px; background: var(--panel, #fff); color: var(--text, #1f2430);
 }
-.pc-qty-in:focus { outline: none; border-color: var(--primary, #C8102E); box-shadow: 0 0 0 2px rgba(200,16,46,.12); }
+.pc-qty-in:focus { outline: none; border-color: var(--primary, #1F4E79); box-shadow: 0 0 0 2px rgba(31,78,121,.12); }
 /* 隐藏数字输入框的上下箭头，避免误触 */
 .pc-qty-in::-webkit-outer-spin-button, .pc-qty-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .pc-qty-in { -moz-appearance: textfield; appearance: textfield; }
@@ -1104,8 +1107,8 @@ td.photo-cell { vertical-align: top; }
 }
 .ver-card h3 { margin: 0 0 10px; font-size: 16px; color: var(--text, #1f2430); }
 .ver-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.ver-table th, .ver-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border, #e8eeea); vertical-align: middle; }
-.ver-table th { color: #6B7A70; font-weight: 600; font-size: 12px; background: #eef2ef; }
+.ver-table th, .ver-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border, #D4DDE6); vertical-align: middle; }
+.ver-table th { color: #1F4E79; font-weight: 700; font-size: 12px; background: #DCE6F1; }
 .ver-table .mono { font-family: ui-monospace, Menlo, Consolas, monospace; color: #3A4A42; }
 .ver-table tr.ver-cur { background: #fff7f8; }
 .ver-table tr.ver-cur .mono { color: var(--primary, #C8102E); font-weight: 600; }
