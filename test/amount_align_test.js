@@ -104,6 +104,18 @@ Promise.resolve()
     var needW = widestAmount.length * px14PerChar; // 96px
     ok('保底宽度 100 ≥ ' + widestAmount.length + ' 字符所需 ' + needW + 'px（留 buffer）', 100 >= needW);
 
+    console.log('[4] 导出宽度 = 屏幕真实渲染宽度（与界面一致，杜绝"屏幕撑开、导出压碎"的视觉欺骗）');
+    // 背景：table-layout:fixed + width:max-content 会把窄列撑到内容宽度（用户肉眼所见），
+    // 但导出若用存储的字面窄 width 渲染，就会把多数列压成极窄、只有凭证列（160px 保底）显得独霸。
+    // 修法：screenColPx() 优先读表头 getBoundingClientRect 真实宽度，三端（图片/Excel/PDF）共用，
+    // 且导出宽度滑块默认值=真实渲染总宽，使 scale 默认=1，导出与界面 1:1 对齐。
+    var src3 = fs.readFileSync(__dirname + '/../js/internal.js', 'utf8');
+    ok('screenColPx 改为读表头真实渲染宽度', src3.indexOf('readRenderedColWidths') >= 0);
+    ok('readRenderedColWidths 用 getBoundingClientRect 取真实宽度', /getBoundingClientRect\(\)\.width/.test(src3));
+    ok('screenColPx 优先用 rendered（any 分支）', src3.indexOf('if (any && rendered[i] != null)') >= 0);
+    ok('导出宽度滑块默认=真实渲染总宽（scale≈1，1:1 对齐）', src3.indexOf('width.value = String(Math.min(2400, Math.max(800, Math.round(_dtw))))') >= 0);
+    ok('图片/Excel/PDF 三端共用 screenColPx 单一来源', (src3.match(/screenColPx\(\)/g) || []).length >= 3);
+
     console.log((fail ? 'SOME FAILED' : 'ALL_OK') + '  pass=' + pass + ' fail=' + fail);
     if (fail) process.exitCode = 1;
   })

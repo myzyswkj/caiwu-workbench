@@ -559,7 +559,8 @@
       if (c === '账户') cls = (cls ? cls + ' ' : '') + 'col-tight-r';
       if (c === '备注') cls = (cls ? cls + ' ' : '') + 'col-loose-l';
       var rz = isLast ? '' : '<span class="col-resizer" data-col="' + i + '" title="拖拽调整列宽"></span>';
-      return '<th' + (cls ? ' class="' + cls + '"' : '') + '>' + c + rz + '</th>';
+      // 给内容列 th 加 data-col（与 colgroup 的 <col data-col> 一一对应），供导出读取真实渲染宽度
+      return '<th' + (cls ? ' class="' + cls + '"' : '') + ' data-col="' + i + '">' + c + rz + '</th>';
     }).join('');
     return '<table id="txTable"><colgroup>' + colTags + '</colgroup><thead><tr>' + selHead +
       headCells +
@@ -660,10 +661,31 @@
   function setColWidths(obj) {
     try { localStorage.setItem(COLW_KEY, JSON.stringify(obj)); } catch (e) {}
   }
-  // 屏幕列宽（px）单一来源：按语义列顺序返回 TX_COLS.length 个宽度，屏幕与导出统一使用
+  // 读取屏幕表头单元格的「真实渲染宽度」：table-layout:fixed + width:max-content 会把窄列撑到
+  // 内容宽度，所以这里返回的是用户真正看到的宽度。导出用它，才能和界面显示完全一致
+  // （之前直接用存储的字面窄 width，导致屏幕被撑开、导出被压碎，二者不一致）。
+  function readRenderedColWidths() {
+    var map = {};
+    var tbl = document.getElementById('txTable');
+    if (!tbl) return map;
+    tbl.querySelectorAll('thead th[data-col]').forEach(function (th) {
+      var i = parseInt(th.getAttribute('data-col'), 10);
+      if (!isFinite(i)) return;
+      var w = Math.round(th.getBoundingClientRect().width);
+      if (isFinite(w) && w > 0) map[i] = w;
+    });
+    return map;
+  }
+  // 屏幕列宽（px）单一来源：优先用表头真实渲染宽度（=肉眼所见），读不到时回退到存储/默认宽度。
+  // 屏幕与导出（图片/Excel/PDF）统一使用，保证导出与界面显示一致。
   function screenColPx() {
     var s = getColWidths();
-    return TX_COLS.map(function (c, i) { return s[i] != null ? s[i] : (TX_DEF_W[i] != null ? TX_DEF_W[i] : 100); });
+    var rendered = readRenderedColWidths();
+    var any = Object.keys(rendered).length > 0;
+    return TX_COLS.map(function (c, i) {
+      if (any && rendered[i] != null) return rendered[i];
+      return s[i] != null ? s[i] : (TX_DEF_W[i] != null ? TX_DEF_W[i] : 100);
+    });
   }
   // 把一组语义列 id 映射成屏幕 px 宽度（导出复用）
   function txExportColWidths(ids) {
@@ -2732,6 +2754,9 @@
         var cancel = body.querySelector('#prevCancel');
         var dl = body.querySelector('#prevDownload');
         var busy = false;
+        // 宽度滑块默认 = 真实渲染总宽，使 scale 默认正好为 1（导出与界面 1:1 对齐）
+        var _dtw = colWidths.reduce(function (s, w) { return s + w; }, 0);
+        if (width) width.value = String(Math.min(2400, Math.max(800, Math.round(_dtw))));
         if (range) range.oninput = function () { if (valEl) valEl.textContent = (range.value || 23) + 'px'; };
         if (cancel) cancel.onclick = FW.closeModal;
         if (dl) dl.onclick = function () {
