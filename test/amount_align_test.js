@@ -83,6 +83,27 @@ Promise.resolve()
     ok('internal.js PDF 表头金额左对齐', src.indexOf('text-align:left">金额') >= 0);
     ok('internal.js PDF 金额单元格左对齐', src.indexOf('style="text-align:left"') >= 0);
 
+    console.log('[3] 金额列保底：导出必须装得下最大金额（不被压成多行）');
+    // 背景：用户把金额列拖到接近下限 20-30px 时，屏幕被 cell 撑大显得 OK，
+    // 但导出按 col.width 严格执行后只有 30-50px，"-¥97.50" 被迫折行 4 行 → 与屏幕观感不一致。
+    // 修法：图片 100px 保底、Excel wch=14（≈105px）保底、PDF 100px 保底——三端统一。
+    var src2 = fs.readFileSync(__dirname + '/../js/internal.js', 'utf8');
+    var iImg = src2.indexOf('colWidths[9] = Math.max(colWidths[9], 160)');
+    ok('图片导出：凭证列 160px 保底（不变）', iImg >= 0);
+    var jImg = src2.indexOf('colWidths[5] = Math.max(colWidths[5], 100)');
+    ok('图片导出：金额列新增 100px 保底（装下 -¥999,999.99）', jImg >= 0);
+    ok('图片导出：金额保底在凭证保底之后定义', jImg > iImg);
+    // Excel 保底
+    ok('Excel 导出：金额列 wch 保底（≈ 100px）', /if \(id === 'amount'\) wch = Math\.max\(wch, amountMinWch\)/.test(src2));
+    ok('Excel 导出：amountMinWch 声明 = 14', /var amountMinWch = 14;/.test(src2));
+    // PDF 保底
+    ok('PDF 导出：金额列 100px 保底（不被折行）', /if \(id === 'amount'\) w = Math\.max\(w, 100\);/.test(src2));
+    // 100px 必须能装下最宽的金额串：-¥999,999.99 共 12 字符（含千分位）
+    var widestAmount = '-¥999,999.99';  // 12 字符
+    var px14PerChar = 8;                 // 14px 字号下平均字符宽约 8px（"¥" 比数字宽，千分位比数字窄）
+    var needW = widestAmount.length * px14PerChar; // 96px
+    ok('保底宽度 100 ≥ ' + widestAmount.length + ' 字符所需 ' + needW + 'px（留 buffer）', 100 >= needW);
+
     console.log((fail ? 'SOME FAILED' : 'ALL_OK') + '  pass=' + pass + ' fail=' + fail);
     if (fail) process.exitCode = 1;
   })

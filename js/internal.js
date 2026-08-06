@@ -2616,6 +2616,8 @@
     var colWidths = txExportColWidths(['date', 'type', 'project', 'category', 'account', 'amount', 'party', 'reimburser', 'remark', 'voucher']);
     // 凭证列在图片里放原图，给个保底最小宽度（避免缩太窄看不清）
     colWidths[9] = Math.max(colWidths[9], 160);
+    // 金额列保底：装下最长金额 "-¥999,999.99"（约 100px），避免列被压窄后金额被迫折行成 4 行（与屏幕里被 cell 撑大的观感不一致）
+    colWidths[5] = Math.max(colWidths[5], 100);
     var outRows = rows.map(function (t) {
       var a = Number(t.amount) || 0;
       var cls = 'neutral', sign = '';
@@ -2900,10 +2902,14 @@
     var XLSX_COL_IDS = ['date', 'type', 'project', 'category', 'account', 'amount', null, null, 'remark', null, 'party', 'reimburser', null];
     var XLSX_COL_DEF = { 6: 10, 7: 12, 9: 8, 12: 12 }; // 已扣支出/实际收入/凭证数/是否影响收支
     var px = screenColPx();
+    // 金额列保底 wch=14（约 105px），装得下最宽金额 "-¥999,999.99"；用户拖到接近下限 20px 时也不会被压成 "####"
+    var amountMinWch = 14;
     var cols = XLSX_COL_IDS.map(function (id, idx) {
       if (id == null) return { wch: XLSX_COL_DEF[idx] != null ? XLSX_COL_DEF[idx] : 12 };
       var i = TX_COL_IDS.indexOf(id);
-      return { wch: Math.max(4, Math.round(px[i] / 7.5)) };
+      var wch = Math.max(4, Math.round(px[i] / 7.5));
+      if (id === 'amount') wch = Math.max(wch, amountMinWch);
+      return { wch: wch };
     });
     // 凭证图列：图片自该列起向右铺开（右侧无数据，不会遮挡）
     var pics = [];
@@ -3027,6 +3033,7 @@
             var i = TX_COL_IDS.indexOf(id);
             var w = i >= 0 ? ppx[i] : 100;
             if (id === 'voucher') w = Math.max(w, 150); // 凭证列保底，避免缩太窄
+            if (id === 'amount') w = Math.max(w, 100);  // 金额列保底，避免被拖窄后打印/PDF 中金额被折行
             return '<col style="width:' + w + 'px">';
           }).join('');
           return '<table id="fpDetailTable"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead"><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:left">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>';
