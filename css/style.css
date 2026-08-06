@@ -681,6 +681,9 @@ td.photo-cell { vertical-align: top; }
 .flow-print .expense { color: var(--expense); }
 .flow-print .refund { color: #0d9488; }
 .flow-print .neutral { color: var(--muted); }
+/* 导出 PDF/打印：明细加大列（日期/类型/项目/分类/账户）字号加大；收入/支出类型加粗，与界面流水一致 */
+.flow-print #fpDetailTable tbody td.fp-detail-big { font-size: 15px; }
+.flow-print #fpDetailTable tbody td.fp-type-bold { font-weight: 700; }
 
 /* ===== 流水明细页「按账户（收支维度）」小表（界面版） ===== */
 /* 老板视角：每个账户赚了/花了多少 + 互转头寸。随筛选实时重算。 */

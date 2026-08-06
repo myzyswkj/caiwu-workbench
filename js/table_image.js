@@ -61,6 +61,8 @@
     return {
       FONT: px(17) + ' ' + fam,
       FONT_BOLD: '600 ' + px(17) + ' ' + fam,
+      FONT_BIG: px(20) + ' ' + fam,
+      FONT_BIG_BOLD: '600 ' + px(20) + ' ' + fam,
       TITLE: '700 ' + px(28) + ' ' + fam,
       SUB: px(16) + ' ' + fam,
       KPI_LABEL: px(16) + ' ' + fam,
@@ -155,6 +157,10 @@
     var imgCol = (cfg.imgCol != null) ? cfg.imgCol : (nCol - 1);
     var fs = cfg.fontScale || 1;                 // 凭证大小旋钮：1=标准；>1 字号/凭证变大，框比例更协调
     var F = scaleFonts(fs);
+    // 明细加大列（如界面：日期/类型/项目/分类/账户）与「类型」列索引，用于导出字号/加粗同步界面
+    var bigCols = cfg.bigCols || null;
+    var typeCol = (cfg.typeCol != null) ? cfg.typeCol : -1;
+    var measureBig = cfg.measureBig || measure;
     var colW = (cfg.colWidths && cfg.colWidths.length === nCol) ? cfg.colWidths : defaultWidths(nCol).colWidths;
     var padX = (cfg.padX != null ? cfg.padX : 10) * fs;
     var padY = (cfg.padY != null ? cfg.padY : 11) * fs;
@@ -203,7 +209,8 @@
       var cellLines = [];
       for (var c = 0; c < nCol; c++) {
         var txt = (c === imgCol) ? '' : (cells[c] == null ? '' : cells[c]);
-        var lines = wrapText(measure, String(txt), colW[c] - padX * 2);
+        var m = (bigCols && bigCols.indexOf(c) >= 0) ? measureBig : measure;
+        var lines = wrapText(m, String(txt), colW[c] - padX * 2);
         if (!lines.length) lines = [''];
         cellLines.push(lines);
         if (lines.length > maxLines) maxLines = lines.length;
@@ -228,6 +235,7 @@
       colW: colW, padX: padX, padY: padY, lineH: lineH, gap: gap,
       amountCol: amountCol, imgCol: imgCol,
       nCol: nCol, head: head, rows: rowGeom,
+      bigCols: bigCols, typeCol: typeCol,
       subtable: subtable,
       fonts: F, cardH: cardH, kpiPadX: kpiPadX, kpiLabelDY: kpiLabelDY, kpiValueDY: kpiValueDY, noteLineH: noteLineH,
       fs: fs
@@ -332,16 +340,22 @@
             // 用真实 ctx 做测量（measureText 依赖字体，须用缩放后的字号串）
           var measCanvas = document.createElement('canvas');
           var mctx = measCanvas.getContext('2d');
-          var measureFont = scaleFonts(fs).FONT;
+          var _F = scaleFonts(fs);
+          var measureFont = _F.FONT;
+          var measureFontBig = _F.FONT_BIG;
           mctx.font = measureFont;
           function measure(s) { mctx.font = measureFont; return mctx.measureText(s); }
+          function measureBig(s) { mctx.font = measureFontBig; return mctx.measureText(s); }
 
           var geo = _compute({
             head: config.head, rows: config.rows, colWidths: config.colWidths,
             pics: picsModel, amountCol: config.amountCol, imgCol: config.imgCol,
             kpis: config.kpis, title: config.title, subtitle: config.subtitle,
             picMaxW: config.picMaxW, picMaxH: config.picMaxH, gap: config.gap, fontScale: fs,
-            subtable: config.subtable
+            subtable: config.subtable,
+            measureBig: measureBig,
+            bigCols: config.bigCols,
+            typeCol: config.typeCol
           }, measure);
 
           var canvas = document.createElement('canvas');
@@ -560,7 +574,13 @@
           if (cc === geo.amountCol && rg.amountCls === 'income') txtColor = C.income;
           else if (cc === geo.amountCol && rg.amountCls === 'expense') txtColor = C.expense;
           ctx.fillStyle = txtColor;
-          ctx.font = F.FONT;
+          // 字体：金额列恒加粗（与屏幕 td.num 一致）；明细加大列用大字号，其中「类型」列收入/支出再加粗
+          var cellFont = F.FONT;
+          if (cc === geo.amountCol) cellFont = F.FONT_BOLD;
+          else if (geo.bigCols && geo.bigCols.indexOf(cc) >= 0) {
+            cellFont = (cc === geo.typeCol && (rg.amountCls === 'income' || rg.amountCls === 'expense')) ? F.FONT_BIG_BOLD : F.FONT_BIG;
+          }
+          ctx.font = cellFont;
           for (var li = 0; li < lines.length; li++) {
             var line = lines[li];
             // 金额列对齐：默认右对齐，显式 amountAlign:'left' 时左对齐（与屏幕流水表一致）

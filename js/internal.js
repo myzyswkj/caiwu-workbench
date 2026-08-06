@@ -2711,6 +2711,7 @@
         ],
         head: head, rows: opts.rows || outRows, colWidths: cw,
         amountCol: amountCol, imgCol: imgCol, amountAlign: 'left',
+        bigCols: [0, 1, 2, 3, 4], typeCol: 1,   // 明细加大列（日期/类型/项目/分类/账户）与「类型」列，导出字号/加粗同步界面
         pics: picMap || {},
         picMaxW: 220 * picScale, picMaxH: 130 * picScale,
         gap: 8,
@@ -3027,12 +3028,32 @@
       });
     }
     ws['!cols'] = cols;
-    // 金额列左对齐，与屏幕流水表口径一致（金额仍为数值，可照常求和/筛选）
+    // 与界面流水一致：日期/类型/项目/分类/账户 加大字号（13pt），收入/支出（含退款收入）加粗；金额恒加粗左对齐
     var xlAmtIdx = head.indexOf('金额');
-    if (xlAmtIdx >= 0) {
-      for (var ri = 1; ri < aoa.length; ri++) {
-        var addr = x.utils.encode_cell({ r: ri, c: xlAmtIdx });
-        if (ws[addr]) ws[addr].s = { alignment: { horizontal: 'left', vertical: 'center' } };
+    var xlBigCols = [0, 1, 2, 3, 4];
+    var xlTypeCol = 1;
+    var BIG_FONT_SZ = 13;
+    for (var ri = 1; ri < aoa.length; ri++) {
+      var t = rows[ri - 1];   // aoa 第 0 行是表头，数据行与 rows 对齐
+      var incExp = !!(t && (t.type === 'income' || t.type === 'expense' || t.type === 'refund'));
+      xlBigCols.forEach(function (ci) {
+        var caddr = x.utils.encode_cell({ r: ri, c: ci });
+        var cell = ws[caddr];
+        if (!cell) return;
+        cell.s = cell.s || {};
+        cell.s.font = cell.s.font || {};
+        cell.s.font.sz = BIG_FONT_SZ;
+        if (ci === xlTypeCol && incExp) cell.s.font.bold = true;
+      });
+      if (xlAmtIdx >= 0) {
+        var aaddr = x.utils.encode_cell({ r: ri, c: xlAmtIdx });
+        var acell = ws[aaddr];
+        if (acell) {
+          acell.s = acell.s || {};
+          acell.s.font = acell.s.font || {};
+          acell.s.font.bold = true;
+          acell.s.alignment = acell.s.alignment || { horizontal: 'left', vertical: 'center' };
+        }
       }
     }
     x.utils.book_append_sheet(wb, ws, '内账流水');
@@ -3145,7 +3166,17 @@
             '<span class="fp-vn">' + (np ? np + ' 张' : '—') + '</span>' +
             '<span class="fp-vbox">' + (np ? '<span class="fp-vload">加载中…</span>' : '<span class="fp-vnone">—</span>') + '</span>' +
           '</td>';
-          return '<tr><td>' + FW.esc(t.date) + '</td><td>' + FW.esc(typeLabel(t)) + '</td><td>' + txProjectLabel(t) + '</td><td>' + FW.esc(t.category || '') + '</td><td>' + FW.esc(accountOf(t)) + '</td>' + amtCell(t) + '<td>' + FW.esc(t.party || '') + '</td><td class="fp-rb">' + FW.esc(t.reimburser || '') + '</td><td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>' + vcell + '</tr>';
+          return '<tr>' +
+            '<td class="fp-detail-big">' + FW.esc(t.date) + '</td>' +
+            '<td class="fp-detail-big' + ((t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? ' fp-type-bold' : '') + '">' + FW.esc(typeLabel(t)) + '</td>' +
+            '<td class="fp-detail-big">' + txProjectLabel(t) + '</td>' +
+            '<td class="fp-detail-big">' + FW.esc(t.category || '') + '</td>' +
+            '<td class="fp-detail-big">' + FW.esc(accountOf(t)) + '</td>' +
+            amtCell(t) +
+            '<td>' + FW.esc(t.party || '') + '</td>' +
+            '<td class="fp-rb">' + FW.esc(t.reimburser || '') + '</td>' +
+            '<td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>' +
+            vcell + '</tr>';
         }).join('') +
         '</tbody></table>' +
       '</div>' +
