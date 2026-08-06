@@ -534,9 +534,9 @@
         '<td>' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
         '<td>' + txProjectLabel(t) + '</td>' +
         '<td>' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
-        '<td>' + FW.esc(acctTxt) + '</td>' +
-        '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
-        '<td class="remark col-sep-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣支出 ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
+        '<td class="col-tight-r">' + FW.esc(acctTxt) + '</td>' +
+        '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
+        '<td class="remark col-loose-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣支出 ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
         '<td class="photo-cell">' + vcell + '</td>' +
         '<td>' + FW.esc(t.party || '—') + '</td>' +
         '<td>' + FW.esc(t.reimburser || '—') + '</td>' +
@@ -551,12 +551,13 @@
       colTags += '<col data-col="' + i + '">';
     });
     // 表头：除最后一列外，每个 th 右侧加拖拽手柄（data-col 用语义序号，导出复用同一套宽度）
-    // 备注列加 col-sep-l：与左侧「金额」列之间画一条竖分隔线，视觉上"分开"
+    // 用相邻列 padding 控制「列间距离」：账户↔金额 收紧(col-tight)、金额↔备注 拉开(col-loose)
     var headCells = TX_COLS.map(function (c, i) {
       var isLast = (i === TX_COLS.length - 1);
       var cls = '';
       if (c === '金额') cls = 'num';
-      if (c === '备注') cls = (cls ? cls + ' ' : '') + 'col-sep-l';
+      if (c === '账户') cls = (cls ? cls + ' ' : '') + 'col-tight-r';
+      if (c === '备注') cls = (cls ? cls + ' ' : '') + 'col-loose-l';
       var rz = isLast ? '' : '<span class="col-resizer" data-col="' + i + '" title="拖拽调整列宽"></span>';
       return '<th' + (cls ? ' class="' + cls + '"' : '') + '>' + c + rz + '</th>';
     }).join('');

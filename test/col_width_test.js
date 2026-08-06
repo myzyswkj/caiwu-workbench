@@ -78,12 +78,18 @@ var someW = cols[2].style.width; // 项目列
 assert.ok(/^\d+px$/.test(someW), '默认宽度应写入 col.style.width，实际="' + someW + '"');
 assert.strictEqual(cols[7].style.width, '96px', '凭证列默认宽度应为 96px（够放缩略图）');
 
-// ---- 3b. 备注列带 col-sep-l 分隔类：金额 ↔ 备注 之间画竖线视觉"分开" ----
-var remarkTh = tbl.querySelectorAll('thead th')[6];
-assert.ok(remarkTh && remarkTh.classList.contains('col-sep-l'), '备注列表头应带 col-sep-l 分隔类');
+// ---- 3b. 列间距离控制类：账户↔金额 收紧(col-tight)、金额↔备注 拉开(col-loose) ----
 var firstRow = tbl.querySelector('tbody tr');
+var acctTh = tbl.querySelectorAll('thead th')[4];
+var acctTd = firstRow.children[4];
+assert.ok(acctTh && acctTh.classList.contains('col-tight-r'), '账户列表头应带 col-tight-r（账户↔金额 缩小距离）');
+assert.ok(acctTd && acctTd.classList.contains('col-tight-r'), '账户列单元格应带 col-tight-r');
+var amtTd = firstRow.children[5];
+assert.ok(amtTd && amtTd.classList.contains('col-tight-l'), '金额列单元格应带 col-tight-l（账户↔金额 缩小距离）');
+var remarkTh = tbl.querySelectorAll('thead th')[6];
 var remarkTd = firstRow.children[6];
-assert.ok(remarkTd && remarkTd.classList.contains('col-sep-l'), '备注列单元格应带 col-sep-l 分隔类');
+assert.ok(remarkTh && remarkTh.classList.contains('col-loose-l'), '备注列表头应带 col-loose-l（金额↔备注 拉开距离）');
+assert.ok(remarkTd && remarkTd.classList.contains('col-loose-l'), '备注列单元格应带 col-loose-l');
 
 // ---- 4. 拖拽：mousedown 手柄 → mousemove → mouseup → 持久化 ----
 var rz = resizers[2]; // 项目列手柄（data-col=2）
