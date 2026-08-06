@@ -2678,7 +2678,7 @@
           { label: '区间收支合计', value: FW.fmtMoney(inc - exp) }
         ],
         head: head, rows: outRows, colWidths: scaledColWidths || colWidths,
-        amountCol: amountCol, imgCol: imgCol,
+        amountCol: amountCol, imgCol: imgCol, amountAlign: 'left',
         pics: picMap || {},
         picMaxW: 220, picMaxH: 130,
         gap: 8,
@@ -2920,6 +2920,14 @@
       });
     }
     ws['!cols'] = cols;
+    // 金额列左对齐，与屏幕流水表口径一致（金额仍为数值，可照常求和/筛选）
+    var xlAmtIdx = head.indexOf('金额');
+    if (xlAmtIdx >= 0) {
+      for (var ri = 1; ri < aoa.length; ri++) {
+        var addr = x.utils.encode_cell({ r: ri, c: xlAmtIdx });
+        if (ws[addr]) ws[addr].s = { alignment: { horizontal: 'left', vertical: 'center' } };
+      }
+    }
     x.utils.book_append_sheet(wb, ws, '内账流水');
     // 第二张表：按账户收支（老板视角），含区间期初与区间期末余额
     var f = state.filter;
@@ -2938,7 +2946,7 @@
     var ws2 = x.utils.aoa_to_sheet(accAoa);
     ws2['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 16 }];
     x.utils.book_append_sheet(wb, ws2, '按账户收支');
-    var u8 = new Uint8Array(x.write(wb, { bookType: 'xlsx', type: 'array' }));
+    var u8 = new Uint8Array(x.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true }));
     // SheetJS 社区版不支持写图，这里把凭证图注入到它生成的 zip 包里
     var picCount = 0;
     if (pics.length) {
@@ -2989,7 +2997,7 @@
       if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) { cls += ' income'; sign = '+'; }
       else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) { cls += ' expense'; sign = '−'; }
       else { cls += ' neutral'; }
-      return '<td class="' + cls + '">' + sign + FW.fmtMoney(a) + '</td>';
+      return '<td class="' + cls + '" style="text-align:left">' + sign + FW.fmtMoney(a) + '</td>';
     }
     var subLine = '账套：' + FW.esc(ledgerName()) + '　|　期间：' + FW.esc(rng) + (scope.length ? '　|　' + FW.esc(scope.join('，')) : '') + '　|　导出日期：' + FW.today();
     var titleBlock =
@@ -3021,7 +3029,7 @@
             if (id === 'voucher') w = Math.max(w, 150); // 凭证列保底，避免缩太窄
             return '<col style="width:' + w + 'px">';
           }).join('');
-          return '<table id="fpDetailTable"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead"><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>';
+          return '<table id="fpDetailTable"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead"><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:left">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>';
         })() +
         rows.map(function (t, i) {
           var np = (t.photos || []).filter(Boolean).length;

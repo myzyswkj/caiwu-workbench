@@ -507,7 +507,8 @@
     for (var c = 0; c < geo.nCol; c++) {
       var hw = geo.colW[c];
       var ht = String(geo.head[c] == null ? '' : geo.head[c]);
-      if (c === geo.amountCol) {
+      // 金额列对齐：默认右对齐（数字常态），显式 amountAlign:'left' 时左对齐（与屏幕流水表一致）
+      if (c === geo.amountCol && config.amountAlign !== 'left') {
         var tw = ctx.measureText(ht).width;
         ctx.fillText(ht, hx + hw - geo.padX - tw, tableTop + (geo.headerH - geo.lineH) / 2);
       } else {
@@ -562,7 +563,8 @@
           ctx.font = F.FONT;
           for (var li = 0; li < lines.length; li++) {
             var line = lines[li];
-            if (cc === geo.amountCol) {
+            // 金额列对齐：默认右对齐，显式 amountAlign:'left' 时左对齐（与屏幕流水表一致）
+            if (cc === geo.amountCol && config.amountAlign !== 'left') {
               var lw = ctx.measureText(line).width;
               ctx.fillText(line, cl + cw - geo.padX - lw, rowTop + geo.padY + li * geo.lineH);
             } else {
