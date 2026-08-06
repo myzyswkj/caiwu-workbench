@@ -2,7 +2,8 @@
   /* 深蓝白主题（2026-08-06）：深蓝主色 + 白底 + 淡蓝表头/边线，A 股红绿金额保留不动 */
   --bg: #F5F8FB;            /* 极浅蓝页面底 */
   --panel: #ffffff;
-  --sidebar-bg: #1F4E79;    /* 深蓝侧栏 */
+  --sidebar-bg: #1F4E79;    /* 深蓝侧栏（表头/合计行共用，保持） */
+  --sidebar-bg-deep: #163A5A; /* 侧栏背景更深一档，仅作用于 .sidebar */
   --sidebar-fg: #C5D2E0;    /* 侧栏浅蓝文字 */
   --sidebar-active: #5B9BD5;/* 中蓝激活（蓝色主题下不用金） */
   --text: #1F2D3D;          /* 深蓝灰文字 */
@@ -36,7 +37,7 @@ body {
 .sidebar {
   width: 248px;
   flex: 0 0 248px;
-  background: var(--sidebar-bg);
+  background: var(--sidebar-bg-deep);
   color: var(--sidebar-fg);
   display: flex;
   flex-direction: column;
