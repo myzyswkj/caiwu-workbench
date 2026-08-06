@@ -2686,7 +2686,15 @@
           .catch(function () { return null; }));
       });
     });
-    function buildImgConfig(picMap, fs, scaledColWidths) {
+    function buildImgConfig(picMap, fs, scaledColWidths, opts) {
+      opts = opts || {};
+      var baseCW = scaledColWidths || colWidths;
+      var cw = baseCW.slice();
+      // 备注列（索引 8）单独调宽：覆盖缩放后的备注列宽
+      if (opts.remarkW != null) cw[8] = opts.remarkW;
+      // 凭证大小（picScale）：同步放大凭证「列宽」与「图显示尺寸」，视觉一致
+      var picScale = (opts.picScale != null) ? opts.picScale : 1;
+      if (picScale !== 1) cw[9] = Math.round(baseCW[9] * picScale);
       function pad2(n) { return (n < 10 ? '0' : '') + n; }
       var d = new Date();
       var stamp = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
@@ -2701,10 +2709,10 @@
           { label: '支出合计', value: FW.fmtMoney(exp), cls: 'expense' },
           { label: '区间收支合计', value: FW.fmtMoney(inc - exp) }
         ],
-        head: head, rows: outRows, colWidths: scaledColWidths || colWidths,
+        head: head, rows: opts.rows || outRows, colWidths: cw,
         amountCol: amountCol, imgCol: imgCol, amountAlign: 'left',
         pics: picMap || {},
-        picMaxW: 220, picMaxH: 130,
+        picMaxW: 220 * picScale, picMaxH: 130 * picScale,
         gap: 8,
         fontScale: fs || 1,
         subtable: subtable
@@ -2724,7 +2732,7 @@
       promptFontSize({}, n);
     });
 
-    // 选导出字号 → 直接生成并下载 PNG（不做预览，避免宽表渲染卡顿/卡死）
+    // 导出图片弹窗：字号 / 宽度 / 备注列宽 / 凭证大小 四个滑块 + 实时预览
     function promptFontSize(pics, n) {
       var bodyHtml =
         '<div class="tx-prev">' +
@@ -2735,47 +2743,115 @@
             '</label>' +
             '<label class="tx-size-label">图片宽度：' +
               '<input type="number" id="picWidthRange" min="800" max="2400" step="32" value="1552" style="width:90px">' +
-              '<span class="muted">px（800–2400，越宽列越宽）</span>' +
+              '<span class="muted">px（800–2400）</span>' +
+            '</label>' +
+            '<label class="tx-size-label">备注列宽：' +
+              '<input type="range" id="remarkWRange" min="80" max="400" step="10" value="148">' +
+              '<span id="remarkWVal" class="muted">' + Math.round(colWidths[8]) + '</span>' +
+            '</label>' +
+            '<label class="tx-size-label">凭证大小：' +
+              '<input type="range" id="picScaleRange" min="0.6" max="1.6" step="0.05" value="1">' +
+              '<span id="picScaleVal" class="muted">1.0x</span>' +
             '</label>' +
             '<span class="muted">（仅影响导出图片，不改原始数据）</span>' +
             '<span class="tx-prev-spacer"></span>' +
           '</div>' +
-          '<div class="tx-msg" id="txMsg" style="min-height:18px;margin:4px 0 2px;color:#C8102E;font-size:13px;"></div>' +
+          '<div class="tx-msg" id="txMsg" style="min-height:18px;margin:2px 0;color:#C8102E;font-size:13px;"></div>' +
+          '<div class="tx-prev-canvas" id="txPrevCanvasWrap"><div class="tx-prev-empty">预览生成中…</div></div>' +
           '<div class="form-actions">' +
             '<button type="button" class="btn ghost" id="prevCancel">取消</button>' +
             '<button type="button" class="btn" id="prevDownload">导出 PNG</button>' +
           '</div>' +
         '</div>';
-      FW.openModal('导出图片（选择字号 + 宽度）', bodyHtml, function (body) {
+      FW.openModal('导出图片（调整字号 / 宽度 / 备注列宽 / 凭证大小，实时预览）', bodyHtml, function (body) {
         var range = body.querySelector('#picSizeRange');
         var valEl = body.querySelector('#picSizeVal');
         var width = body.querySelector('#picWidthRange');
         var msg = body.querySelector('#txMsg');
         var cancel = body.querySelector('#prevCancel');
         var dl = body.querySelector('#prevDownload');
+        var remarkR = body.querySelector('#remarkWRange');
+        var remarkVal = body.querySelector('#remarkWVal');
+        var picScaleR = body.querySelector('#picScaleRange');
+        var picScaleVal = body.querySelector('#picScaleVal');
+        var prevWrap = body.querySelector('#txPrevCanvasWrap');
         var busy = false;
-        // 宽度滑块默认 = 真实渲染总宽，使 scale 默认正好为 1（导出与界面 1:1 对齐）
+        // 宽度滑块默认 = 真实渲染总宽，使 scale 默认≈1（导出与界面 1:1 对齐）
         var _dtw = colWidths.reduce(function (s, w) { return s + w; }, 0);
         if (width) width.value = String(Math.min(2400, Math.max(800, Math.round(_dtw))));
-        if (range) range.oninput = function () { if (valEl) valEl.textContent = (range.value || 23) + 'px'; };
-        if (cancel) cancel.onclick = FW.closeModal;
-        if (dl) dl.onclick = function () {
-          if (busy) return;
+        if (remarkR) remarkR.value = String(Math.round(colWidths[8]));
+        // 计算配置：预览用前 N 行 + 对应凭证图；下载用完整
+        function computeCfg(rows, picMap) {
           var px = parseInt(range ? range.value : '23', 10) || 23;
           var fs = px / 17;
-          // 图片宽度：按 defaultTotalW 等比缩放各列宽
           var defaultTotalW = colWidths.reduce(function (s, w) { return s + w; }, 0);
           var userW = parseInt(width ? width.value : String(defaultTotalW), 10);
           if (!isFinite(userW) || userW < 800) userW = 800;
           if (userW > 2400) userW = 2400;
           var scale = userW / defaultTotalW;
           var scaledColWidths = colWidths.map(function (w) { return Math.round(w * scale); });
+          var remarkW = parseInt(remarkR ? remarkR.value : String(colWidths[8]), 10);
+          var picScale = parseFloat(picScaleR ? picScaleR.value : '1') || 1;
+          return buildImgConfig(picMap, fs, scaledColWidths, { rows: rows, remarkW: remarkW, picScale: picScale });
+        }
+        // 实时预览：只渲染前 N 行 + KPI + 副表（布局真实且轻量），滑块变化后防抖重绘
+        var PREVIEW_ROWS = 8;
+        var previewTimer = null;
+        function doPreview() {
+          if (busy || !prevWrap) return;
+          var prows = outRows.slice(0, PREVIEW_ROWS);
+          var ppics = {};
+          Object.keys(pics).forEach(function (k) {
+            if (parseInt(k, 10) < PREVIEW_ROWS) ppics[k] = pics[k];
+          });
+          var cfg = computeCfg(prows, ppics);
+          if (msg) msg.textContent = '预览生成中…';
+          Promise.resolve().then(function () { return window.FWTableImg.render(cfg); }).then(function (canvas) {
+            if (!prevWrap) return;
+            prevWrap.innerHTML = '';
+            canvas.style.maxWidth = 'none';
+            prevWrap.appendChild(canvas);
+            if (msg) msg.textContent = '';
+          }).catch(function (err) {
+            console.error('[导出图片] 预览失败：', err);
+            if (prevWrap) prevWrap.innerHTML = '<div class="tx-prev-empty">预览失败：' + (err && err.message ? err.message : err) + '</div>';
+            if (msg) msg.textContent = '';
+          });
+        }
+        function schedulePreview() {
+          if (previewTimer) clearTimeout(previewTimer);
+          previewTimer = setTimeout(doPreview, 200);
+        }
+        function onAnyInput() {
+          if (valEl) valEl.textContent = (range ? range.value : 23) + 'px';
+          if (remarkVal) remarkVal.textContent = remarkR ? remarkR.value : '';
+          if (picScaleVal) picScaleVal.textContent = (parseFloat(picScaleR ? picScaleR.value : '1') || 1).toFixed(1) + 'x';
+          schedulePreview();
+        }
+        if (range) range.oninput = onAnyInput;
+        if (width) width.oninput = onAnyInput;
+        if (remarkR) remarkR.oninput = onAnyInput;
+        if (picScaleR) picScaleR.oninput = onAnyInput;
+        if (cancel) cancel.onclick = FW.closeModal;
+        schedulePreview();  // 打开弹窗即出预览
+        if (dl) dl.onclick = function () {
+          if (busy) return;
+          var px = parseInt(range ? range.value : '23', 10) || 23;
+          var fs = px / 17;
+          var defaultTotalW = colWidths.reduce(function (s, w) { return s + w; }, 0);
+          var userW = parseInt(width ? width.value : String(defaultTotalW), 10);
+          if (!isFinite(userW) || userW < 800) userW = 800;
+          if (userW > 2400) userW = 2400;
+          var scale = userW / defaultTotalW;
+          var scaledColWidths = colWidths.map(function (w) { return Math.round(w * scale); });
+          var remarkW = parseInt(remarkR ? remarkR.value : String(colWidths[8]), 10);
+          var picScale = parseFloat(picScaleR ? picScaleR.value : '1') || 1;
           busy = true; if (dl) dl.disabled = true; if (cancel) cancel.disabled = true;
           if (msg) msg.textContent = '正在生成图片…';
           // 防御：buildImgConfig / render 任何同步或异步异常都捕获并上屏
           var cfg;
           try {
-            cfg = buildImgConfig(pics, fs, scaledColWidths);
+            cfg = buildImgConfig(pics, fs, scaledColWidths, { rows: outRows, remarkW: remarkW, picScale: picScale });
           } catch (e) {
             console.error('[导出图片] 构建配置失败：', e);
             if (msg) msg.textContent = '构建配置失败：' + (e && e.message ? e.message : e);

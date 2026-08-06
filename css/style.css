@@ -575,6 +575,10 @@ td.photo-cell { vertical-align: top; }
 .tx-size-label { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); }
 .tx-size-label input[type=range] { width: 200px; accent-color: var(--income, #C8102E); }
 .tx-size-val { min-width: 42px; font-weight: 700; color: var(--income, #C8102E); }
+/* 导出图片：实时预览（按逻辑宽展示，横向滚动不挤压；canvas 不设 maxWidth:100% 避免变形） */
+.tx-prev-canvas { overflow: auto; max-height: 56vh; border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 8px; margin: 6px 0 10px; }
+.tx-prev-canvas canvas { display: block; max-width: none; }
+.tx-prev-canvas .tx-prev-empty { color: var(--muted); font-size: 13px; padding: 8px; }
 .voucher-paper { border: 2px solid #7A1E22; border-radius: 4px; background: #fff; overflow: hidden; box-shadow: 0 4px 18px rgba(122,30,34,.12); }
 .vp-head { padding: 14px 18px 12px; border-bottom: 2px solid #7A1E22; background: #FBF1E6; }
 .vp-title { text-align: center; font-size: 20px; font-weight: 800; letter-spacing: 10px; color: #7A1E22; padding-left: 10px; }
