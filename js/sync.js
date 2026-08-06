@@ -97,9 +97,12 @@
       return pushIfHasData();
     }).then(function () {
       syncing = false;
-      // push 成功时已在内部 markClean；失败则保留 dirty（本地改动仍在、且 local-wins 合并不会覆盖），如实提示，不再谎报"同步完成"
-      if (dirty) FW.toast('已从云端合并，但推送到云端失败——本地改动已保留，可稍后再点同步');
-      else FW.toast('同步完成');
+      if (dirty) { FW.toast('已从云端合并，但推送到云端失败——本地改动已保留，可稍后再点同步'); return; }
+      return syncPhotos().then(function (pr) {
+        if (pr && pr.needSetup) FW.toast('业务数据已同步；凭证图云同步未开启（Supabase 需建存储桶 vouchers）');
+        else if (pr && (pr.up || pr.dl)) FW.toast('同步完成（凭证图：上传' + (pr.up || 0) + '/下载' + (pr.dl || 0) + (pr.del ? '/清理' + pr.del : '') + '）');
+        else FW.toast('同步完成');
+      }).catch(function () { FW.toast('同步完成（凭证图同步跳过）'); });
     }).catch(function (e) {
       syncing = false;
       FW.toast('同步失败：' + (e && e.message ? e.message : '未知错误'));
@@ -256,9 +259,10 @@
           if (active && FW.setModule) FW.setModule(active.dataset.module);
           if (FW.internalAccMgr && FW.internalAccMgr.refreshAccts) FW.internalAccMgr.refreshAccts();
           markClean();
-          FW.toast('已以云端为准覆盖本机');
-          syncing = false;
-          return true;
+          return pullPhotos().then(function (pr) {
+            if (pr && pr.needSetup) FW.toast('已以云端为准覆盖本机（凭证图云同步未开启）');
+            else FW.toast('已以云端为准覆盖本机' + (pr && pr.dl ? '（凭证图已下拉' + pr.dl + '张）' : ''));
+          }).catch(function () { FW.toast('已以云端为准覆盖本机'); }).then(function () { syncing = false; return true; });
         }).catch(function () { suppress = false; syncing = false; return false; });
       }).catch(function () { FW.toast('云端数据解密失败（主密码不符？）'); syncing = false; return false; });
     });
@@ -273,9 +277,111 @@
     syncing = true;
     return push(true).then(function (ok) {
       syncing = false;
-      if (ok) FW.toast('已用本机数据覆盖云端');
+      if (!ok) return ok;
+      return syncPhotos({ mirror: true }).then(function (pr) {
+        if (pr && pr.needSetup) FW.toast('已用本机数据覆盖云端（凭证图云同步未开启）');
+        else FW.toast('已用本机数据覆盖云端' + (pr && (pr.up || pr.del) ? '（凭证图：上传' + (pr.up || 0) + '/清理云端' + (pr.del || 0) + '）' : ''));
+      }).catch(function () { FW.toast('已用本机数据覆盖云端'); });
       return ok;
     });
+  }
+
+  /* ---------- 凭证图云同步（Supabase Storage，与业务快照分离，避免 POST 过大超时） ---------- */
+  // 需先在 Supabase 建私有桶 vouchers 并放行已登录用户（见部署说明）；未建桶时自动跳过、不阻塞业务同步。
+  var PHOTO_BUCKET = 'vouchers';
+  function photoKey(uid, pid) { return uid + '/' + pid; }
+  function storageReady() { return !!(sb && sb.storage && sb.storage().from); }
+
+  function dataUrlToBlob(dataUrl) {
+    return new Promise(function (resolve, reject) {
+      try {
+        var parts = String(dataUrl).split(',');
+        var mime = (parts[0].match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+        var bin = atob(parts[1] || '');
+        var arr = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        resolve(new Blob([arr], { type: mime }));
+      } catch (e) { reject(e); }
+    });
+  }
+  function blobToDataUrl(blob) {
+    return new Promise(function (resolve, reject) {
+      var fr = new FileReader();
+      fr.onload = function () { resolve(fr.result); };
+      fr.onerror = function () { reject(fr.error); };
+      fr.readAsDataURL(blob);
+    });
+  }
+  function isBucketMissing(err) {
+    if (!err) return false;
+    var m = (err.message || err.error || '') + '';
+    return err.statusCode === 404 || /Bucket/i.test(m) || /NoSuchBucket/i.test(m);
+  }
+  function listCloudPhotos(uid) {
+    return withTimeout(sb.storage().from(PHOTO_BUCKET).list(uid, { limit: 3000 }), 30000, '列举云端凭证图超时');
+  }
+  function uploadPhoto(uid, pid, dataUrl) {
+    return dataUrlToBlob(dataUrl).then(function (blob) {
+      return withTimeout(sb.storage().from(PHOTO_BUCKET).upload(photoKey(uid, pid), blob, { cacheControl: '3600', upsert: true }), 60000, '上传凭证图超时');
+    });
+  }
+  function downloadPhoto(uid, pid) {
+    return withTimeout(sb.storage().from(PHOTO_BUCKET).download(photoKey(uid, pid)), 60000, '下载凭证图超时').then(function (res) {
+      if (res.error) throw res.error;
+      return blobToDataUrl(res.data);
+    });
+  }
+  function removeCloudPhoto(uid, pid) {
+    return withTimeout(sb.storage().from(PHOTO_BUCKET).remove([photoKey(uid, pid)]), 30000, '删除云端凭证图超时');
+  }
+  // 双向凭证图同步：
+  //   toUp = 本地有/云端无 → 上传（本机为准，补齐云端）
+  //   toDl = 云端有/本地无 → 下载（合并他端新增）
+  //   toDel = 仅在 opts.mirror（「本机为准覆盖云端」）时清理云端多出的凭证图；
+  //           双向合并默认不删，避免误删其他设备独有照片（无 tombstone 无法区分"他端新增"与"本端已删"）。
+  // 返回 { up, dl, del?, needSetup?, skipped?, error? }
+  function syncPhotos(opts) {
+    opts = opts || {};
+    if (!user || !storageReady()) return Promise.resolve({ skipped: true });
+    if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return Promise.resolve({ skipped: true });
+    var uid = user.id;
+    return FW.db.listLocalPhotoIds().then(function (localIds) {
+      return listCloudPhotos(uid).then(function (lr) {
+        if (lr.error) { if (isBucketMissing(lr.error)) return { needSetup: true }; throw lr.error; }
+        var cloudIds = (lr.data || []).map(function (o) { return o.name; });
+        var toUp = localIds.filter(function (id) { return cloudIds.indexOf(id) < 0; });
+        // 合并模式才下载云端独有（他端新增）；mirror（本机为准）时本地优先，不把云端独有拉下来
+        var toDl = opts.mirror ? [] : cloudIds.filter(function (id) { return localIds.indexOf(id) < 0; });
+        return Promise.all(toUp.map(function (id) {
+          return FW.db.getPhoto(id).then(function (d) { return d ? uploadPhoto(uid, id, d).then(function () { return 1; }).catch(function () { return 0; }) : 0; });
+        })).then(function (ups) {
+          var upN = ups.reduce(function (a, b) { return a + b; }, 0);
+          return Promise.all(toDl.map(function (id) {
+            return downloadPhoto(uid, id).then(function (d) { return FW.db.putPhotoById(id, d).then(function () { return 1; }).catch(function () { return 0; }); }).catch(function () { return 0; });
+          })).then(function (dls) {
+            var dlN = dls.reduce(function (a, b) { return a + b; }, 0);
+            if (!opts.mirror) return { up: upN, dl: dlN };
+            var toDel = cloudIds.filter(function (id) { return localIds.indexOf(id) < 0; });
+            if (!toDel.length) return { up: upN, dl: dlN };
+            return Promise.all(toDel.map(function (id) { return removeCloudPhoto(uid, id).catch(function () { return 0; }); })).then(function (rs) {
+              return { up: upN, dl: dlN, del: rs.length };
+            });
+          });
+        });
+      });
+    }).catch(function (e) { if (isBucketMissing(e)) return { needSetup: true }; return { error: (e && e.message) || String(e) }; });
+  }
+  // 以云端为准拉取凭证图（仅下载，不删本地）
+  function pullPhotos() {
+    if (!user || !storageReady()) return Promise.resolve({ skipped: true });
+    var uid = user.id;
+    return listCloudPhotos(uid).then(function (lr) {
+      if (lr.error) { if (isBucketMissing(lr.error)) return { needSetup: true }; throw lr.error; }
+      var cloudIds = (lr.data || []).map(function (o) { return o.name; });
+      return Promise.all(cloudIds.map(function (id) {
+        return downloadPhoto(uid, id).then(function (d) { return FW.db.putPhotoById(id, d).then(function () { return 1; }).catch(function () { return 0; }); }).catch(function () { return 0; });
+      })).then(function (rs) { return { dl: rs.reduce(function (a, b) { return a + b; }, 0) }; });
+    }).catch(function (e) { if (isBucketMissing(e)) return { needSetup: true }; return { error: (e && e.message) || String(e) }; });
   }
 
   /* ---------- 手动同步（已取消自动同步） ---------- */
@@ -449,6 +555,7 @@
     afterUnlock: afterUnlock,
     overwriteFromCloud: overwriteFromCloud,
     forcePushLocal: forcePushLocal,
+    syncPhotos: syncPhotos, pullPhotos: pullPhotos,
     // 供 ui.js 在登录态变化时刷新顶栏
     _refreshArea: renderAuthArea
   };

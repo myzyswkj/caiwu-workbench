@@ -273,6 +273,19 @@
     });
   }
 
+  // 列出本地所有凭证图 id（用于云同步比对：哪些需上传/下载/清理）
+  function listLocalPhotoIds() {
+    if (!global.indexedDB) return Promise.resolve([]);
+    return openPhotoDB().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(PHOTO_STORE, 'readonly');
+        var req = tx.objectStore(PHOTO_STORE).getAll();
+        req.onsuccess = function () { resolve((req.result || []).map(function (r) { return r.id; })); };
+        req.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
   /* ---------- 数据导入导出（整库快照，含账本与照片凭证） ---------- */
   function memSnapshot() {
     var o = {};
@@ -529,7 +542,7 @@
     uid: uid,
     savePhoto: savePhoto, getPhoto: getPhoto, deletePhoto: deletePhoto, deletePhotos: deletePhotos,
     compressPhoto: compressPhoto,
-    getAllPhotos: getAllPhotos, putPhotoById: putPhotoById,
+    getAllPhotos: getAllPhotos, putPhotoById: putPhotoById, listLocalPhotoIds: listLocalPhotoIds,
     exportAll: exportAll, exportSyncSnapshot: exportSyncSnapshot, importAll: importAll,
     contentKey: contentKey, dedupeByContent: dedupeByContent,
     // 账本
