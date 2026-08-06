@@ -236,6 +236,11 @@ td.num.refund { color: #0d9488; }
 #txTable th.col-tight-r, #txTable td.col-tight-r { padding-right: 6px; }
 #txTable th.col-tight-l, #txTable td.col-tight-l { padding-left: 6px; }
 #txTable th.col-loose-l, #txTable td.col-loose-l { padding-left: 22px; }
+/* 流水明细：日期/类型/项目/分类/账户 字号加大（界面专用，导出沿用各自字号） */
+#txTable tbody td.tx-detail { font-size: 15px; line-height: 1.5; }
+#txTable tbody td.tx-detail .tag { font-size: 14px; }
+/* 「收入/支出」类型标签加粗，突出收支性质（金额列 td.num 已 700 加粗） */
+#txTable tbody td .tag.income, #txTable tbody td .tag.expense { font-weight: 700; }
 /* 拖拽手柄：常驻可见（细线 grip），hover/拖拽 强化；点击区保持 7px 容易点中 */
 .col-resizer {
   position: absolute; top: 6px; bottom: 6px; right: -3px; width: 7px;

@@ -530,11 +530,11 @@
         return '<img class="v-inline" data-pid="' + pid + '" data-load="' + pid + '" alt="凭证" title="点击查看大图">';
       }).join('') + '</div>';
       return '<tr>' + selTd +
-        '<td class="nowrap">' + FW.esc(t.date) + '</td>' +
-        '<td>' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
-        '<td>' + txProjectLabel(t) + '</td>' +
-        '<td>' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
-        '<td class="col-tight-r">' + FW.esc(acctTxt) + '</td>' +
+        '<td class="nowrap tx-detail">' + FW.esc(t.date) + '</td>' +
+        '<td class="tx-detail">' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
+        '<td class="tx-detail">' + txProjectLabel(t) + '</td>' +
+        '<td class="tx-detail">' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
+        '<td class="col-tight-r tx-detail">' + FW.esc(acctTxt) + '</td>' +
         '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
         '<td class="remark col-loose-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣支出 ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
         '<td class="photo-cell">' + vcell + '</td>' +
