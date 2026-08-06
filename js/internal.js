@@ -508,6 +508,8 @@
 
   // 流水表列定义（用于 colgroup + 表头拖拽手柄）
   var TX_COLS = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证', '对方/个人', '报销人', '操作'];
+  // 与 TX_COLS 一一对应的语义 id：屏幕列宽按此键持久化，导出（Excel/图片/PDF）复用同一套宽度
+  var TX_COL_IDS = ['date', 'type', 'project', 'category', 'account', 'amount', 'remark', 'voucher', 'party', 'reimburser', 'op'];
   var TX_DEF_W = { 0: 100, 1: 92, 2: 132, 3: 104, 4: 116, 5: 112, 6: 172, 7: 96, 8: 124, 9: 92, 10: 116 };
   var COLW_KEY = 'fw_tx_colwidths';
 
@@ -541,18 +543,17 @@
         '</tr>';
     }).join('');
     var selHead = state.selMode ? '<th><input type="checkbox" id="selAll" title="全选当前列表"></th>' : '';
-    // colgroup：每列一个 <col>，data-col 索引与表头一致，宽度由 localStorage 持久化 + 默认兜底
+    // colgroup：每列一个 <col>，data-col 为「语义列序号」（与是否批量模式无关），宽度由 localStorage 持久化 + 默认兜底
     var colTags = '';
-    if (state.selMode) colTags += '<col data-col="0">';
+    if (state.selMode) colTags += '<col data-col="sel">';
     TX_COLS.forEach(function (c, i) {
-      colTags += '<col data-col="' + (state.selMode ? i + 1 : i) + '">';
+      colTags += '<col data-col="' + i + '">';
     });
-    // 表头：除最后一列外，每个 th 右侧加拖拽手柄
+    // 表头：除最后一列外，每个 th 右侧加拖拽手柄（data-col 用语义序号，导出复用同一套宽度）
     var headCells = TX_COLS.map(function (c, i) {
-      var idx = state.selMode ? i + 1 : i;
       var isLast = (i === TX_COLS.length - 1);
       var cls = (c === '金额') ? ' class="num"' : '';
-      var rz = isLast ? '' : '<span class="col-resizer" data-col="' + idx + '" title="拖拽调整列宽"></span>';
+      var rz = isLast ? '' : '<span class="col-resizer" data-col="' + i + '" title="拖拽调整列宽"></span>';
       return '<th' + cls + '>' + c + rz + '</th>';
     }).join('');
     return '<table id="txTable"><colgroup>' + colTags + '</colgroup><thead><tr>' + selHead +
@@ -646,6 +647,7 @@
   }
 
   /* ---------- 列宽拖拽（用户可自定义流水表列宽，localStorage 持久化） ---------- */
+  // 存储按「语义列序号」(TX_COLS 索引 0-10) 持久化，与是否勾选批量无关，导出也可复用同一套宽度
   function getColWidths() {
     try { return JSON.parse(localStorage.getItem(COLW_KEY) || '{}') || {}; }
     catch (e) { return {}; }
@@ -653,21 +655,29 @@
   function setColWidths(obj) {
     try { localStorage.setItem(COLW_KEY, JSON.stringify(obj)); } catch (e) {}
   }
-  // 列索引 → 默认宽度（含批量模式多出的全选列，索引 0）
-  function defaultWidthFor(colIdx, hasSel) {
-    if (hasSel && colIdx === 0) return 38;
-    var base = hasSel ? colIdx - 1 : colIdx;
-    return TX_DEF_W[base] != null ? TX_DEF_W[base] : 100;
+  // 屏幕列宽（px）单一来源：按语义列顺序返回 TX_COLS.length 个宽度，屏幕与导出统一使用
+  function screenColPx() {
+    var s = getColWidths();
+    return TX_COLS.map(function (c, i) { return s[i] != null ? s[i] : (TX_DEF_W[i] != null ? TX_DEF_W[i] : 100); });
   }
+  // 把一组语义列 id 映射成屏幕 px 宽度（导出复用）
+  function txExportColWidths(ids) {
+    var px = screenColPx();
+    return ids.map(function (id) { var i = TX_COL_IDS.indexOf(id); return i >= 0 ? px[i] : 100; });
+  }
+  // 拖拽下限：允许列缩到更窄，方便把"距离"压小（之前 40 太宽缩不动）
+  var COL_MIN_W = 28;
   function applyColWidths() {
     var tbl = document.getElementById('txTable');
     if (!tbl) return;
     var cg = tbl.querySelector('colgroup');
     if (!cg) return;
-    var widths = getColWidths();
-    var cols = cg.querySelectorAll('col');
-    cols.forEach(function (col, i) {
-      var w = widths[i] != null ? widths[i] : defaultWidthFor(i, state.selMode);
+    var s = getColWidths();
+    cg.querySelectorAll('col[data-col]').forEach(function (col) {
+      var k = col.getAttribute('data-col');
+      if (k === 'sel') return;            // 批量模式的全选列不参与自定义
+      var i = parseInt(k, 10);
+      var w = s[i] != null ? s[i] : (TX_DEF_W[i] != null ? TX_DEF_W[i] : 100);
       if (w) col.style.width = w + 'px';
     });
   }
@@ -679,9 +689,9 @@
       var rz = e.target && e.target.closest ? e.target.closest('.col-resizer') : null;
       if (!rz) return;
       e.preventDefault();
-      var colIdx = parseInt(rz.dataset.col, 10);
+      var semantic = parseInt(rz.dataset.col, 10); // 语义列序号（与是否批量无关）
       var tbl = document.getElementById('txTable');
-      var col = tbl.querySelector('colgroup col[data-col="' + colIdx + '"]');
+      var col = tbl.querySelector('colgroup col[data-col="' + semantic + '"]');
       if (!col) return;
       rz.classList.add('dragging');
       var startX = e.clientX;
@@ -690,7 +700,7 @@
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
       function onMove(ev) {
-        curW = Math.max(40, startW + (ev.clientX - startX));
+        curW = Math.max(COL_MIN_W, startW + (ev.clientX - startX));
         col.style.width = curW + 'px';
       }
       function onUp() {
@@ -700,7 +710,7 @@
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         var w = getColWidths();
-        w[colIdx] = Math.round(curW);
+        w[semantic] = Math.round(curW);
         setColWidths(w);
       }
       document.addEventListener('mousemove', onMove);
@@ -2581,7 +2591,10 @@
     });
     var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
     var amountCol = 5, imgCol = 9;
-    var colWidths = [124, 84, 144, 114, 156, 148, 184, 106, 224, 268];
+    // 列宽与屏幕调整一致：按图片表头顺序取屏幕宽度（无「操作」列，金额后接对方/报销人/备注/凭证）
+    var colWidths = txExportColWidths(['date', 'type', 'project', 'category', 'account', 'amount', 'party', 'reimburser', 'remark', 'voucher']);
+    // 凭证列在图片里放原图，给个保底最小宽度（避免缩太窄看不清）
+    colWidths[9] = Math.max(colWidths[9], 160);
     var outRows = rows.map(function (t) {
       var a = Number(t.amount) || 0;
       var cls = 'neutral', sign = '';
@@ -2862,10 +2875,15 @@
     aoa.push(totalLine);
     var wb = x.utils.book_new();
     var ws = x.utils.aoa_to_sheet(aoa);
-    var cols = [
-      { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
-      { wch: 24 }, { wch: 8 }, { wch: 18 }, { wch: 12 }, { wch: 12 }
-    ];
+    // 列宽与屏幕调整一致：Excel 列按语义映射到屏幕宽度（px→wch ≈ /7.5），Excel 专属列给固定默认
+    var XLSX_COL_IDS = ['date', 'type', 'project', 'category', 'account', 'amount', null, null, 'remark', null, 'party', 'reimburser', null];
+    var XLSX_COL_DEF = { 6: 10, 7: 12, 9: 8, 12: 12 }; // 已扣支出/实际收入/凭证数/是否影响收支
+    var px = screenColPx();
+    var cols = XLSX_COL_IDS.map(function (id, idx) {
+      if (id == null) return { wch: XLSX_COL_DEF[idx] != null ? XLSX_COL_DEF[idx] : 12 };
+      var i = TX_COL_IDS.indexOf(id);
+      return { wch: Math.max(4, Math.round(px[i] / 7.5)) };
+    });
     // 凭证图列：图片自该列起向右铺开（右侧无数据，不会遮挡）
     var pics = [];
     if (withPics) {
@@ -2972,7 +2990,18 @@
         '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true) + '</div>' +
         '<div class="fp-note">注：区间期初 / 区间期末余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
         '<h4 class="fp-h4">流水明细</h4>' +
-        '<table id="fpDetailTable"><thead id="fpDetailHead"><tr class="fp-colhead"><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>' +
+        (function () {
+          // 打印表列宽与屏幕调整一致：按打印表头顺序取屏幕宽度（auto 布局会尽量贴合，过宽时自动收缩）
+          var PCOL = ['date', 'type', 'project', 'category', 'account', 'amount', 'party', 'reimburser', 'remark', 'voucher'];
+          var ppx = screenColPx();
+          var pc = PCOL.map(function (id) {
+            var i = TX_COL_IDS.indexOf(id);
+            var w = i >= 0 ? ppx[i] : 100;
+            if (id === 'voucher') w = Math.max(w, 150); // 凭证列保底，避免缩太窄
+            return '<col style="width:' + w + 'px">';
+          }).join('');
+          return '<table id="fpDetailTable"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead"><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:right">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>';
+        })() +
         rows.map(function (t, i) {
           var np = (t.photos || []).filter(Boolean).length;
           var vcell = '<td class="fp-vcell" data-vi="' + i + '">' +
@@ -3223,6 +3252,9 @@
     txProjectText: txProjectText,
     txProjectLabel: txProjectLabel,
     openForm: openForm,
-    allocBoxHtml: allocBoxHtml
+    allocBoxHtml: allocBoxHtml,
+    // 列宽单一来源：屏幕与导出复用同一套宽度，暴露供测试/外部一致性校验
+    screenColPx: screenColPx,
+    txExportColWidths: txExportColWidths
   };
 })(window);
