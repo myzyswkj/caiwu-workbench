@@ -56,7 +56,7 @@ assert.strictEqual(px[0], 92, '未自定义的日期列应回退紧凑默认 92p
 
 // ---- 2. txExportColWidths 按语义 id 映射（图片/PDF 顺序）----
 var imgW = FW.modules.internal.txExportColWidths(['date', 'type', 'project', 'category', 'account', 'amount', 'party', 'reimburser', 'remark', 'voucher']);
-assert.deepStrictEqual(imgW, [92, 84, 200, 96, 104, 108, 112, 84, 148, 60], '图片列宽应=屏幕宽度（含自定义 200/60 + 紧凑默认）');
+assert.deepStrictEqual(imgW, [92, 84, 200, 96, 88, 108, 112, 84, 148, 60], '图片列宽应=屏幕宽度（含自定义 200/60 + 紧凑默认）');
 
 // ---- 3. Excel 映射公式与 buildXLSX 内一致：wch = round(px/7.5)，专属列用默认 ----
 // 复刻 buildXLSX 的 XLSX_COL_IDS / 默认，确保导出确实继承屏幕宽度

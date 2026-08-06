@@ -225,6 +225,8 @@ td.num.refund { color: #0d9488; }
 #txTable th { position: relative; overflow: hidden; }
 #txTable th, #txTable td { white-space: nowrap; padding: 9px 11px; }  /* 比全局 th,td (11/14) 略紧凑，留给手柄视觉位 */
 #txTable .photo-cell, #txTable td.remark, #txTable td:nth-child(7) { white-space: normal; }
+/* 金额 ↔ 备注 之间画一条竖分隔线，让两列视觉上"分开"（col-sep-l 挂在备注列 th/td 上） */
+#txTable th.col-sep-l, #txTable td.col-sep-l { border-left: 2px solid var(--border); padding-left: 14px; }
 /* 拖拽手柄：常驻可见（细线 grip），hover/拖拽 强化；点击区保持 7px 容易点中 */
 .col-resizer {
   position: absolute; top: 6px; bottom: 6px; right: -3px; width: 7px;

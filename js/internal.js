@@ -511,7 +511,7 @@
   // 与 TX_COLS 一一对应的语义 id：屏幕列宽按此键持久化，导出（Excel/图片/PDF）复用同一套宽度
   var TX_COL_IDS = ['date', 'type', 'project', 'category', 'account', 'amount', 'remark', 'voucher', 'party', 'reimburser', 'op'];
   // 默认列宽：紧凑版（间距 11+内 padding 9/11），让初始看起来不那么"远"；还嫌宽的话继续拖
-  var TX_DEF_W = { 0: 92, 1: 84, 2: 116, 3: 96, 4: 104, 5: 108, 6: 148, 7: 96, 8: 112, 9: 84, 10: 108 };
+  var TX_DEF_W = { 0: 92, 1: 84, 2: 116, 3: 96, 4: 88, 5: 108, 6: 148, 7: 96, 8: 112, 9: 84, 10: 108 };
   var COLW_KEY = 'fw_tx_colwidths';
 
   function tableHtml(rows) {
@@ -536,7 +536,7 @@
         '<td>' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td>' + FW.esc(acctTxt) + '</td>' +
         '<td class="num ' + amtCls + '">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
-        '<td>' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣支出 ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
+        '<td class="remark col-sep-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣支出 ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
         '<td class="photo-cell">' + vcell + '</td>' +
         '<td>' + FW.esc(t.party || '—') + '</td>' +
         '<td>' + FW.esc(t.reimburser || '—') + '</td>' +
@@ -551,11 +551,14 @@
       colTags += '<col data-col="' + i + '">';
     });
     // 表头：除最后一列外，每个 th 右侧加拖拽手柄（data-col 用语义序号，导出复用同一套宽度）
+    // 备注列加 col-sep-l：与左侧「金额」列之间画一条竖分隔线，视觉上"分开"
     var headCells = TX_COLS.map(function (c, i) {
       var isLast = (i === TX_COLS.length - 1);
-      var cls = (c === '金额') ? ' class="num"' : '';
+      var cls = '';
+      if (c === '金额') cls = 'num';
+      if (c === '备注') cls = (cls ? cls + ' ' : '') + 'col-sep-l';
       var rz = isLast ? '' : '<span class="col-resizer" data-col="' + i + '" title="拖拽调整列宽"></span>';
-      return '<th' + cls + '>' + c + rz + '</th>';
+      return '<th' + (cls ? ' class="' + cls + '"' : '') + '>' + c + rz + '</th>';
     }).join('');
     return '<table id="txTable"><colgroup>' + colTags + '</colgroup><thead><tr>' + selHead +
       headCells +

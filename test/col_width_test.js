@@ -78,6 +78,13 @@ var someW = cols[2].style.width; // 项目列
 assert.ok(/^\d+px$/.test(someW), '默认宽度应写入 col.style.width，实际="' + someW + '"');
 assert.strictEqual(cols[7].style.width, '96px', '凭证列默认宽度应为 96px（够放缩略图）');
 
+// ---- 3b. 备注列带 col-sep-l 分隔类：金额 ↔ 备注 之间画竖线视觉"分开" ----
+var remarkTh = tbl.querySelectorAll('thead th')[6];
+assert.ok(remarkTh && remarkTh.classList.contains('col-sep-l'), '备注列表头应带 col-sep-l 分隔类');
+var firstRow = tbl.querySelector('tbody tr');
+var remarkTd = firstRow.children[6];
+assert.ok(remarkTd && remarkTd.classList.contains('col-sep-l'), '备注列单元格应带 col-sep-l 分隔类');
+
 // ---- 4. 拖拽：mousedown 手柄 → mousemove → mouseup → 持久化 ----
 var rz = resizers[2]; // 项目列手柄（data-col=2）
 var beforeW = parseInt(cols[2].style.width, 10);
@@ -132,6 +139,6 @@ assert.strictEqual(cols[7].style.width, '96px', '重置后默认宽度仍生效'
 var DEFS = FW.modules.internal.TX_DEF_W || null; // 可能未暴露
 var cur = FW.modules.internal.screenColPx();
 // 没持久化时 = 默认；[日期, 类型, 项目, 分类, 账户, 金额, 备注, 凭证, 对方, 报销人, 操作]
-assert.deepStrictEqual(cur, [92, 84, 116, 96, 104, 108, 148, 96, 112, 84, 108], '无持久化时 screenColPx 应返回紧凑默认列宽');
+assert.deepStrictEqual(cur, [92, 84, 116, 96, 88, 108, 148, 96, 112, 84, 108], '无持久化时 screenColPx 应返回紧凑默认列宽');
 
 console.log('✅ 列宽拖拽：colgroup/手柄生成、默认宽度、拖拽持久化、双击单列重置、下限保护、重置 全部通过');
