@@ -303,6 +303,16 @@
     });
   }
 
+  // 同步专用快照：仅含业务数据(raw)，**不含**凭证图(photos)。
+  // 凭证图是重 blob，base64 后体积骤增，整体快照 POST 到云端（香港 SCF）极易超时/失败，
+  // 导致「本机覆盖云端 / 双向合并」整批写不上去；剥离后快照体积可控、上传可靠。
+  // 本地凭证图仍存于 IndexedDB(fw_photos)，不受此影响、不丢。
+  // 备份导出(exportAll)仍含凭证图，仅云端同步走此精简快照。
+  function exportSyncSnapshot() {
+    var raw = encMode ? memSnapshot() : scanLocalRaw();
+    return Promise.resolve({ _app: '财务工作台', _version: 3, _exportedAt: new Date().toISOString(), raw: raw });
+  }
+
   // 业务流水类键：跨设备同步时可能因「同笔不同 id」产生内容重复，需按内容指纹去重。
   // 注意：账本(ledgers)等纯结构性数组不在列；其余均为「事务/记录类」列表（含按账本命名空间化的 internal_Lx 等）。
   var TXN_KEYS = {
@@ -520,7 +530,7 @@
     savePhoto: savePhoto, getPhoto: getPhoto, deletePhoto: deletePhoto, deletePhotos: deletePhotos,
     compressPhoto: compressPhoto,
     getAllPhotos: getAllPhotos, putPhotoById: putPhotoById,
-    exportAll: exportAll, importAll: importAll,
+    exportAll: exportAll, exportSyncSnapshot: exportSyncSnapshot, importAll: importAll,
     contentKey: contentKey, dedupeByContent: dedupeByContent,
     // 账本
     getLedgers: getLedgers, setLedgers: setLedgers,

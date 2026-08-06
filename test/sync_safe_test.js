@@ -66,7 +66,7 @@ global.FW = {
     isUnlocked: function () { return true; },
     getCurrentLedger: function () { return 'L1'; },
     setCurrentLedger: function () {},
-    exportAll: function () { return Promise.resolve({ raw: { internal_L1: [] }, photos: [] }); },
+    exportSyncSnapshot: function () { return Promise.resolve({ raw: { internal_L1: [] }, photos: [] }); },
     importAll: function (snap, merge) { lastMerge = merge; return Promise.resolve(); },
     encryptSnapshot: function (obj) { return Promise.resolve(obj); },
     decryptSnapshot: function (payload) { return Promise.resolve(payload); }

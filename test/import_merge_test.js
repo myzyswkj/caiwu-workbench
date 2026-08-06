@@ -77,9 +77,9 @@ FW.db.exportAll().then(function (snapSeed) {
       assert.strictEqual(after2.length, 1, '[覆盖式] 仅剩云端有的 1 条，本地独有被清（符合"以云端为准覆盖本机"语义）');
       assert.strictEqual(after2[0].project, '云端旧项目', '[覆盖式] a1 被云端值覆盖');
 
-      // 3) sync.js 推送超时必须 >= 45s（修"本机覆盖云端"超时失败）
+      // 3) sync.js 推送超时必须 >= 90s（修"本机覆盖云端"超时失败；凭证图剥离后快照已很小，90s 留足余量）
       var syncSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'sync.js'), 'utf8');
-      assert.ok(/withTimeout\([\s\S]*?45000/.test(syncSrc), 'sync.js 推送超时已提升到 45s（不再用 15000）');
+      assert.ok(/withTimeout\([\s\S]*?90000/.test(syncSrc), 'sync.js 推送超时已提升到 90s（不再用 15000）');
       assert.ok(/最多重试 3 次|attempt >= 3/.test(syncSrc), 'sync.js push 已加入最多 3 次重试');
       assert.ok(/本地改动已保留/.test(syncSrc), 'sync.js syncNow 在推送失败时如实提示本地改动已保留');
 

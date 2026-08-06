@@ -73,7 +73,7 @@
 
   // 只有本端有实际数据才回推，避免用空数据覆盖云端（解决"空快照饿死"）
   function pushIfHasData() {
-    return FW.db.exportAll().then(function (snap) {
+    return FW.db.exportSyncSnapshot().then(function (snap) {
       var has = snap && snap.raw && Object.keys(snap.raw).length > 0;
       if (!has) return false;
       return push(true);
@@ -155,13 +155,13 @@
       user_id: user.id,
       data: payload,
       updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id' }), 45000, '推送云端超时，网络不稳定');
+    }, { onConflict: 'user_id' }), 90000, '推送云端超时，网络不稳定');
   }
 
   function push(force) {
     if (!user || (!dirty && !force)) return Promise.resolve(false);
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return Promise.resolve(false);
-    return FW.db.exportAll().then(function (snap) {
+    return FW.db.exportSyncSnapshot().then(function (snap) {
       return FW.db.encryptSnapshot(snap).then(function (payload) {
         var attempt = 0, lastErr = null;
         function tryOnce() {
