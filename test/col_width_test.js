@@ -5,7 +5,7 @@ var fs = require('fs');
 var path = require('path');
 var JSDOM = require('./setup').JSDOM;
 
-var dom = new JSDOM('<!DOCTYPE html><html><body><div id="topActions"></div><div id="content"><div id="inOverview"></div><div id="inBody"></div></div></body></html>', {
+var dom = new JSDOM('<!DOCTYPE html><html><head><style>' + fs.readFileSync(path.join(__dirname, '..', 'css', 'style.css'), 'utf8') + '</style></head><body><div id="topActions"></div><div id="content"><div id="inOverview"></div><div id="inBody"></div></div></body></html>', {
   url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true
 });
 global.window = dom.window;
@@ -147,4 +147,14 @@ var cur = FW.modules.internal.screenColPx();
 // 没持久化时 = 默认；[日期, 类型, 项目, 分类, 账户, 金额, 备注, 凭证, 对方, 报销人, 操作]
 assert.deepStrictEqual(cur, [92, 84, 116, 96, 88, 108, 148, 96, 112, 84, 108], '无持久化时 screenColPx 应返回紧凑默认列宽');
 
-console.log('✅ 列宽拖拽：colgroup/手柄生成、默认宽度、拖拽持久化、双击单列重置、下限保护、重置 全部通过');
+// ---- 9. 金额列左对齐：用户明确要求金额列靠左（#txTable td.num 计算样式应 text-align: left） ----
+var amtTd = tbl.querySelector('tbody tr td.num');
+assert.ok(amtTd, '应能找到金额 td.num 单元格');
+var amtCs = dom.window.getComputedStyle(amtTd);
+assert.strictEqual(amtCs.textAlign, 'left', '金额 td.num 在 #txTable 内应左对齐（用户明确要求靠左）');
+var amtTh = tbl.querySelector('thead th.num');
+assert.ok(amtTh, '应能找到金额 th.num 表头');
+var amtThCs = dom.window.getComputedStyle(amtTh);
+assert.strictEqual(amtThCs.textAlign, 'left', '金额 th.num 表头在 #txTable 内应左对齐');
+
+console.log('✅ 列宽拖拽：colgroup/手柄生成、默认宽度、拖拽持久化、双击单列重置、下限保护、重置、金额列左对齐 全部通过');
