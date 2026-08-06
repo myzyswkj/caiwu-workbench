@@ -359,7 +359,8 @@
           seenExtra.push(jk); extra.push(x);
         }
         localArr.forEach(function (x) { if (x && x.id != null) byId[x.id] = x; else addExtra(x); });
-        v.forEach(function (x) { if (x && x.id != null) byId[x.id] = x; else addExtra(x); });
+        // 本地优先合并：云端条目仅当本地无该 id 时才补充，避免用云端旧值覆盖本机刚修改的流水（双向合并不再丢失本地改动）
+        v.forEach(function (x) { if (x && x.id != null) { if (!(x.id in byId)) byId[x.id] = x; } else addExtra(x); });
         v = Object.keys(byId).map(function (id) { return byId[id]; }).concat(extra);
         if (isTxnKey(k)) v = dedupeByContent(v); // 跨设备同笔（不同 id）去重，仅需于事务类列表
       }

@@ -91,17 +91,19 @@
       if (res === 'error') {
         syncing = false;
         FW.toast('拉取云端失败，已取消推送以保护云端数据');
-        return false;
+        return;
       }
       // 'merged'（有云端数据并合并）或 'empty'（首次初始化）都可安全推送
       return pushIfHasData();
     }).then(function () {
-      markClean();
-      FW.toast('同步完成');
+      syncing = false;
+      // push 成功时已在内部 markClean；失败则保留 dirty（本地改动仍在、且 local-wins 合并不会覆盖），如实提示，不再谎报"同步完成"
+      if (dirty) FW.toast('已从云端合并，但推送到云端失败——本地改动已保留，可稍后再点同步');
+      else FW.toast('同步完成');
     }).catch(function (e) {
-      markClean();
+      syncing = false;
       FW.toast('同步失败：' + (e && e.message ? e.message : '未知错误'));
-    }).then(function (r) { syncing = false; return r; });
+    });
   }
 
   function onLogin() {
@@ -147,19 +149,39 @@
   }
 
   /* ---------- 推送（本地 → 云端） ---------- */
+  // 单次推送（含 45s 超时）；失败由 push() 决定是否重试
+  function pushOnce(payload) {
+    return withTimeout(sb.from('snapshots').upsert({
+      user_id: user.id,
+      data: payload,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' }), 45000, '推送云端超时，网络不稳定');
+  }
+
   function push(force) {
     if (!user || (!dirty && !force)) return Promise.resolve(false);
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return Promise.resolve(false);
     return FW.db.exportAll().then(function (snap) {
       return FW.db.encryptSnapshot(snap).then(function (payload) {
-        return withTimeout(sb.from('snapshots').upsert({
-          user_id: user.id,
-          data: payload,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' }), 15000, '推送云端超时，网络不稳定').then(function (r) {
-          if (r.error) { FW.toast('同步失败：' + r.error.message); return false; }
-          markClean();
-          return true;
+        var attempt = 0, lastErr = null;
+        function tryOnce() {
+          attempt++;
+          return pushOnce(payload).then(function (r) {
+            if (r && r.error) { lastErr = r.error; return 'bizerr'; } // 业务错误（约束/权限）不重试
+            markClean();
+            return 'ok';
+          }).catch(function (e) {
+            lastErr = e;
+            if (attempt >= 3) return 'fail'; // 最多重试 3 次
+            return new Promise(function (res) { setTimeout(res, 800 * attempt); }).then(tryOnce); // 指数退避后重试
+          });
+        }
+        return tryOnce().then(function (st) {
+          if (st === 'ok') return true;
+          var msg = (lastErr && lastErr.message) ? lastErr.message : '未知错误';
+          if (st === 'bizerr') FW.toast('同步失败：' + msg);
+          else FW.toast('同步失败（已重试 ' + attempt + ' 次）：' + msg);
+          return false;
         });
       });
     }).catch(function (e) {
