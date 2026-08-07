@@ -101,7 +101,7 @@
       if (dirty) { FW.toast('已从云端合并，但推送到云端失败——本地改动已保留，可稍后再点同步'); return; }
       return syncPhotos().then(function (pr) {
         if (pr && pr.error) FW.toast('业务已同步；凭证图同步失败：' + pr.error);
-        else if (pr && pr.needSetup) FW.toast('业务数据已同步；凭证图云同步未开启（Supabase 需建存储桶 vouchers）');
+        else if (pr && pr.needSetup) { return FW.sync._diagnose().then(function (d) { FW.toast('业务数据已同步；凭证图云同步未开启' + reasonFromDiag(d)); }); }
         else if (pr && (pr.up || pr.dl)) FW.toast('同步完成（凭证图：上传' + (pr.up || 0) + '/下载' + (pr.dl || 0) + (pr.del ? '/清理' + pr.del : '') + '）');
         else FW.toast('同步完成');
       }).catch(function () { FW.toast('同步完成（凭证图同步跳过）'); });
@@ -263,7 +263,7 @@
           markClean();
           return pullPhotos().then(function (pr) {
             if (pr && pr.error) FW.toast('已以云端为准覆盖本机；凭证图同步失败：' + pr.error);
-            else if (pr && pr.needSetup) FW.toast('已以云端为准覆盖本机（凭证图云同步未开启）');
+            else if (pr && pr.needSetup) { return FW.sync._diagnose().then(function (d) { FW.toast('已以云端为准覆盖本机（凭证图云同步未开启' + reasonFromDiag(d) + '）'); }); }
             else FW.toast('已以云端为准覆盖本机' + (pr && pr.dl ? '（凭证图已下拉' + pr.dl + '张）' : ''));
           }).catch(function () { FW.toast('已以云端为准覆盖本机'); }).then(function () { syncing = false; return true; });
         }).catch(function () { suppress = false; syncing = false; return false; });
@@ -283,7 +283,7 @@
       if (!ok) return ok;
       return syncPhotos({ mirror: true }).then(function (pr) {
         if (pr && pr.error) FW.toast('已用本机数据覆盖云端；凭证图同步失败：' + pr.error);
-        else if (pr && pr.needSetup) FW.toast('已用本机数据覆盖云端（凭证图云同步未开启）');
+        else if (pr && pr.needSetup) { return FW.sync._diagnose().then(function (d) { FW.toast('已用本机数据覆盖云端（凭证图云同步未开启' + reasonFromDiag(d) + '）'); }); }
         else FW.toast('已用本机数据覆盖云端' + (pr && (pr.up || pr.del) ? '（凭证图：上传' + (pr.up || 0) + '/清理云端' + (pr.del || 0) + '）' : ''));
       }).catch(function () { FW.toast('已用本机数据覆盖云端'); });
       return ok;
@@ -628,6 +628,17 @@
   }
 
   /* ---------- 对外接口 ---------- */
+  // 把 _diagnose 输出翻译成人话原因，塞进 toast，让用户不打开 Console 也能直接看到「为什么未开启」
+  function reasonFromDiag(d) {
+    if (!d) return '';
+    if (d.tokenIsAnon === true) return '（当前以匿名身份访问——登录态异常，请重新登录后再点同步）';
+    if (d.listStatus === 403 || /row level security/i.test(d.listBodyShort || '')) return '（RLS 策略未放行——请在 Supabase 跑一次建桶 SQL）';
+    if ((d.listStatus === 400 || d.listStatus === 404) && /[Bb]ucket not found|NoSuchBucket/i.test(d.listBodyShort || '')) return '（存储桶 vouchers 不存在——请运行建桶 SQL）';
+    if (d.listStatus === 400 || d.listStatus === 404) return '（存储桶访问异常 HTTP ' + d.listStatus + '）';
+    if (d.listStatus === 200) return '（桶可访问，但凭证图被跳过）';
+    return '（token=' + (d.tokenPrefix || '?') + ' listStatus=' + d.listStatus + '）';
+  }
+
   FW.sync = {
     init: init,
     // 测试/调试钩子：暴露 token 取法，便于锁定「v2 废弃 session() 后仍能从 localStorage 取真实 token」的不变量
@@ -697,6 +708,7 @@
       try { console.log('[FW.sync._diagnose] ' + JSON.stringify(out)); } catch (_) {}
       return out;
     },
+    _reasonFromDiag: reasonFromDiag,
     _refreshArea: renderAuthArea
   };
 

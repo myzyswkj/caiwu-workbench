@@ -64,6 +64,12 @@ var fakeSb = {
     o.order = function () { return o; };
     o.maybeSingle = function () { return Promise.resolve({ data: null, error: { code: 'PGRST116' } }); };
     o.single = function () { return o; };
+    // pushOnce 走 sb.from('snapshots').upsert(...) 并交给 withTimeout（期望 Promise）
+    o.upsert = function () { return Promise.resolve({ error: null }); };
+    o.insert = function () { return Promise.resolve({ error: null }); };
+    o.update = function () { return o; };
+    o.delete = function () { return o; };
+    o.neq = function () { return o; };
     return o;
   },
   auth: {
@@ -232,7 +238,32 @@ function ready() { return FW.sync.init ? Promise.resolve() : Promise.reject(new 
   ok('场景10 localStorageHasAccessToken=true', d10.localStorageHasAccessToken === true);
   ok('场景10 userId=u1（从 localStorage 恢复）', d10.userId === 'u1');
   ok('场景10 listStatus 命中合法值', [200, 400, 403, 404, 500].indexOf(d10.listStatus) >= 0);
+
   ok('场景10 listIsBucketMissing 字段存在', typeof d10.listIsBucketMissing === 'boolean');
+
+  // 场景11：reasonFromDiag 纯函数（把 _diagnose 输出翻译成人话，无需网络）
+  ok('场景11 tokenIsAnon → 提示匿名登录态', /匿名/.test(FW.sync._reasonFromDiag({ tokenIsAnon: true })));
+  ok('场景11 400+Bucket not found → 提示建桶', /存储桶 vouchers 不存在|建桶 SQL/.test(FW.sync._reasonFromDiag({ listStatus: 400, listBodyShort: '{"error":"Bucket not found"}' })));
+  ok('场景11 403+RLS → 提示 RLS', /RLS/.test(FW.sync._reasonFromDiag({ listStatus: 403, listBodyShort: '{"message":"new row violates row level security policy"}' })));
+  ok('场景11 200 → 提示桶可访问', /桶可访问/.test(FW.sync._reasonFromDiag({ listStatus: 200 })));
+
+  // 场景12（集成）：needSetup 时 toast 自动带诊断原因，用户不打开 Console 也能看到
+  fakeSb.auth.getSession = function () { return Promise.resolve({ data: { session: { user: { id: 'u1', email: 'a@b.c' }, access_token: 'fake-token' } } }); };
+  fakeSb.auth.session = function () { return { access_token: 'fake-token' }; };
+  dom.window.localStorage.setItem('sb-x-auth-token', JSON.stringify({ access_token: 'LS_TOKEN_FULL', user: { id: 'u1', email: 'a@b.c' } }));
+  dom.window.confirm = function () { return true; };
+  delete dom.window.FW.sync;
+  eval(fs.readFileSync(path.join(__dirname, '..', 'js', 'sync.js'), 'utf8'));
+  dom.window.FW.sync = global.FW.sync;
+  dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+  await new Promise(function (r) { setTimeout(r, 30); });
+  cloudError = { statusCode: 400, message: 'Bucket not found' };
+  toasts.length = 0;
+  await FW.sync.forcePushLocal();
+  await new Promise(function (r) { setTimeout(r, 80); });
+  var hit12 = toasts.find(function (t) { return /凭证图云同步未开启/.test(t) && /存储桶 vouchers 不存在/.test(t); });
+  ok('场景12 forcePushLocal needSetup 时 toast 含诊断原因(建桶)', !!hit12);
+  if (!hit12) console.log('    实际 toasts =', JSON.stringify(toasts));
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
 
