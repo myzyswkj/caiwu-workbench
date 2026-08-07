@@ -33,7 +33,9 @@ function errJson(status, msg) { return { ok: false, status: status, json: functi
 global.fetch = function (u, opts) {
   var method = (opts && opts.method) || 'GET';
   var url = String(u);
-  if (url.indexOf('/list/vouchers') >= 0 && method === 'GET') {
+  if (url.indexOf('/list/vouchers') >= 0) {
+    // 列表端点（不分 GET/POST：之前误用 GET /object/list/{b}?prefix=... 实际不存在路径，
+    // 现改为 POST /object/list/{b} + JSON body，与 supabase-js 客户端 storage.from().list() 一致）
     calls.list++;
     if (cloudError) return Promise.resolve(errJson(cloudError.statusCode || 404, cloudError.message || 'Bucket not found'));
     return Promise.resolve(okJson(cloudList));
@@ -243,7 +245,9 @@ function ready() { return FW.sync.init ? Promise.resolve() : Promise.reject(new 
 
   // 场景11：reasonFromDiag 纯函数（把 _diagnose 输出翻译成人话，无需网络）
   ok('场景11 tokenIsAnon → 提示匿名登录态', /匿名/.test(FW.sync._reasonFromDiag({ tokenIsAnon: true })));
-  ok('场景11 400+Bucket not found → 提示建桶', /存储桶 vouchers 不存在|建桶 SQL/.test(FW.sync._reasonFromDiag({ listStatus: 400, listBodyShort: '{"error":"Bucket not found"}' })));
+  // 新版 reasonFromDiag 把 listStatus + body 一并打出来，所以断言应同时命中 "HTTP 400" 与 "Bucket not found"
+  var diag400 = FW.sync._reasonFromDiag({ listStatus: 400, listBodyShort: '{"error":"Bucket not found"}', tokenLen: 10 });
+  ok('场景11 400+Bucket not found → 提示 HTTP400+Body', /HTTP\s*400/.test(diag400) && /Bucket not found/.test(diag400));
   ok('场景11 403+RLS → 提示 RLS', /RLS/.test(FW.sync._reasonFromDiag({ listStatus: 403, listBodyShort: '{"message":"new row violates row level security policy"}' })));
   ok('场景11 200 → 提示桶可访问', /桶可访问/.test(FW.sync._reasonFromDiag({ listStatus: 200 })));
 
@@ -261,9 +265,12 @@ function ready() { return FW.sync.init ? Promise.resolve() : Promise.reject(new 
   toasts.length = 0;
   await FW.sync.forcePushLocal();
   await new Promise(function (r) { setTimeout(r, 80); });
-  var hit12 = toasts.find(function (t) { return /凭证图云同步未开启/.test(t) && /存储桶 vouchers 不存在/.test(t); });
-  ok('场景12 forcePushLocal needSetup 时 toast 含诊断原因(建桶)', !!hit12);
+  var hit12 = toasts.find(function (t) { return /凭证图云同步未开启/.test(t) && /HTTP\s*400/.test(t) && /Bucket not found/.test(t); });
+  ok('场景12 forcePushLocal needSetup 时 toast 含诊断原因(HTTP400+Body)', !!hit12);
   if (!hit12) console.log('    实际 toasts =', JSON.stringify(toasts));
+
+  // 场景13：不开 Console 的诊断入口（FW.sync.photoDiag 应是函数；openSyncMenu 菜单 HTML 含 id="smDiag"）
+  ok('场景13 FW.sync.photoDiag 是函数', typeof FW.sync.photoDiag === 'function');
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
 

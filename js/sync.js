@@ -374,13 +374,18 @@
     var code = err.statusCode;
     return hits && (code === 400 || code === 404 || !code);
   }
+  // 列出一个用户的全部云端凭证图（name 不带前缀，对应 pid）
+  // 路径必须是 POST /storage/v1/object/list/{bucket} + JSON body（supabase-js 客户端 storage.from().list() 也是走这个）。
+  // 注意：之前误用 GET /object/list/{bucket}?prefix=… 这条路径根本不存在，Supabase 把"路由不存在"和"桶不存在"都模糊成
+  // `400 + Bucket not found`，无论 token/桶/policy 多正确永远误判 needSetup——这是「凭证图云同步未开启」反复复发的真凶。
   function listCloudPhotos(uid) {
-    var u = restBase() + '/list/' + PHOTO_BUCKET + '?prefix=' + encodeURIComponent(uid + '/') + '&limit=3000';
+    var u = restBase() + '/list/' + PHOTO_BUCKET;
+    var headers = apiHeaders({ 'content-type': 'application/json' });
+    var body = JSON.stringify({ prefix: uid + '/', limit: 3000, sortBy: { column: 'name', order: 'asc' } });
     return withTimeout(
-      fetchOk(fetch(u, { method: 'GET', headers: apiHeaders() })).then(function (r) { return r.json().then(function (arr) { return { data: arr || [], error: null }; }); }),
+      fetchOk(fetch(u, { method: 'POST', headers: headers, body: body })).then(function (r) { return r.json().then(function (arr) { return { data: arr || [], error: null }; }); }),
       30000, '列举云端凭证图超时'
     ).catch(function (e) {
-      // 不要把任何 Bucket 相关错误一律判 needSetup；fetchOk 已 throw {statusCode,message}，交给上层 isBucketMissing() 按收紧后的规则判定
       try { console.warn('[sync.listCloudPhotos]', 'uid=' + uid, 'err=', e && (e.statusCode || e.code), e && e.message); } catch (_) {}
       throw e;
     });
@@ -523,11 +528,60 @@
       '<div style="margin:14px 0">' +
         '<button class="btn ghost danger" id="smLocal" style="width:100%">💾 以本机为准覆盖云端</button>' +
         '<p class="muted" style="font-size:12px;margin:6px 0 0">谨慎！用本机数据覆盖云端，其他设备独有数据将丢失。仅用于云端被污染时恢复。</p>' +
+      '</div>' +
+      '<hr style="margin:14px 0;border:none;border-top:1px solid var(--border)">' +
+      '<div style="margin:14px 0">' +
+        '<button class="btn ghost" id="smDiag" style="width:100%">🔍 凭证图云同步诊断</button>' +
+        '<p class="muted" style="font-size:12px;margin:6px 0 0">凭证图同步出错（提示"未开启"/"Bucket not found"）时点此查看 token 与 list 接口的真实状态，不用开 Console。诊断结果请截图发给我，便于一眼定位。</p>' +
       '</div>';
     FW.openModal('同步选项', body, function () {
       document.getElementById('smMerge').onclick = function () { FW.closeModal(); syncNow(); };
       document.getElementById('smCloud').onclick = function () { FW.closeModal(); overwriteFromCloud(); };
       document.getElementById('smLocal').onclick = function () { FW.closeModal(); forcePushLocal(); };
+      document.getElementById('smDiag').onclick = function () { FW.closeModal(); runPhotoDiag(); };
+    });
+  }
+
+  // 不开 Console 的诊断入口：点 → 跑 _diagnose → 弹窗显示完整 JSON + 「复制 JSON」+ 「复制精简摘要」
+  function runPhotoDiag() {
+    var html = '<div id="diagBody" style="background:#f4f6fa;padding:12px;border-radius:6px;font-family:Menlo,Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto;color:#1F2D3D">正在跑诊断……</div>' +
+      '<div style="margin:10px 0 0;font-size:12px;color:#5A6B7E">如果你截图发给我，光截下面那段 JSON 就够了，把这段话截上更好。</div>' +
+      '<div style="margin:10px 0;display:flex;gap:8px">' +
+        '<button class="btn ghost" id="diagCopyJson">📋 复制完整 JSON</button>' +
+        '<button class="btn ghost" id="diagCopyShort">📋 复制精简摘要</button>' +
+        '<button class="btn" id="diagClose">关闭</button>' +
+      '</div>';
+    FW.openModal('🔍 凭证图云同步诊断', html, function () {
+      var lastJson = null;
+      function bind(json) {
+        lastJson = json;
+        document.getElementById('diagCopyJson').onclick = function () {
+          try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(JSON.stringify(json, null, 2)); else { var t = document.createElement('textarea'); t.value = JSON.stringify(json, null, 2); document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); } FW.toast('已复制完整 JSON'); } catch (e) { FW.toast('复制失败：' + (e && e.message || e)); }
+        };
+        document.getElementById('diagCopyShort').onclick = function () {
+          var d = json;
+          var line1 = 'tokenIsAnon=' + d.tokenIsAnon + ' tokenLen=' + d.tokenLen + ' tokenPrefix=' + d.tokenPrefix;
+          var line2 = 'userId=' + d.userId + ' cachedSession=' + d.cachedSession;
+          var line3 = 'localStorageAuthKey=' + d.localStorageAuthKey + ' localStorageHasAccessToken=' + d.localStorageHasAccessToken;
+          var line4 = 'listStatus=' + d.listStatus + ' listOk=' + d.listOk + ' listIsBucketMissing=' + d.listIsBucketMissing;
+          var line5 = 'listBodyShort=' + d.listBodyShort;
+          var shortStr = [line1, line2, line3, line4, line5].join('\n');
+          try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(shortStr); else { var t = document.createElement('textarea'); t.value = shortStr; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); } FW.toast('已复制精简摘要'); } catch (e) { FW.toast('复制失败：' + (e && e.message || e)); }
+        };
+        document.getElementById('diagClose').onclick = function () { FW.closeModal(); };
+      }
+      bind({ tokenIsAnon: null, listStatus: null });
+      // 真实跑诊断
+      try {
+        FW.sync._diagnose().then(function (d) {
+          document.getElementById('diagBody').textContent = JSON.stringify(d, null, 2);
+          bind(d);
+        }).catch(function (e) {
+          document.getElementById('diagBody').textContent = '诊断失败：' + (e && e.message || e);
+        });
+      } catch (e) {
+        document.getElementById('diagBody').textContent = '诊断启动失败：' + (e && e.message || e);
+      }
     });
   }
 
@@ -629,14 +683,22 @@
 
   /* ---------- 对外接口 ---------- */
   // 把 _diagnose 输出翻译成人话原因，塞进 toast，让用户不打开 Console 也能直接看到「为什么未开启」
+  // 注意：把 listStatus + body 前缀打进尾巴，方便看一眼就知道到底是 anon / RLS / 真缺桶。
   function reasonFromDiag(d) {
     if (!d) return '';
-    if (d.tokenIsAnon === true) return '（当前以匿名身份访问——登录态异常，请重新登录后再点同步）';
-    if (d.listStatus === 403 || /row level security/i.test(d.listBodyShort || '')) return '（RLS 策略未放行——请在 Supabase 跑一次建桶 SQL）';
-    if ((d.listStatus === 400 || d.listStatus === 404) && /[Bb]ucket not found|NoSuchBucket/i.test(d.listBodyShort || '')) return '（存储桶 vouchers 不存在——请运行建桶 SQL）';
-    if (d.listStatus === 400 || d.listStatus === 404) return '（存储桶访问异常 HTTP ' + d.listStatus + '）';
+    var ls = (d.listStatus == null ? '?' : d.listStatus);
+    var bd = (d.listBodyShort == null ? '' : String(d.listBodyShort).substring(0, 80));
+    var tp = d.tokenPrefix || '?';
+    if (d.tokenIsAnon === true) return '（当前以匿名身份访问——请重新登录。token前缀=' + tp + '）';
+    if (d.listStatus === 403 || /row level security/i.test(d.listBodyShort || '')) return '（RLS 拒：HTTP 403 / row-level-security——请确认 vouchers_auth_own_folder policy 已建）';
+    if ((d.listStatus === 400 || d.listStatus === 404) && /[Bb]ucket not found|NoSuchBucket/i.test(d.listBodyShort || '')) {
+      // 已知坑：用了合法 user token 但仍返 Bucket not found 时，多半是缓存了旧 JS（sb.auth.session() 仍返 anon），
+      // 此处仍以"请运行建桶 SQL"收尾、但把 tokenLen/listBody 露出，便于一眼判定「其实 token 错了还是 SQL 没跑」
+      return '（存储桶访问返 HTTP ' + ls + ' Bucket not found；tokenLen=' + (d.tokenLen || '?') + ' body=' + bd + '）';
+    }
+    if (d.listStatus === 400 || d.listStatus === 404) return '（存储桶访问异常 HTTP ' + ls + ' body=' + bd + '）';
     if (d.listStatus === 200) return '（桶可访问，但凭证图被跳过）';
-    return '（token=' + (d.tokenPrefix || '?') + ' listStatus=' + d.listStatus + '）';
+    return '（token 前缀 ' + tp + ' listStatus=' + ls + ' body=' + bd + '）';
   }
 
   FW.sync = {
@@ -689,8 +751,9 @@
         var uid = out.userId;
         if (uid) {
           try {
-            var u = restBase() + '/list/' + PHOTO_BUCKET + '?prefix=' + encodeURIComponent(uid + '/') + '&limit=5';
-            var r = await fetch(u, { method: 'GET', headers: apiHeaders() });
+            var u = restBase() + '/list/' + PHOTO_BUCKET;
+            var headers = apiHeaders({ 'content-type': 'application/json' });
+            var r = await fetch(u, { method: 'POST', headers: headers, body: JSON.stringify({ prefix: uid + '/', limit: 5, sortBy: { column: 'name', order: 'asc' } }) });
             out.listStatus = r.status;
             out.listOk = r.ok;
             var body = await r.text();
@@ -709,7 +772,9 @@
       return out;
     },
     _reasonFromDiag: reasonFromDiag,
-    _refreshArea: renderAuthArea
+    _refreshArea: renderAuthArea,
+    // 不开 Console 的诊断入口：弹窗直接显示完整 _diagnose JSON + 复制按钮
+    photoDiag: runPhotoDiag
   };
 
   // 页面加载即尝试初始化（main.js 也会再调一次，幂等）
