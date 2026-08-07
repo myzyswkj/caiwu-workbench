@@ -99,7 +99,8 @@
       syncing = false;
       if (dirty) { FW.toast('已从云端合并，但推送到云端失败——本地改动已保留，可稍后再点同步'); return; }
       return syncPhotos().then(function (pr) {
-        if (pr && pr.needSetup) FW.toast('业务数据已同步；凭证图云同步未开启（Supabase 需建存储桶 vouchers）');
+        if (pr && pr.error) FW.toast('业务已同步；凭证图同步失败：' + pr.error);
+        else if (pr && pr.needSetup) FW.toast('业务数据已同步；凭证图云同步未开启（Supabase 需建存储桶 vouchers）');
         else if (pr && (pr.up || pr.dl)) FW.toast('同步完成（凭证图：上传' + (pr.up || 0) + '/下载' + (pr.dl || 0) + (pr.del ? '/清理' + pr.del : '') + '）');
         else FW.toast('同步完成');
       }).catch(function () { FW.toast('同步完成（凭证图同步跳过）'); });
@@ -260,7 +261,8 @@
           if (FW.internalAccMgr && FW.internalAccMgr.refreshAccts) FW.internalAccMgr.refreshAccts();
           markClean();
           return pullPhotos().then(function (pr) {
-            if (pr && pr.needSetup) FW.toast('已以云端为准覆盖本机（凭证图云同步未开启）');
+            if (pr && pr.error) FW.toast('已以云端为准覆盖本机；凭证图同步失败：' + pr.error);
+            else if (pr && pr.needSetup) FW.toast('已以云端为准覆盖本机（凭证图云同步未开启）');
             else FW.toast('已以云端为准覆盖本机' + (pr && pr.dl ? '（凭证图已下拉' + pr.dl + '张）' : ''));
           }).catch(function () { FW.toast('已以云端为准覆盖本机'); }).then(function () { syncing = false; return true; });
         }).catch(function () { suppress = false; syncing = false; return false; });
@@ -279,7 +281,8 @@
       syncing = false;
       if (!ok) return ok;
       return syncPhotos({ mirror: true }).then(function (pr) {
-        if (pr && pr.needSetup) FW.toast('已用本机数据覆盖云端（凭证图云同步未开启）');
+        if (pr && pr.error) FW.toast('已用本机数据覆盖云端；凭证图同步失败：' + pr.error);
+        else if (pr && pr.needSetup) FW.toast('已用本机数据覆盖云端（凭证图云同步未开启）');
         else FW.toast('已用本机数据覆盖云端' + (pr && (pr.up || pr.del) ? '（凭证图：上传' + (pr.up || 0) + '/清理云端' + (pr.del || 0) + '）' : ''));
       }).catch(function () { FW.toast('已用本机数据覆盖云端'); });
       return ok;
@@ -342,15 +345,21 @@
   }
   function isBucketMissing(err) {
     if (!err) return false;
-    var m = (err.message || err.error || '') + '';
-    return err.statusCode === 404 || /Bucket/i.test(m) || /NoSuchBucket/i.test(m);
+    var m = String(err.message || err.error || '');
+    // 只信明确的"桶不存在"信号：404 + NoSuchBucket/Bucket not found。
+    // 不要用 /Bucket/i 全匹配，因为 RLS/auth/CORS 等报错里也可能含 Bucket 单词，会被误判成 needSetup。
+    return err.statusCode === 404 && (/NoSuchBucket/i.test(m) || /Bucket\s*not\s*found/i.test(m) || !m);
   }
   function listCloudPhotos(uid) {
     var u = restBase() + '/list/' + PHOTO_BUCKET + '?prefix=' + encodeURIComponent(uid + '/') + '&limit=3000';
     return withTimeout(
       fetchOk(fetch(u, { method: 'GET', headers: apiHeaders() })).then(function (r) { return r.json().then(function (arr) { return { data: arr || [], error: null }; }); }),
       30000, '列举云端凭证图超时'
-    );
+    ).catch(function (e) {
+      // 不要把任何 Bucket 相关错误一律判 needSetup；fetchOk 已 throw {statusCode,message}，交给上层 isBucketMissing() 按收紧后的规则判定
+      try { console.warn('[sync.listCloudPhotos]', 'uid=' + uid, 'err=', e && (e.statusCode || e.code), e && e.message); } catch (_) {}
+      throw e;
+    });
   }
   function uploadPhoto(uid, pid, dataUrl) {
     return dataUrlToBlob(dataUrl).then(function (blob) {
@@ -411,7 +420,11 @@
           });
         });
       });
-    }).catch(function (e) { if (isBucketMissing(e)) return { needSetup: true }; return { error: (e && e.message) || String(e) }; });
+    }).catch(function (e) {
+      if (isBucketMissing(e)) { try { console.warn('[sync.syncPhotos] needSetup, err=', e); } catch (_) {} return { needSetup: true }; }
+      try { console.warn('[sync.syncPhotos] failed, err=', e); } catch (_) {}
+      return { error: (e && e.message) || String(e) };
+    });
   }
   // 以云端为准拉取凭证图（仅下载，不删本地）
   function pullPhotos() {
@@ -423,7 +436,11 @@
       return Promise.all(cloudIds.map(function (id) {
         return downloadPhoto(uid, id).then(function (d) { return FW.db.putPhotoById(id, d).then(function () { return 1; }).catch(function () { return 0; }); }).catch(function () { return 0; });
       })).then(function (rs) { return { dl: rs.reduce(function (a, b) { return a + b; }, 0) }; });
-    }).catch(function (e) { if (isBucketMissing(e)) return { needSetup: true }; return { error: (e && e.message) || String(e) }; });
+    }).catch(function (e) {
+      if (isBucketMissing(e)) { try { console.warn('[sync.pullPhotos] needSetup, err=', e); } catch (_) {} return { needSetup: true }; }
+      try { console.warn('[sync.pullPhotos] failed, err=', e); } catch (_) {}
+      return { error: (e && e.message) || String(e) };
+    });
   }
 
   /* ---------- 手动同步（已取消自动同步） ---------- */
