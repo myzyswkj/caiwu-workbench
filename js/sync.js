@@ -15,6 +15,7 @@
   var enabled = !!(url && anon);
 
   var sb = null;       // supabase client
+  var cachedSession = null; // 缓存已恢复的登录会话（含 access_token），供 storage REST 取 token（避免依赖 v2 已废弃的 sb.auth.session()）
   var user = null;     // 当前用户
   var dirty = false;   // 是否有未推送改动
   var suppress = false;// 拉取/导入期间抑制 dirty 标记
@@ -58,12 +59,12 @@
     // 尝试恢复已存会话（带 8s 超时）：网络不稳时不再无限挂起/522，失败则静默保持未登录态。
     // 恢复成功会自动拉取最新云端数据（多设备习惯不变）
     withTimeout(sb.auth.getSession(), 8000, '恢复会话超时').then(function (r) {
-      if (r && r.data && r.data.session) { user = r.data.session.user; onLogin(); }
+      if (r && r.data && r.data.session) { user = r.data.session.user; cachedSession = r.data.session; onLogin(); }
     }).catch(function () {});
 
     // 登录态变化（显式登录/注册/验证码成功时触发）
     sb.auth.onAuthStateChange(function (ev, sess) {
-      if (sess && sess.user) { user = sess.user; onLogin(); }
+      if (sess && sess.user) { user = sess.user; cachedSession = sess; onLogin(); }
       else { user = null; setAuth(null); }
     });
 
@@ -297,11 +298,32 @@
   function storageReady() { return !!(url && anon); }
   function restBase() { return String(url).replace(/\/$/, '') + '/storage/v1/object'; }
   // Storage REST 需 Authorization: Bearer {access_token}（RLS policy 用 auth.uid() 校验），未登录时回退 anon
+  // 取 storage REST 用的 access_token（Bearer）。RLS policy 用 auth.uid() 校验，必须是「真实用户 token」，
+  // 不能用 anon（anon 调私有桶会被 Supabase 一律返回 Bucket not found，从而被误判成 needSetup）。
+  // supabase-js v2 已废弃/移除 sb.auth.session() 同步方法，若它不存在或返回 null 会回退 anon —— 这正是
+  // 「桶已建好却报凭证图同步未开启」的根因。故改为三层取法，不依赖该废弃方法：
+  //   cachedSession（init 里 getSession() 恢复后缓存） -> 老接口 session() -> 直接读 localStorage 里 supabase 存的 session
   function getAccessToken() {
     try {
-      if (sb && sb.auth && typeof sb.auth.session === 'function') {
-        var s = sb.auth.session();
-        if (s && s.access_token) return s.access_token;
+      if (sb && sb.auth) {
+        if (cachedSession && cachedSession.access_token) return cachedSession.access_token;
+        if (typeof sb.auth.session === 'function') {
+          var s = sb.auth.session();
+          if (s && s.access_token) return s.access_token;
+        }
+        // 兜底：supabase 把 session 存到 localStorage，key 形如 sb-<ref>-auth-token，JSON 含 access_token
+        var ls = global.localStorage;
+        if (ls) {
+          var keys = Object.keys(ls);
+          for (var i = 0; i < keys.length; i++) {
+            if (/auth-token$/.test(keys[i])) {
+              try {
+                var p = JSON.parse(ls.getItem(keys[i]) || '{}');
+                if (p && p.access_token) return p.access_token;
+              } catch (e2) {}
+            }
+          }
+        }
       }
     } catch (e) {}
     return anon;
@@ -608,6 +630,8 @@
   /* ---------- 对外接口 ---------- */
   FW.sync = {
     init: init,
+    // 测试/调试钩子：暴露 token 取法，便于锁定「v2 废弃 session() 后仍能从 localStorage 取真实 token」的不变量
+    _getAccessToken: getAccessToken,
     enabled: function () { return enabled; },
     isLoggedIn: function () { return !!user; },
     push: push,

@@ -185,6 +185,33 @@ function ready() { return FW.sync.init ? Promise.resolve() : Promise.reject(new 
   ok('场景7 (RLS 403) 不返回 needSetup', !(r7 && r7.needSetup === true));
   ok('场景7 返回 pr.error 含真实信息', r7 && r7.error && /row.level.security/i.test(r7.error));
 
+
+  // 场景8：_getAccessToken 正向 —— 正常登录态下应返回「真实用户 token」而非 anon
+  // （证明 getAccessToken 不再因 sb.auth.session() 废弃而静默回退 anon）
+  var tok8 = FW.sync._getAccessToken();
+  ok('场景8 _getAccessToken 返回真实 token（非 anon）', tok8 && tok8 !== 'anon');
+
+  // 场景9（关键回归锁）：模拟 supabase-js v2.110.8 已移除 sb.auth.session()（typeof!=='function'），
+  // 且 init 的 getSession 因网络超时未缓存 session（cachedSession 保持 null）。
+  // 验证 getAccessToken 仍能从 localStorage 兜底拿到真实用户 token（不回退 anon）。
+  // 这正是「桶已建好却报凭证图同步未开启」的根因：旧代码 sb.auth.session() 返回 null → 回退 anon →
+  // anon 调私有桶被 Supabase 一律返回 Bucket not found → 误判 needSetup。
+  (function () {
+    fakeSb.auth.session = undefined;  // 模拟方法被移除
+    fakeSb.auth.getSession = function () { return Promise.reject(new Error('timeout')); }; // 模拟恢复会话超时
+    global.localStorage = dom.window.localStorage;  // 测试环境把 jsdom localStorage 暴露给 global
+    dom.window.localStorage.setItem('sb-x-auth-token', JSON.stringify({ access_token: 'LS_TOKEN_999' }));
+    // 重置模块级 cachedSession：重新加载 sync.js（IIFE 会把 inited/cachedSession 等复位）
+    delete dom.window.FW.sync;
+    eval(fs.readFileSync(path.join(__dirname, '..', 'js', 'sync.js'), 'utf8'));
+    dom.window.FW.sync = global.FW.sync;
+    dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+  })();
+  await new Promise(function (r) { setTimeout(r, 50); });
+  var tok9 = FW.sync._getAccessToken();
+  ok('场景9 移除 session()+getSession超时 仍从 localStorage 取真实 token', tok9 === 'LS_TOKEN_999');
+  ok('场景9 未回退 anon', tok9 !== 'anon');
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
+
   process.exit(failed === 0 ? 0 : 1);
 })().catch(function (e) { console.error('TEST THREW:', e.stack); process.exit(2); });
