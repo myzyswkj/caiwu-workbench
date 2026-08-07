@@ -346,9 +346,11 @@
   function isBucketMissing(err) {
     if (!err) return false;
     var m = String(err.message || err.error || '');
-    // 只信明确的"桶不存在"信号：404 + NoSuchBucket/Bucket not found。
-    // 不要用 /Bucket/i 全匹配，因为 RLS/auth/CORS 等报错里也可能含 Bucket 单词，会被误判成 needSetup。
-    return err.statusCode === 404 && (/NoSuchBucket/i.test(m) || /Bucket\s*not\s*found/i.test(m) || !m);
+    // Supabase Storage 对不存在的桶返回 statusCode=400 + message 含 "Bucket not found"（注意：不是 404）
+    // 容忍 400 / 404 / 无 statusCode（网络/解析失败）三种，但 message 必须明确命中桶不存在关键词
+    var hits = /NoSuchBucket/i.test(m) || /Bucket\s*not\s*found/i.test(m) || /BucketNotFound/i.test(m);
+    var code = err.statusCode;
+    return hits && (code === 400 || code === 404 || !code);
   }
   function listCloudPhotos(uid) {
     var u = restBase() + '/list/' + PHOTO_BUCKET + '?prefix=' + encodeURIComponent(uid + '/') + '&limit=3000';

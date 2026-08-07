@@ -35,7 +35,7 @@ global.fetch = function (u, opts) {
   var url = String(u);
   if (url.indexOf('/list/vouchers') >= 0 && method === 'GET') {
     calls.list++;
-    if (cloudError) return Promise.resolve(errJson(404, 'Bucket not found'));
+    if (cloudError) return Promise.resolve(errJson(cloudError.statusCode || 404, cloudError.message || 'Bucket not found'));
     return Promise.resolve(okJson(cloudList));
   }
   if (url.indexOf('/object/vouchers/') >= 0 && method === 'POST') {
@@ -45,7 +45,7 @@ global.fetch = function (u, opts) {
   }
   if (url.indexOf('/object/vouchers/') >= 0 && method === 'GET') {
     calls.download++;
-    if (cloudError) return Promise.resolve(errJson(404, 'Bucket not found'));
+    if (cloudError) return Promise.resolve(errJson(cloudError.statusCode || 404, cloudError.message || 'Bucket not found'));
     return Promise.resolve(okJson({}));
   }
   if (url.indexOf('/object/vouchers') >= 0 && method === 'DELETE') {
@@ -167,6 +167,23 @@ function ready() { return FW.sync.init ? Promise.resolve() : Promise.reject(new 
   ok('场景5 mirror 上传本地独有(L1)', calls.upload === 0);  // L1 已在云端，无须上传
   ok('场景5 mirror 清理云端多余(X1,X2)=2', calls.remove === 2 && r5.del === 2);
   ok('场景5 mirror 不下载云端独有', calls.download === 0);
+
+  // 场景6：Supabase 实际桶缺失错误码（400 + "Bucket not found"，不是 404）也要判 needSetup
+  // （2026-08-07 真实案例：用户跑 SQL 时 CREATE POLICY 报错 42710 导致整事务回滚，
+  //  桶没建好，list 接口实际返回 statusCode=400 + "Bucket not found"，不是 404）
+  reset();
+  cloudError = { statusCode: 400, message: 'Bucket not found' };
+  var r6 = await FW.sync.syncPhotos();
+  ok('场景6 (400+Bucket not found) 返回 needSetup', r6 && r6.needSetup === true);
+  ok('场景6 未触发任何上传/下载/删除', calls.upload === 0 && calls.download === 0 && calls.remove === 0);
+
+  // 场景7：list 报 RLS / auth 错（不含 Bucket not found）应走 pr.error，不误判 needSetup
+  // （防止 2026-08-07 的"误报未开启"回归——RLS/auth 错也可能含 Bucket 字样，但 message 不是 "Bucket not found"）
+  reset();
+  cloudError = { statusCode: 403, message: 'new row violates row level security policy' };
+  var r7 = await FW.sync.syncPhotos();
+  ok('场景7 (RLS 403) 不返回 needSetup', !(r7 && r7.needSetup === true));
+  ok('场景7 返回 pr.error 含真实信息', r7 && r7.error && /row.level.security/i.test(r7.error));
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed === 0 ? 0 : 1);
