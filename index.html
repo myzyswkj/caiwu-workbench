@@ -8,7 +8,8 @@
   <!-- PWA：可添加到手机/桌面主屏，像 App 一样使用 -->
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
-  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
   <meta name="theme-color" content="#0B1A2E" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -141,6 +142,17 @@
   <script src="js/sync.js"></script>
   <script src="js/lock.js"></script>
   <script src="js/main.js"></script>
+
+  <!-- PWA：注册 Service Worker，支持离线打开 / 添加到主屏 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function (e) {
+          console.warn('Service Worker 注册失败：', e);
+        });
+      });
+    }
+  </script>
 
   <!-- 说明：Supabase SDK 已本地化为 js/supabase.js（见上方），不再依赖外部 CDN -->
 </body>
