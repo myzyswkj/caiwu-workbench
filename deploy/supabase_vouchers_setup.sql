@@ -1,48 +1,99 @@
 -- ============================================================
--- 财务工作台 · 凭证图云同步 一次性设置（防事务回滚版本）
--- 用法：Supabase 控制台（https://supabase.com/dashboard）
---   → 选项目（myzyswkj）→ 左侧「SQL Editor」→ New query
---   → 把本文件全部内容粘进去 → 点「Run」→ 完成
--- 只需执行一次。之后点 App 里的「立即同步」，凭证图就会自动上传/下载。
+-- 财务工作台 · 凭证图云同步 一次性设置（最强防呆版 v3）
 --
--- ⚠️ 重要：上一版用纯 INSERT + CREATE POLICY 分两条 statement，
--- PG 默认一个事务，第二条报错（如 policy 已存在 42710）会触发整事务回滚，
--- 导致第 1 条的「建桶」也被撤掉，结果桶从未真正建好，list 报 400 Bucket not found。
--- 本版用 PL/pgSQL DO 块 + EXCEPTION，把两条独立写入，第 2 步已存在时不抛错。
+-- 用法：Supabase 控制台（https://supabase.com/dashboard）
+--   → 选项目（myzyswkj）→ 左侧「SQL Editor」
+--   → Step 1 单独 New query 跑第 1 步 → 确认消息面板出现 NOTICE
+--   → Step 2 单独 New query 跑第 2 步 → 确认消息面板出现 NOTICE
+--   → 跑完后回 App 点同步即可
+--
+-- 历史踩坑（避免重复）：
+--   1. 裸 INSERT + 裸 CREATE POLICY 共享事务：policy 已存在 42710
+--      → 整事务回滚 → 桶从未创建。
+--   2. 上一版 PL/pgSQL DO 块 + EXCEPTION 写法遇 0 行 INSERT（被 RLS
+--      静默拒绝）时不会报错，用户看到 Success 但其实啥也没建。
+--
+-- 本版特性：
+--   - 第 1 步用 RETURNING + raise notice 强制打印「建了什么」或「被 RLS 拦了」
+--   - 第 2 步用 pg_policies 预检 + raise notice 强制打印结果
+--   - 两段 SQL 完全独立，**请在 SQL Editor 分两次跑**，每跑一次都看 Messages 标签
 -- ============================================================
 
--- 第 1 步：创建私有存储桶 vouchers（存凭证图；私有=外网拿不到，安全）
+
+-- ============================================================
+-- 【Step 1 / 2】仅建桶
+-- 复制 ↓↓↓ 这一段到 SQL Editor 跑（不要包含 Step 2）
+-- ============================================================
 do $$
+declare
+  v_id text;
+  v_public boolean;
 begin
-  begin
-    insert into storage.buckets (id, name, public)
-    values ('vouchers', 'vouchers', false);
-  exception when unique_violation then
-    -- 桶已存在，忽略
-    raise notice '存储桶 vouchers 已存在，跳过创建';
-  end;
+  -- 如果已存在就跳过（不抛错），并输出当前桶状态
+  select id, public into v_id, v_public
+  from storage.buckets
+  where id = 'vouchers';
+
+  if v_id is not null then
+    raise notice '【已存在】桶 id=%, public=%（无需创建）', v_id, v_public;
+    return;
+  end if;
+
+  -- 第一次建：用 RETURNING 抓新建桶的字段，如果被 RLS 拒，INSERT 会返 0 行而不会抛错，
+  -- 此时我们将显式抛出错误让用户看见
+  insert into storage.buckets (id, name, public)
+  values ('vouchers', 'vouchers', false)
+  returning id, public into v_id, v_public;
+
+  if v_id is null then
+    raise exception '【失败】INSERT 0 行（疑似被 RLS 拦截）。请确认你在项目 owner 账号下执行，且该项目未被暂停';
+  end if;
+
+  raise notice '【成功创建】桶 id=%, public=%（私有）', v_id, v_public;
+exception
+  when unique_violation then
+    raise notice '【已存在】发生 unique_violation，跳过';
+  when others then
+    raise exception '【失败】%', SQLERRM;
 end
 $$;
 
--- 第 2 步：放行权限——每个登录用户只能读写「自己账号目录」下的凭证图
--- （凭证图按 用户ID/图片ID 存放，这条策略保证你的图只有你能访问）
+
+-- ============================================================
+-- 【Step 2 / 2】建权限策略（依赖 Step 1 成功后再跑）
+-- 在另一个 New query 里单独跑这一段 ↓↓↓
+-- ============================================================
 do $$
 begin
-  if not exists (
+  if exists (
     select 1 from pg_policies
     where schemaname = 'storage' and tablename = 'objects'
       and policyname = 'vouchers_auth_own_folder'
   ) then
-    execute $sql$
-      create policy "vouchers_auth_own_folder"
-      on storage.objects
-      for all
-      to authenticated
-      using ( bucket_id = 'vouchers' and (storage.foldername(name))[1] = auth.uid()::text )
-      with check ( bucket_id = 'vouchers' and (storage.foldername(name))[1] = auth.uid()::text )
-    $sql$;
-  else
-    raise notice '策略 vouchers_auth_own_folder 已存在，跳过创建';
+    raise notice '【已存在】策略 vouchers_auth_own_folder（无需创建）';
+    return;
   end if;
+
+  execute $sql$
+    create policy "vouchers_auth_own_folder"
+    on storage.objects
+    for all
+    to authenticated
+    using ( bucket_id = 'vouchers' and (storage.foldername(name))[1] = auth.uid()::text )
+    with check ( bucket_id = 'vouchers' and (storage.foldername(name))[1] = auth.uid()::text )
+  $sql$;
+
+  raise notice '【成功创建】策略 vouchers_auth_own_folder';
+exception
+  when others then
+    raise exception '【失败】%', SQLERRM;
 end
 $$;
+
+
+-- ============================================================
+-- 【验证】可选：跑这一段确认 buckets 表里到底有什么
+-- ============================================================
+-- select id, name, public, created_at
+-- from storage.buckets
+-- order by created_at;
