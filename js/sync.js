@@ -392,8 +392,10 @@
   }
   function uploadPhoto(uid, pid, dataUrl) {
     return dataUrlToBlob(dataUrl).then(function (blob) {
-      var u = restBase() + '/' + PHOTO_BUCKET + '/' + uid + '/' + encodeURIComponent(pid);
-      var headers = apiHeaders({ 'content-type': blob.type || 'image/jpeg', 'x-upsert': 'true', 'cache-control': 'max-age=3600' });
+      // 关键：Supabase Storage 的 upsert 是 **query parameter** `?upsert=true`，不是 `x-upsert` header（服务端只从 query 读，
+      // 忽略该 header）。若用 header，重传覆盖同名凭证图（修改凭证图再同步、或同 pid 重传）会返 409 失败。
+      var u = restBase() + '/' + PHOTO_BUCKET + '/' + uid + '/' + encodeURIComponent(pid) + '?upsert=true';
+      var headers = apiHeaders({ 'content-type': blob.type || 'image/jpeg', 'cache-control': 'max-age=3600' });
       return withTimeout(fetchOk(fetch(u, { method: 'POST', headers: headers, body: blob })), 60000, '上传凭证图超时');
     });
   }

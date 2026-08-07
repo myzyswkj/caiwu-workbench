@@ -272,6 +272,22 @@ function ready() { return FW.sync.init ? Promise.resolve() : Promise.reject(new 
   // 场景13：不开 Console 的诊断入口（FW.sync.photoDiag 应是函数；openSyncMenu 菜单 HTML 含 id="smDiag"）
   ok('场景13 FW.sync.photoDiag 是函数', typeof FW.sync.photoDiag === 'function');
 
+  // 场景14：uploadPhoto 必须走 ?upsert=true query param（不是 x-upsert header，否则重传覆盖同名凭证图会 409）
+  var captured14 = null;
+  var realFetch14 = global.fetch;
+  global.fetch = function (u, opts) {
+    if (/\/object\/vouchers\//.test(String(u)) && opts && opts.method === 'POST') captured14 = String(u);
+    return realFetch14(u, opts);
+  };
+  localPhotoIds = ['P_REUPLOAD'];
+  photoStore['P_REUPLOAD'] = SAMPLE;
+  cloudList = [];          // 云端无此图 → 触发上传
+  cloudError = null;
+  await FW.sync.syncPhotos({});
+  await new Promise(function (r) { setTimeout(r, 30); });
+  ok('场景14 重传覆盖：upload 走 ?upsert=true query param', !!captured14 && /\?upsert=true/.test(captured14));
+  global.fetch = realFetch14;
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
 
   process.exit(failed === 0 ? 0 : 1);
