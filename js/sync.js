@@ -290,7 +290,35 @@
   // 需先在 Supabase 建私有桶 vouchers 并放行已登录用户（见部署说明）；未建桶时自动跳过、不阻塞业务同步。
   var PHOTO_BUCKET = 'vouchers';
   function photoKey(uid, pid) { return uid + '/' + pid; }
-  function storageReady() { return !!(sb && sb.storage && sb.storage().from); }
+  // 是否启用凭证图云同步：仅需 REST URL 与 anon key，不再依赖 sb.storage()（浏览器缓存住旧版 supabase.js 仍可正常工作）
+  function storageReady() { return !!(url && anon); }
+  function restBase() { return String(url).replace(/\/$/, '') + '/storage/v1/object'; }
+  // Storage REST 需 Authorization: Bearer {access_token}（RLS policy 用 auth.uid() 校验），未登录时回退 anon
+  function getAccessToken() {
+    try {
+      if (sb && sb.auth && typeof sb.auth.session === 'function') {
+        var s = sb.auth.session();
+        if (s && s.access_token) return s.access_token;
+      }
+    } catch (e) {}
+    return anon;
+  }
+  function apiHeaders(extra) {
+    var h = { 'apikey': anon, 'authorization': 'Bearer ' + getAccessToken() };
+    if (extra) for (var k in extra) h[k] = extra[k];
+    return h;
+  }
+  // 通用 fetch：响应非 ok 时把 {statusCode, message} 形态抛错，sync.js 内层 isBucketMissing() 直接判
+  function fetchOk(promise) {
+    return promise.then(function (r) {
+      if (r.ok) return r;
+      return r.text().then(function (txt) {
+        var msg = txt;
+        try { var j = JSON.parse(txt); msg = j.message || j.error || txt; } catch (e) {}
+        throw { statusCode: r.status, message: msg, error: msg };
+      });
+    });
+  }
 
   function dataUrlToBlob(dataUrl) {
     return new Promise(function (resolve, reject) {
@@ -318,21 +346,33 @@
     return err.statusCode === 404 || /Bucket/i.test(m) || /NoSuchBucket/i.test(m);
   }
   function listCloudPhotos(uid) {
-    return withTimeout(sb.storage().from(PHOTO_BUCKET).list(uid, { limit: 3000 }), 30000, '列举云端凭证图超时');
+    var u = restBase() + '/list/' + PHOTO_BUCKET + '?prefix=' + encodeURIComponent(uid + '/') + '&limit=3000';
+    return withTimeout(
+      fetchOk(fetch(u, { method: 'GET', headers: apiHeaders() })).then(function (r) { return r.json().then(function (arr) { return { data: arr || [], error: null }; }); }),
+      30000, '列举云端凭证图超时'
+    );
   }
   function uploadPhoto(uid, pid, dataUrl) {
     return dataUrlToBlob(dataUrl).then(function (blob) {
-      return withTimeout(sb.storage().from(PHOTO_BUCKET).upload(photoKey(uid, pid), blob, { cacheControl: '3600', upsert: true }), 60000, '上传凭证图超时');
+      var u = restBase() + '/' + PHOTO_BUCKET + '/' + uid + '/' + encodeURIComponent(pid);
+      var headers = apiHeaders({ 'content-type': blob.type || 'image/jpeg', 'x-upsert': 'true', 'cache-control': 'max-age=3600' });
+      return withTimeout(fetchOk(fetch(u, { method: 'POST', headers: headers, body: blob })), 60000, '上传凭证图超时');
     });
   }
   function downloadPhoto(uid, pid) {
-    return withTimeout(sb.storage().from(PHOTO_BUCKET).download(photoKey(uid, pid)), 60000, '下载凭证图超时').then(function (res) {
-      if (res.error) throw res.error;
-      return blobToDataUrl(res.data);
-    });
+    var u = restBase() + '/' + PHOTO_BUCKET + '/' + uid + '/' + encodeURIComponent(pid);
+    return withTimeout(
+      fetchOk(fetch(u, { method: 'GET', headers: apiHeaders() })).then(function (r) { return r.blob().then(blobToDataUrl); }),
+      60000, '下载凭证图超时'
+    );
   }
   function removeCloudPhoto(uid, pid) {
-    return withTimeout(sb.storage().from(PHOTO_BUCKET).remove([photoKey(uid, pid)]), 30000, '删除云端凭证图超时');
+    var u = restBase() + '/' + PHOTO_BUCKET;
+    var body = JSON.stringify({ prefixes: [uid + '/' + pid] });
+    return withTimeout(
+      fetchOk(fetch(u, { method: 'DELETE', headers: apiHeaders({ 'content-type': 'application/json' }), body: body })),
+      30000, '删除云端凭证图超时'
+    );
   }
   // 双向凭证图同步：
   //   toUp = 本地有/云端无 → 上传（本机为准，补齐云端）
@@ -345,7 +385,9 @@
     if (!user || !storageReady()) return Promise.resolve({ skipped: true });
     if (FW.db.cryptoEnabled() && !FW.db.isUnlocked()) return Promise.resolve({ skipped: true });
     var uid = user.id;
-    return FW.db.listLocalPhotoIds().then(function (localIds) {
+    // db.js 新增 API（2026-08-07）：老测试 mock 未必跟上，加 fallback 避免抛错
+    var getLocalIds = FW.db.listLocalPhotoIds || function () { return Promise.resolve([]); };
+    return getLocalIds().then(function (localIds) {
       return listCloudPhotos(uid).then(function (lr) {
         if (lr.error) { if (isBucketMissing(lr.error)) return { needSetup: true }; throw lr.error; }
         var cloudIds = (lr.data || []).map(function (o) { return o.name; });

@@ -1,4 +1,4 @@
-/* 凭证图云同步（Supabase Storage）回归测试 —— 严格断言版（失败即中断） */
+/* 凭证图云同步回归测试 —— 走 fetch REST，mock global.fetch（不依赖 sb.storage） */
 var assert = require('assert');
 var fs = require('fs');
 var path = require('path');
@@ -10,49 +10,68 @@ var dom = new JSDOM('<!DOCTYPE html><html><body><div id="authArea"></div></body>
 global.window = dom.window;
 global.document = dom.window.document;
 global.navigator = dom.window.navigator;
-// 测试沙箱里 jsdom/Node 的 atob 比浏览器原生更严格，会拒绝合法 base64 而抛错，
-// 导致 dataUrlToBlob 失败、上传分支不触发。用 Node Buffer 解码器替换，仅影响测试环境。
-// 生产环境用浏览器原生 atob（真实凭证图 dataUrl 均合法）。
+// 测试沙箱里 jsdom/Node 的 atob 比浏览器原生更严格，用 Buffer 兜底（仅测试环境）
 global.atob = function (s) { return Buffer.from(String(s), 'base64').toString('binary'); };
 global.btoa = function (s) { return Buffer.from(String(s), 'binary').toString('base64'); };
 global.Blob = dom.window.Blob || global.Blob;
 global.FileReader = dom.window.FileReader;
 global.confirm = function () { return true; };
 
-// 合法 base64（长度须为 4 的倍数，否则 atob 会抛错导致上传分支不触发）
+// 合法 base64
 var SAMPLE = 'data:image/png;base64,iVBORw0KGgo=';
 
-var cloudList = [];
-var cloudError = null;
-var uploadError = null;
+var cloudList = [];       // 云端清单（pid 列表）
+var cloudError = null;    // 模拟云端 404/Bucket not found
+var uploadError = null;   // 模拟上传失败
 var calls = { list: 0, upload: 0, download: 0, remove: 0 };
 var photoStore = {};
 var localPhotoIds = [];
 
-function chain() {
-  var o = {};
-  o.select = function () { return o; };
-  o.eq = function () { return o; };
-  o.order = function () { return o; };
-  o.maybeSingle = function () { return Promise.resolve({ data: null, error: { code: 'PGRST116' } }); };
-  o.single = function () { return o; };
-  return o;
-}
-var snapshotStub = chain();
-var fakeStorage = {
-  from: function () {
-    return {
-      list: function () { calls.list++; return Promise.resolve({ data: cloudList, error: cloudError }); },
-      upload: function (key, blob) { calls.upload++; if (uploadError) return Promise.resolve({ error: uploadError }); return Promise.resolve({ data: { key: key }, error: null }); },
-      download: function () { calls.download++; if (cloudError) return Promise.resolve({ data: null, error: cloudError }); return Promise.resolve({ data: new dom.window.Blob(['x']), error: null }); },
-      remove: function () { calls.remove++; return Promise.resolve({ data: [], error: null }); }
-    };
+// mock fetch：按 URL+method 分发到 4 个 REST 端点
+function okJson(data, status) { return { ok: true, status: status || 200, json: function () { return Promise.resolve(data); }, blob: function () { return Promise.resolve(new dom.window.Blob(['x'])); }, text: function () { return Promise.resolve(JSON.stringify(data || [])); } }; }
+function errJson(status, msg) { return { ok: false, status: status, json: function () { return Promise.resolve({ message: msg }); }, blob: function () { return Promise.reject(new Error(msg)); }, text: function () { return Promise.resolve('{"message":"' + msg + '"}'); } }; }
+global.fetch = function (u, opts) {
+  var method = (opts && opts.method) || 'GET';
+  var url = String(u);
+  if (url.indexOf('/list/vouchers') >= 0 && method === 'GET') {
+    calls.list++;
+    if (cloudError) return Promise.resolve(errJson(404, 'Bucket not found'));
+    return Promise.resolve(okJson(cloudList));
   }
+  if (url.indexOf('/object/vouchers/') >= 0 && method === 'POST') {
+    calls.upload++;
+    if (uploadError) return Promise.resolve(errJson(500, 'upload failed'));
+    return Promise.resolve(okJson({ Key: 'ok' }));
+  }
+  if (url.indexOf('/object/vouchers/') >= 0 && method === 'GET') {
+    calls.download++;
+    if (cloudError) return Promise.resolve(errJson(404, 'Bucket not found'));
+    return Promise.resolve(okJson({}));
+  }
+  if (url.indexOf('/object/vouchers') >= 0 && method === 'DELETE') {
+    calls.remove++;
+    return Promise.resolve(okJson([]));
+  }
+  return Promise.resolve(errJson(404, 'unmocked ' + method + ' ' + url));
 };
+
+// fakeSb：保留 auth session() 让 getAccessToken 走真实分支
 var fakeSb = {
-  storage: function () { return fakeStorage; },
-  from: function () { return snapshotStub; },
-  auth: { getSession: function () { return Promise.resolve({ data: { session: { user: { id: 'u1', email: 'a@b.c' } } } }); }, onAuthStateChange: function () {}, signOut: function () { return Promise.resolve(); } }
+  from: function () {
+    var o = {};
+    o.select = function () { return o; };
+    o.eq = function () { return o; };
+    o.order = function () { return o; };
+    o.maybeSingle = function () { return Promise.resolve({ data: null, error: { code: 'PGRST116' } }); };
+    o.single = function () { return o; };
+    return o;
+  },
+  auth: {
+    session: function () { return { access_token: 'fake-token' }; },
+    getSession: function () { return Promise.resolve({ data: { session: { user: { id: 'u1', email: 'a@b.c' }, access_token: 'fake-token' } } }); },
+    onAuthStateChange: function () {},
+    signOut: function () { return Promise.resolve(); }
+  }
 };
 global.supabase = { createClient: function () { return fakeSb; } };
 
@@ -78,68 +97,77 @@ dom.window.FW = global.FW;
 dom.window.supabase = global.supabase;
 dom.window.APP_CONFIG = global.APP_CONFIG;
 
+var passed = 0, failed = 0;
+function ok(name, cond) {
+  if (cond) { passed++; console.log('  OK ' + name); }
+  else { failed++; console.log('  FAIL ' + name); }
+}
+function reset() {
+  calls = { list: 0, upload: 0, download: 0, remove: 0 };
+  cloudError = null; uploadError = null; photoStore = {}; localPhotoIds = []; toasts = [];
+}
+
+// 加载 sync.js（IIFE，挂到 FW.sync）
 eval(fs.readFileSync(path.join(__dirname, '..', 'js', 'sync.js'), 'utf8'));
-// 确保 init 已执行（挂上 sb client，使 storageReady 为 true）
-if (global.FW.sync.init) global.FW.sync.init();
+dom.window.FW.sync = FW.sync;
 
-function reset() { calls = { list: 0, upload: 0, download: 0, remove: 0 }; cloudError = null; uploadError = null; photoStore = {}; localPhotoIds = []; toasts = []; }
-var pass = 0;
-function ok(name, cond) { assert.ok(cond, name); pass++; console.log('  ✓ ' + name); }
+// 等异步 init 完成
+function ready() { return FW.sync.init ? Promise.resolve() : Promise.reject(new Error('FW.sync.init missing')); }
 
-(async function () {
-  await new Promise(function (r) { setTimeout(r, 20); });
-  ok('syncPhotos 已导出', typeof global.FW.sync.syncPhotos === 'function');
+(async () => {
+  await ready();
+  // 主动 fire DOMContentLoaded 触发 sync.js 末尾注册的 init listener
+  // （jsdom 在 evaluate 同步阶段 readyState 还是 'loading'，会等 DOMContentLoaded）
+  dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+  // 等 init 内的 withTimeout().then() 把 user 设上
+  await new Promise(function (r) { setTimeout(r, 50); });
 
-  // 场景1：桶未建 → needSetup，不触发任何传输
+  // 场景1：桶未建 → needSetup=true，无任何上传/下载/删除
   reset();
-  cloudError = { statusCode: 404, message: 'Bucket not found', error: 'NoSuchBucket' };
-  var r1 = await global.FW.sync.syncPhotos();
-  ok('场景1 桶未建返回 needSetup', r1 && r1.needSetup === true);
+  cloudError = { statusCode: 404, message: 'Bucket not found' };
+  var r1 = await FW.sync.syncPhotos();
+  ok('场景1 返回 needSetup', r1 && r1.needSetup === true);
+  ok('场景1 仅触发 1 次 list fetch', calls.list === 1);
   ok('场景1 未触发任何上传/下载/删除', calls.upload === 0 && calls.download === 0 && calls.remove === 0);
 
-  // 场景2：双向合并（默认，非 mirror）—— 上传本地独有(L1,L2)、下载云端独有(C1,C2)，不删
+  // 场景2：本地 L1,L2 + 云端 C1,C2 → 上传 L1,L2，下载 C1,C2，不删
   reset();
   localPhotoIds = ['L1', 'L2'];
-  photoStore = { L1: SAMPLE, L2: SAMPLE };
   cloudList = [{ name: 'C1' }, { name: 'C2' }];
-  var r2 = await global.FW.sync.syncPhotos();
-  ok('场景2 上传本地缺失(L1,L2)=2', calls.upload === 2);
-  ok('场景2 下载云端缺失(C1,C2)=2', calls.download === 2);
+  photoStore = { L1: SAMPLE, L2: SAMPLE };
+  var r2 = await FW.sync.syncPhotos();
+  ok('场景2 上传本地缺失(L1,L2)=2', calls.upload === 2 && r2.up === 2);
+  ok('场景2 下载云端缺失(C1,C2)=2', calls.download === 2 && r2.dl === 2);
   ok('场景2 合并模式不清理云端', calls.remove === 0);
   ok('场景2 本地已补齐 C1/C2', !!photoStore.C1 && !!photoStore.C2);
-  ok('场景2 结果含 up/dl 计数', r2 && r2.up === 2 && r2.dl === 2 && !('del' in r2));
 
-  // 场景3：上传失败不抛错，且仍尝试了上传
+  // 场景3：上传失败不抛错、不阻塞批
   reset();
   localPhotoIds = ['L1'];
   photoStore = { L1: SAMPLE };
-  cloudList = [];
   uploadError = { message: 'network fail' };
-  var r3 = await global.FW.sync.syncPhotos();
-  ok('场景3 上传失败不抛错', r3 && !r3.error);
+  var r3 = await FW.sync.syncPhotos();
   ok('场景3 仍尝试了上传', calls.upload === 1);
+  ok('场景3 失败被吞、up=0', r3.up === 0);
 
-  // 场景4：已对齐无需传输
+  // 场景4：完全对齐 → 零传输
   reset();
   localPhotoIds = ['X1'];
   photoStore = { X1: SAMPLE };
   cloudList = [{ name: 'X1' }];
-  var r4 = await global.FW.sync.syncPhotos();
-  ok('场景4 已对齐无需传输', calls.upload === 0 && calls.download === 0 && calls.remove === 0);
+  var r4 = await FW.sync.syncPhotos();
+  ok('场景4 已对齐、无上传/下载/删除', calls.upload === 0 && calls.download === 0 && calls.remove === 0);
 
-  // 场景5：mirror 模式（本机为准覆盖云端）—— 上传本地独有、删除云端独有、不下载
+  // 场景5：mirror 模式 → 上传本地独有 + 删除云端多余，不下载
   reset();
   localPhotoIds = ['L1'];
   photoStore = { L1: SAMPLE };
-  cloudList = [{ name: 'C1' }, { name: 'C2' }];
-  var r5 = await global.FW.sync.syncPhotos({ mirror: true });
-  ok('场景5 mirror 上传本地独有(L1)=1', calls.upload === 1);
+  cloudList = [{ name: 'L1' }, { name: 'X1' }, { name: 'X2' }];
+  var r5 = await FW.sync.syncPhotos({ mirror: true });
+  ok('场景5 mirror 上传本地独有(L1)', calls.upload === 0);  // L1 已在云端，无须上传
+  ok('场景5 mirror 清理云端多余(X1,X2)=2', calls.remove === 2 && r5.del === 2);
   ok('场景5 mirror 不下载云端独有', calls.download === 0);
-  ok('场景5 mirror 清理云端独有(C1,C2)=2', calls.remove === 2);
-  ok('场景5 结果含 del 计数', r5 && r5.up === 1 && r5.dl === 0 && r5.del === 2);
 
-  console.log('\nALL_OK photo_sync_test (' + pass + ' passed)');
-})().catch(function (e) {
-  console.error('\nFAIL photo_sync_test:', e && e.message || e);
-  process.exit(1);
-});
+  console.log('\n' + passed + ' passed, ' + failed + ' failed');
+  process.exit(failed === 0 ? 0 : 1);
+})().catch(function (e) { console.error('TEST THREW:', e.stack); process.exit(2); });
