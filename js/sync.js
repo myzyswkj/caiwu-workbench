@@ -642,6 +642,61 @@
     forcePushLocal: forcePushLocal,
     syncPhotos: syncPhotos, pullPhotos: pullPhotos,
     // 供 ui.js 在登录态变化时刷新顶栏
+    // 一键诊断：把 storage 同步链路里所有关键状态打到 console + return 对象。
+    // 用户遇到「凭证图云同步未开启」/「Bucket not found」类问题时，Console 跑一行 FW.sync._diagnose()，
+    // 把输出的 JSON 复制给我，能一眼看出是 token 取错、桶真不存在、还是 RLS 没放行。
+    _diagnose: async function () {
+      var out = {};
+      try {
+        // (1) 模块内 cachedSession 状态
+        out.cachedSession = !!(cachedSession && cachedSession.user);
+        out.userId = (cachedSession && cachedSession.user && cachedSession.user.id) || null;
+        // (2) 当前取到的 token：前 16 字符 + 长度 + 是否就是 anon key
+        var token = getAccessToken();
+        out.tokenPrefix = token ? token.substring(0, 16) : '(null)';
+        out.tokenLen = token ? token.length : 0;
+        try {
+          var anon = (global.APP_CONFIG && APP_CONFIG.SUPABASE_ANON_KEY) || null;
+          out.tokenIsAnon = anon ? (token === anon) : null;
+        } catch (_) { out.tokenIsAnon = 'err'; }
+        // (3) localStorage 探测：supabase-js v2 默认 key = sb-<ref>-auth-token，存 JSON.stringify(session)
+        out.localStorageAuthKey = null;
+        out.localStorageHasAccessToken = false;
+        if (typeof localStorage !== 'undefined') {
+          try {
+            var k = Object.keys(localStorage).find(function (kk) { return kk.indexOf('-auth-token') >= 0; }) || null;
+            if (k) {
+              out.localStorageAuthKey = k;
+              var raw = localStorage.getItem(k);
+              var parsed = raw ? JSON.parse(raw) : null;
+              out.localStorageHasAccessToken = !!(parsed && parsed.access_token);
+              if (!out.userId && parsed && parsed.user && parsed.user.id) out.userId = parsed.user.id;
+            }
+          } catch (e) { out.localStorageError = (e && e.message) || String(e); }
+        }
+        // (4) 真实 list 接口探测：直接打一次，看 status + body 前 200 字符
+        var uid = out.userId;
+        if (uid) {
+          try {
+            var u = restBase() + '/list/' + PHOTO_BUCKET + '?prefix=' + encodeURIComponent(uid + '/') + '&limit=5';
+            var r = await fetch(u, { method: 'GET', headers: apiHeaders() });
+            out.listStatus = r.status;
+            out.listOk = r.ok;
+            var body = await r.text();
+            out.listBodyShort = body.substring(0, 200);
+            try {
+              out.listIsBucketMissing = isBucketMissing({ statusCode: r.status, message: body });
+            } catch (_) { out.listIsBucketMissing = 'err'; }
+          } catch (e) { out.listError = (e && e.message) || String(e); }
+        } else {
+          out.listSkipped = '(no uid)';
+        }
+      } catch (e) {
+        out.diagnoseError = (e && e.message) || String(e);
+      }
+      try { console.log('[FW.sync._diagnose] ' + JSON.stringify(out)); } catch (_) {}
+      return out;
+    },
     _refreshArea: renderAuthArea
   };
 

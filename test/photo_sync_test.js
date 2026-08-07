@@ -211,6 +211,29 @@ function ready() { return FW.sync.init ? Promise.resolve() : Promise.reject(new 
   var tok9 = FW.sync._getAccessToken();
   ok('场景9 移除 session()+getSession超时 仍从 localStorage 取真实 token', tok9 === 'LS_TOKEN_999');
   ok('场景9 未回退 anon', tok9 !== 'anon');
+  // 场景10：_diagnose 一键诊断（用户遇到「凭证图云同步未开启」时跑这一行，把 console 输出的 JSON 复制给我即可）
+  // 在场景 9 的状态（fakeSb.session=undefined, getSession 仍 reject, localStorage 注入完整 session）下：
+  //   重新加载 sync.js 让 cachedSession 复位为 null；再手动注入含 user.id 的完整 session；
+  //   _diagnose 应当能从 localStorage 兜底取到真实 token，并能真实调一次 list 接口拿到 status。
+  dom.window.localStorage.setItem('sb-x-auth-token', JSON.stringify({
+    access_token: 'LS_TOKEN_FULL',
+    user: { id: 'u1', email: 'a@b.c' }
+  }));
+  delete dom.window.FW.sync;
+  eval(fs.readFileSync(path.join(__dirname, '..', 'js', 'sync.js'), 'utf8'));
+  dom.window.FW.sync = global.FW.sync;
+  dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+  await new Promise(function (r) { setTimeout(r, 30); });
+
+  var d10 = await FW.sync._diagnose();
+  ok('场景10 _diagnose 返回对象', d10 && typeof d10 === 'object');
+  ok('场景10 tokenPrefix 已打印', typeof d10.tokenPrefix === 'string' && d10.tokenPrefix.length > 0);
+  ok('场景10 tokenIsAnon=false（不是 anon）', d10.tokenIsAnon === false);
+  ok('场景10 localStorageHasAccessToken=true', d10.localStorageHasAccessToken === true);
+  ok('场景10 userId=u1（从 localStorage 恢复）', d10.userId === 'u1');
+  ok('场景10 listStatus 命中合法值', [200, 400, 403, 404, 500].indexOf(d10.listStatus) >= 0);
+  ok('场景10 listIsBucketMissing 字段存在', typeof d10.listIsBucketMissing === 'boolean');
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
 
   process.exit(failed === 0 ? 0 : 1);
