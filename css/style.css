@@ -326,6 +326,20 @@ td.photo-cell { vertical-align: top; }
 .ocr-hint-text b { color: var(--text, #1F2D3D); }
 .ocr-hint-close { flex: 0 0 auto; border: none; background: transparent; color: var(--muted, #5A6B7E); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
 .ocr-hint-close:hover { color: var(--expense, #C8102E); }
+
+/* 科目智能匹配：表单内自动匹配提示条 */
+.cat-hint { display: inline-block; margin-top: 6px; padding: 4px 8px; background: var(--accent-soft, #DCE6F1); border: 1px solid var(--border); border-left: 3px solid var(--primary, #1F4E79); border-radius: 6px; font-size: 12px; line-height: 1.6; color: var(--text, #1F2D3D); }
+.cat-hint b { color: var(--primary, #1F4E79); }
+.cat-hint a { color: var(--muted, #5A6B7E); margin-left: 4px; }
+
+/* 科目智能匹配规则管理弹窗 */
+.cm-wrap { font-size: 13px; }
+.cm-head, .cm-rule { display: grid; grid-template-columns: 42px 1fr 64px 40px; gap: 8px; align-items: center; }
+.cm-head { color: var(--muted, #5A6B7E); font-size: 12px; padding: 0 2px 6px; border-bottom: 1px solid var(--border); }
+.cm-rule { padding: 6px 2px; border-bottom: 1px dashed var(--border); }
+.cm-rule .cm-kw { width: 100%; box-sizing: border-box; }
+.cm-rule .cm-c1 { width: 100%; }
+.cm-arrow { text-align: center; color: var(--muted, #5A6B7E); }
 .ct-attach-list { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow: auto; }
 
 /* tabs */
