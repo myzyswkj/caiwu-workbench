@@ -15,6 +15,8 @@
   var OPEN_KEY = 'internal_openings';      // 期初余额（按账户）
   var BKEY = 'internal_budget';
   var CATKEY = 'internal_cats';
+  var RULEKEY = 'internal_catrules';     // 科目智能匹配规则（用户可编辑，否则用 CatMatch.DEFAULT_RULES）
+  var catAutoTouched = false;            // 本次表单中用户是否手动改过分类（改过则停止自动匹配，避免覆盖）
   var DEFAULT_CATS = ['办公用品', '差旅费', '餐饮招待', '工资薪酬', '房租物业', '交通出行', '广告宣传', '材料采购', '设备购置', '税费', '利息收入', '其他收入', '其他支出'];
   var SEP = ' / ';   // 账户层级分隔符（与分类一致）
   var DEFAULT_ACCTS = ['现金', '银行卡', '支付宝', '微信', '对公账户', '其他'];
@@ -248,12 +250,13 @@
 
     var tb = document.getElementById('inToolbar');
     if (tb) {
-      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="xlsxpic">🖼 Excel（含凭证图）</button><button data-fmt="img">🖼 导出图片（PNG）</button><button data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn ghost" id="catMatchBtn">🤖 智能归类</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="xlsxpic">🖼 Excel（含凭证图）</button><button data-fmt="img">🖼 导出图片（PNG）</button><button data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
       document.getElementById('openBtn').onclick = openOpenings;
       document.getElementById('accMgrBtn').onclick = openAccManager;
       document.getElementById('budgetBtn').onclick = openBudgetForm;
       document.getElementById('catBtn').onclick = openCatManager;
       document.getElementById('impBtn').onclick = openImport;
+      var cmBtn = document.getElementById('catMatchBtn'); if (cmBtn) cmBtn.onclick = bulkAutoCategorize;
       var expBtn = document.getElementById('expTxBtn');
       var expMenu = document.getElementById('expTxMenu');
       if (expBtn && expMenu) {
@@ -1414,15 +1417,20 @@
         '<div class="tx-title">核算维度</div>' +
         '<div class="form-grid">' +
           '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select></div>' +
-          '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a></div>' +
+          '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a> <a href="#" id="mgRules" style="font-size:12px;color:var(--primary);align-self:center">匹配规则</a></div>' +
+          '<div class="field full"><span id="catHint" class="cat-hint"></span></div>' +
           '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
           deductField +
         '</div>' +
         allocBoxHtml();
       var c1sel = document.getElementById('f_cat1');
-      if (c1sel) c1sel.onchange = function () { document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); };
+      if (c1sel) c1sel.onchange = function () { catAutoTouched = true; document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); clearCatHint(); };
+      var c2sel = document.getElementById('f_cat2');
+      if (c2sel) c2sel.onchange = function () { catAutoTouched = true; clearCatHint(); };
       var mg = document.getElementById('mgCats');
       if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
+      var mgr = document.getElementById('mgRules');
+      if (mgr) mgr.onclick = function (e) { e.preventDefault(); openCatMatchManager(); };
       if (type === 'income' || type === 'expense' || type === 'refund') bindAllocBox();
     }
   }
@@ -2150,6 +2158,7 @@
 
   /* ---------- 新增 / 编辑 表单 ---------- */
   function openForm(id) {
+    catAutoTouched = false;
     var edit = id ? FW.db.getById(KEY, id) : null;
     allocDraft = (edit && edit.allocations && edit.allocations.length) ? edit.allocations.map(function (a) { return { project: (a.project || '').trim(), amount: (a.amount == null ? '' : a.amount) }; }) : [];
     var projList = projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
@@ -2214,6 +2223,8 @@
       if (amtEl) amtEl.oninput = updateAllocTotal;
       updateAllocTotal();
       renderPhotoGrid(photos);
+      var remEl = document.getElementById('f_remark');
+      if (remEl) remEl.oninput = function () { autoMatchCat(this.value); };
       var unbind = bindPaste(photos);
       document.getElementById('txCancel').onclick = function () { unbind(); FW.closeModal(); };
       document.getElementById('txSave').onclick = function () {
@@ -2264,6 +2275,103 @@
         FW.closeModal(); render(); FW.toast('已保存');
       };
     });
+  }
+
+  /* ===================== 科目智能匹配 ===================== */
+  function catRules() {
+    var r = FW.db.getList(RULEKEY);
+    return (r && r.length) ? r : (window.CatMatch ? window.CatMatch.DEFAULT_RULES : []);
+  }
+  function clearCatHint() { var h = document.getElementById('catHint'); if (h) h.innerHTML = ''; }
+  // 输入摘要时自动匹配一级/二级分类；用户手动改过分类后停止，避免覆盖其选择
+  function autoMatchCat(text) {
+    if (catAutoTouched) return;
+    var c1 = document.getElementById('f_cat1');
+    if (!c1) return;
+    var CM = window.CatMatch;
+    if (!CM) return;
+    var m = CM.match(text, catRules());
+    if (!m || !m.cat1) return;
+    var has1 = Array.prototype.some.call(c1.options, function (o) { return o.value === m.cat1; });
+    if (!has1) return;
+    c1.value = m.cat1;
+    var c2 = document.getElementById('f_cat2');
+    if (c2) {
+      c2.innerHTML = cat2Opts(m.cat1, '');
+      if (m.cat2) {
+        var has2 = Array.prototype.some.call(c2.options, function (o) { return o.value === m.cat2; });
+        if (has2) c2.value = m.cat2;
+      }
+    }
+    var label = m.cat1 + (m.cat2 ? (' / ' + m.cat2) : '');
+    var hint = document.getElementById('catHint');
+    if (hint) hint.innerHTML = '🤖 已自动匹配：<b>' + FW.esc(label) + '</b> <a href="#" id="catHintOff" style="font-size:12px">不再自动</a>';
+    var off = document.getElementById('catHintOff');
+    if (off) off.onclick = function (e) { e.preventDefault(); catAutoTouched = true; clearCatHint(); };
+  }
+  // 批量：为「无分类」的收支/退款流水按摘要智能补分类（不覆盖已有分类）
+  function bulkAutoCategorize() {
+    if (!window.CatMatch) { FW.toast('智能匹配模块未加载'); return; }
+    var rows = FW.db.getList(KEY);
+    var valid = window.CatMatch.filterValid(catRules(), cats().map(function (c) { return c.name; }));
+    var n = 0;
+    rows.forEach(function (t) {
+      if ((t.type === 'income' || t.type === 'expense' || t.type === 'refund') && !t.category) {
+        var m = window.CatMatch.match(t.remark, valid);
+        if (m && m.cat1) {
+          t.category = m.cat2 ? (m.cat1 + ' / ' + m.cat2) : m.cat1;
+          FW.db.upsert(KEY, t);
+          n++;
+        }
+      }
+    });
+    render();
+    FW.toast(n ? ('已为 ' + n + ' 条流水智能匹配分类') : '没有需要匹配的空分类流水');
+  }
+  // 匹配规则管理弹窗（关键字 → 分类，可开关 / 编辑 / 增删 / 恢复默认）
+  function openCatMatchManager() {
+    var rules = catRules().map(function (r) {
+      return { kw: (r.kw || []).slice(), cat1: r.cat1 || '', cat2: r.cat2 || '', enabled: (r.enabled !== false), note: r.note || '' };
+    });
+    function persist() { FW.db.saveList(RULEKEY, rules); }
+    function cat1Select(sel) {
+      return '<select class="cm-c1">' + cats().map(function (c) { return '<option ' + (c.name === sel ? 'selected' : '') + '>' + FW.esc(c.name) + '</option>'; }).join('') + '</select>';
+    }
+    function render() {
+      var rows = rules.map(function (r, i) {
+        return '<div class="cm-rule" data-i="' + i + '">' +
+          '<input type="checkbox" class="cm-en" ' + (r.enabled ? 'checked' : '') + ' title="启用">' +
+          '<input class="cm-kw" value="' + FW.esc((r.kw || []).join('，')) + '" placeholder="关键字，逗号分隔，如：工资，薪资">' +
+          '<span class="cm-arrow">→</span>' + cat1Select(r.cat1) +
+          '<button class="btn danger sm cm-del" data-i="' + i + '">删</button></div>';
+      }).join('');
+      var body =
+        '<div class="cm-wrap">' +
+        '<div class="muted" style="font-size:12px;margin-bottom:8px">输入摘要时，含下方「关键字」的流水会自动归入对应「分类」。规则从上到下优先匹配，靠前的先命中。</div>' +
+        '<div class="cm-head"><span>启用</span><span>关键字（逗号分隔）</span><span>→ 分类</span><span></span></div>' +
+        (rows || '<div class="muted">（暂无规则，点下方「＋ 新增规则」）</div>') +
+        '<div style="margin-top:10px"><button class="btn sm" id="cmAdd">＋ 新增规则</button> <button class="btn ghost sm" id="cmReset">恢复默认规则</button></div>' +
+        '</div>';
+      FW.openModal('科目智能匹配规则', body, function () {
+        function rebind() {
+          FW.qa('.cm-en').forEach(function (cb) { cb.onchange = function () { rules[+cb.parentNode.dataset.i].enabled = cb.checked; persist(); }; });
+          FW.qa('.cm-kw').forEach(function (inp) { inp.oninput = function () { var i = +inp.parentNode.dataset.i; rules[i].kw = inp.value.split(/[，,]/).map(function (s) { return s.trim(); }).filter(Boolean); persist(); }; });
+          FW.qa('.cm-c1').forEach(function (sel) { sel.onchange = function () { rules[+sel.parentNode.dataset.i].cat1 = sel.value; persist(); }; });
+          FW.qa('.cm-del').forEach(function (b) { b.onclick = function () { rules.splice(+b.dataset.i, 1); persist(); render(); }; });
+        }
+        var add = document.getElementById('cmAdd');
+        if (add) add.onclick = function () { rules.push({ kw: [], cat1: (cats()[0] || {}).name || '', cat2: '', enabled: true }); persist(); render(); };
+        var reset = document.getElementById('cmReset');
+        if (reset) reset.onclick = function () {
+          if (confirm('恢复为内置默认规则？当前自定义规则将被覆盖。')) {
+            rules = window.CatMatch.DEFAULT_RULES.map(function (r) { return { kw: r.kw.slice(), cat1: r.cat1, cat2: r.cat2 || '', enabled: (r.enabled !== false), note: r.note || '' }; });
+            persist(); render();
+          }
+        };
+        rebind();
+      });
+    }
+    render();
   }
 
   function bindPaste(photos) {
@@ -3421,6 +3529,11 @@
     txProjectLabel: txProjectLabel,
     openForm: openForm,
     allocBoxHtml: allocBoxHtml,
+    // 科目智能匹配：暴露给回归测试 / 外部一致性校验
+    catRules: catRules,
+    autoMatchCat: autoMatchCat,
+    bulkAutoCategorize: bulkAutoCategorize,
+    openCatMatchManager: openCatMatchManager,
     // 列宽单一来源：屏幕与导出复用同一套宽度，暴露供测试/外部一致性校验
     screenColPx: screenColPx,
     txExportColWidths: txExportColWidths
