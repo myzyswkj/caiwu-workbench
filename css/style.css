@@ -317,6 +317,15 @@ td.photo-cell { vertical-align: top; }
 .ct-file-act a:hover { text-decoration: underline; }
 .ct-file-add { display: flex; align-items: center; justify-content: center; min-width: 70px; height: 28px; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); cursor: pointer; font-size: 12px; }
 .ct-file-add:hover { border-color: var(--primary); color: var(--primary); }
+/* C方案：附件 OCR 缺失友好提示条（插在附件网格下方，不覆盖表单） */
+.ocr-hint { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 10px; background: var(--accent-soft, #DCE6F1); border: 1px solid var(--border); border-left: 3px solid var(--primary, #1F4E79); border-radius: 6px; font-size: 12px; line-height: 1.6; position: relative; }
+.ocr-hint-ic { flex: 0 0 auto; font-size: 14px; line-height: 1.4; }
+.ocr-hint-body { flex: 1 1 auto; color: var(--text, #1F2D3D); }
+.ocr-hint-title { font-weight: 600; margin-bottom: 2px; }
+.ocr-hint-text { color: var(--muted, #5A6B7E); }
+.ocr-hint-text b { color: var(--text, #1F2D3D); }
+.ocr-hint-close { flex: 0 0 auto; border: none; background: transparent; color: var(--muted, #5A6B7E); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.ocr-hint-close:hover { color: var(--expense, #C8102E); }
 .ct-attach-list { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow: auto; }
 
 /* tabs */

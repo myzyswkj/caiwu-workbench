@@ -676,7 +676,7 @@
                     var n = fillContractFields(ext);
                     if (n > 0) FW.toast('已从「' + file.name + '」识别并填入 ' + n + ' 项信息，请核对');
                   } else {
-                    FW.toast('「' + file.name + '」未提取到文字（图片/扫描件需 OCR，当前未启用）');
+                    showOcrHint(file.name, gridId);
                   }
                 });
               }
@@ -687,8 +687,31 @@
       };
       inp.click();
     };
-    grid.appendChild(add);
+      grid.appendChild(add);
   }
+
+  // C方案：上传扫描件/图片 PDF 未取到文字层时的友好自救引导（不启用 OCR 引擎，纯静态零依赖）
+  // 提示条插到附件网格下方（父容器兄弟节点），不会被 grid 重渲染冲掉，也不覆盖正在填的表单
+  function showOcrHint(name, gridId) {
+    var grid = document.getElementById(gridId);
+    if (!grid || !grid.parentNode) return;
+    var prev = grid.parentNode.querySelector('.ocr-hint');
+    if (prev) prev.parentNode.removeChild(prev);
+    var safeName = FW.esc(name || '该文件');
+    var hint = document.createElement('div');
+    hint.className = 'ocr-hint';
+    hint.innerHTML =
+      '<div class="ocr-hint-ic">⚠️</div>' +
+      '<div class="ocr-hint-body">' +
+        '<div class="ocr-hint-title">未识别到文字层：' + safeName + '</div>' +
+        '<div class="ocr-hint-text">通常是 <b>图片版 / 扫描件 PDF</b> 或图片文件，系统无法直接读取合同内容。' +
+        '可先用 <b>Edge / Chrome / Adobe / WPS</b> 打开 → 点「<b>识别文字 / 扫描和 OCR</b>」→ 另存为带文字层的 PDF → 重新上传即可自动提取；也可直接手动填写表单。</div>' +
+      '</div>' +
+      '<button class="ocr-hint-close" title="关闭">×</button>';
+    hint.querySelector('.ocr-hint-close').onclick = function () { if (hint.parentNode) hint.parentNode.removeChild(hint); };
+    grid.parentNode.insertBefore(hint, grid.nextSibling);
+  }
+
   // 列表/详情查看某合同全部附件
   function openContractAttachments(id) {
     var rec = FW.db.getById(CONTRACT_KEY, id);
