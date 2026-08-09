@@ -5,7 +5,11 @@ node_modules/
 .workbuddy/
 
 # 误重定向产生的垃圾文件
-main"
+main
+
+# 一次性临时文件
+resp.json
+*.tmp
 
 # 系统/编辑器
 .DS_Store

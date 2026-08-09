@@ -511,7 +511,16 @@
     if (ext === 'pdf') {
       if (!global.pdfjsLib) return Promise.resolve('');
       try {
-        var loadingTask = global.pdfjsLib.getDocument({ data: fileToUint8(dataUrl) });
+        // 中文 PDF 多用 CID 嵌入字体，必须给 PDF.js 配上 CMap 才能正确取字
+        // （无 CMap 时 getTextContent() 会返回空串/乱码，导致合同字段识别失败）
+        var loadingTask = global.pdfjsLib.getDocument({
+          data: fileToUint8(dataUrl),
+          cMapUrl: 'js/vendor/cmaps/',
+          cMapPacked: true,
+          // 标准字体（Helvetica/Times 等）也走 CMap，统一指向同一目录
+          standardFontDataUrl: 'js/vendor/standard_fonts/',
+          isEvalSupported: false
+        });
         return loadingTask.promise.then(function (pdf) {
           var tasks = [];
           for (var p = 1; p <= pdf.numPages; p++) {
