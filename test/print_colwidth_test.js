@@ -1,12 +1,12 @@
-// 打印 / PDF 预览：新增「列宽」滑块（80%–160%，默认 100%），实时缩放明细表各列宽度，
-// 解决用户反馈"打印间隔不好看 / 列太窄文字竖排（凭证 5 张、分类 员工福利）"。
-// 关键根因：打印表之前没设 table-layout:fixed，colgroup 列宽只是建议值被浏览器按内容重排，
-//          所以调行高/字号都没用。现改为 fixed 精确列宽 + 滑块缩放。
+// 打印 / PDF 预览：列宽改为「拖拽表头列边界」调节（像 Excel），可单独拉宽/拉窄任意一列，
+// 每列宽度数组持久化到 fw_pref_print_colw，并提供「重置列宽」按钮恢复默认。
+// 关键前提：打印表 #fpDetailTable 已设 table-layout:fixed + 精确内联列宽（否则列宽不生效）。
 // 本测试锁定：
-//   1. 工具栏含 #fpColScale range（min=80 max=160 value=100）与百分比显示 #fpColScaleVal
-//   2. 初始整表 width == 各列 width 之和（说明列宽被精确生效，而非被内容重排）
-//   3. 拖动滑块到 140%：每列宽度按比例放大、整表 width 同步放大、百分比文本更新、localStorage 记忆
-//   4. 预置偏好 130% 后再次打开：滑块自动还原为 130%、整表宽度按 1.3 倍还原
+//   1. 表头每个 th 含独立拖拽手柄 .fp-col-resizer（数量 = 列数）
+//   2. 初始整表 width == 各列 width 之和（列宽精确生效，fixed 布局）
+//   3. 模拟拖拽第 0 列手柄：该列宽度按鼠标位移增加、整表 width 同步、localStorage 写入数组
+//   4. 点击「重置列宽」：列宽恢复屏幕默认值（凭证列保底 150、金额列保底 100）、localStorage 被清除
+//   5. 源码 / CSS 静态守卫：含 fp-col-resizer、fw_pref_print_colw；不再含旧的整表缩放滑块 fpColScale
 var assert = require('assert');
 var fs = require('fs');
 var path = require('path');
@@ -79,68 +79,66 @@ assert.ok(printBtn, '应存在打印按钮');
 
 function parseTable(mb) {
   var t = mb.querySelector('#fpDetailTable');
-  // 用 CSSOM（style.width）读取，避免 jsdom 序列化 style 属性带空格导致正则失败
   var w = parseInt((t.style.width || '').match(/(\d+)px/)[1], 10);
   var cols = Array.prototype.slice.call(t.querySelectorAll('colgroup col'));
-  var cw = cols.map(function (c) {
-    return parseInt((c.style.width || '').match(/(\d+)px/)[1], 10);
-  });
+  var cw = cols.map(function (c) { return parseInt((c.style.width || '').match(/(\d+)px/)[1], 10); });
   return { w: w, cw: cw, sum: cw.reduce(function (a, b) { return a + b; }, 0), n: cw.length };
 }
-function fireInput(el, value) {
-  el.value = String(value);
-  el.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+function mouse(type, target, x) {
+  var ev = new dom.window.MouseEvent(type, { clientX: x, bubbles: true, cancelable: true });
+  target.dispatchEvent(ev);
 }
 
-// ========== 1) 工具栏必须含 #fpColScale range + #fpColScaleVal ==========
+// ========== 1) 表头每个 th 含独立拖拽手柄 .fp-col-resizer ==========
 printBtn.onclick({ stopPropagation: function () {} });
 assert.ok(capturedHtml, '点击打印应捕获 modalHtml');
-assert.ok(/id="fpColScale"/.test(capturedHtml), '工具栏必须包含列宽滑块 #fpColScale');
-assert.ok(/id="fpColScaleVal"/.test(capturedHtml), '工具栏必须包含列宽百分比显示 #fpColScaleVal');
-assert.ok(/<input type="range"[^>]*id="fpColScale"[^>]*min="80"[^>]*max="160"[^>]*value="100"/.test(capturedHtml),
-  '滑块必须 min=80 max=160 value=100');
+assert.ok(/fp-col-resizer/.test(capturedHtml), '表头必须含列边界拖拽手柄 .fp-col-resizer');
 
 var mb1 = modalBodies[modalBodies.length - 1];
-var scaleSel1 = mb1.querySelector('#fpColScale');
-var scaleVal1 = mb1.querySelector('#fpColScaleVal');
+var resizers = mb1.querySelectorAll('.fp-col-resizer');
 var table1 = mb1.querySelector('#fpDetailTable');
-assert.ok(scaleSel1, '列宽滑块必须能选中（第一次打开）');
-assert.ok(table1, '#fpDetailTable 必须存在（第一次打开）');
+assert.ok(table1, '明细表必须存在');
+var pInit = parseTable(mb1);
+assert.ok(resizers.length === pInit.n, '拖拽手柄数量必须等于列数（resizers=' + resizers.length + ' cols=' + pInit.n + '）');
 
 // ========== 2) 初始：整表 width == 各列 width 之和（列宽精确生效） ==========
-var p0 = parseTable(mb1);
-assert.ok(p0.w > 0, '初始整表 width 必须 > 0，实际=' + p0.w);
-assert.strictEqual(p0.w, p0.sum, '整表 width 必须等于各列 width 之和（fixed 精确列宽），w=' + p0.w + ' sum=' + p0.sum);
-assert.strictEqual(scaleVal1.textContent, '100%', '初始百分比显示应为 100%，实际=' + scaleVal1.textContent);
+assert.ok(pInit.w > 0, '初始整表 width 必须 > 0，实际=' + pInit.w);
+assert.strictEqual(pInit.w, pInit.sum, '整表 width 必须等于各列 width 之和（fixed 精确列宽），w=' + pInit.w + ' sum=' + pInit.sum);
 
-// ========== 3) 拖动到 140%：放大 + 记忆 ==========
-fireInput(scaleSel1, 140);
-var p1 = parseTable(mb1);
-assert.strictEqual(p1.w, p1.sum, '放大后整表 width 仍应等于各列之和');
-// 放大后整表宽度应在 1.35~1.45 倍之间（含四舍五入误差）
-assert.ok(p1.w >= Math.round(p0.w * 1.35) && p1.w <= Math.round(p0.w * 1.45),
-  '放大到 140% 后整表宽度应约为 1.4 倍，p0=' + p0.w + ' p1=' + p1.w);
-assert.strictEqual(scaleVal1.textContent, '140%', '放大后百分比应显示 140%，实际=' + scaleVal1.textContent);
-assert.strictEqual(_store['fw_pref_print_colscale'], '140', '放大到 140% 必须写入 localStorage');
+// ========== 3) 模拟拖拽第 0 列手柄：右移 60px → 该列 +60、整表同步、持久化 ==========
+var rz0 = mb1.querySelector('.fp-col-resizer[data-col="0"]');
+assert.ok(rz0, '第 0 列拖拽手柄必须存在');
+var w0before = pInit.cw[0];
+mouse('mousedown', rz0, 100);
+mouse('mousemove', dom.window.document, 160); // 位移 +60
+mouse('mouseup', dom.window.document, 160);
+var pDrag = parseTable(mb1);
+assert.strictEqual(pDrag.cw[0], w0before + 60, '拖拽后第 0 列宽度应 +60（before=' + w0before + ' after=' + pDrag.cw[0] + '）');
+assert.strictEqual(pDrag.w, pDrag.sum, '拖拽后整表 width 仍应等于各列之和');
+assert.strictEqual(pDrag.w, pInit.w + 60, '拖拽后整表宽度应增加 60（init=' + pInit.w + ' after=' + pDrag.w + '）');
+var savedArr = JSON.parse(_store['fw_pref_print_colw'] || 'null');
+assert.ok(Array.isArray(savedArr) && savedArr.length === pInit.n, '拖拽后必须持久化列宽数组到 fw_pref_print_colw');
+assert.strictEqual(savedArr[0], w0before + 60, '持久化数组第 0 列应等于拖拽后宽度');
 
-// ========== 4) 预置 130% 再次打开：自动还原 ==========
-_store['fw_pref_print_colscale'] = '130';
-printBtn.onclick({ stopPropagation: function () {} });
-var mb2 = modalBodies[modalBodies.length - 1];
-var scaleSel2 = mb2.querySelector('#fpColScale');
-var table2 = mb2.querySelector('#fpDetailTable');
-assert.ok(scaleSel2, '第二次打开必须含列宽滑块');
-assert.strictEqual(scaleSel2.value, '130', '再次打开应自动还原滑块为 130%，实际=' + scaleSel2.value);
-var p2 = parseTable(mb2);
-assert.strictEqual(p2.w, p2.sum, '还原后整表 width 仍应等于各列之和');
-assert.ok(p2.w >= Math.round(p0.w * 1.25) && p2.w <= Math.round(p0.w * 1.35),
-  '还原 130% 后整表宽度应约为 1.3 倍，p0=' + p0.w + ' p2=' + p2.w);
+// ========== 4) 点击「重置列宽」：恢复屏幕默认值，清除持久化 ==========
+var resetBtn = mb1.querySelector('#fpResetColW');
+assert.ok(resetBtn, '必须存在「重置列宽」按钮');
+resetBtn.onclick();
+var pReset = parseTable(mb1);
+// 默认：第 5 列（金额）保底 100、第 7 列（凭证）保底 150、第 0 列（日期）= 屏幕 92
+assert.strictEqual(pReset.cw[0], RENDERED[0], '重置后第 0 列应回到屏幕默认 ' + RENDERED[0] + '，实际=' + pReset.cw[0]);
+assert.strictEqual(pReset.cw[5], 110 > 100 ? 110 : 110, '重置后金额列应保底 110，实际=' + pReset.cw[5]);
+assert.strictEqual(pReset.cw[7], 150, '重置后凭证列应保底 150，实际=' + pReset.cw[7]);
+assert.strictEqual(_store['fw_pref_print_colw'], undefined, '重置后必须清除 localStorage 的 fw_pref_print_colw');
 
-// ========== 5) static source guard ==========
+// ========== 5) static source / css guard ==========
 var src = fs.readFileSync(path.join(__dirname, '..', 'js', 'internal.js'), 'utf8');
-assert.ok(/fw_pref_print_colscale/.test(src), '源码必须包含持久化键 fw_pref_print_colscale');
-assert.ok(/fpColScale/.test(src), '源码必须包含列宽滑块 id fpColScale');
+assert.ok(/fp-col-resizer/.test(src), '源码必须包含 fp-col-resizer 手柄');
+assert.ok(/fw_pref_print_colw/.test(src), '源码必须包含持久化键 fw_pref_print_colw');
+assert.ok(!/fpColScale/.test(src), '旧的整体缩放滑块 fpColScale 必须已移除');
 var css = fs.readFileSync(path.join(__dirname, '..', 'css', 'style.css'), 'utf8');
-assert.ok(/#fpDetailTable\s*\{\s*table-layout:\s*fixed/.test(css), 'CSS 必须给 #fpDetailTable 设 table-layout:fixed（列宽精确生效前提）');
+assert.ok(/\.fp-col-resizer\s*\{/.test(css), 'CSS 必须定义 .fp-col-resizer 手柄样式');
+assert.ok(/#fpDetailTable\s*\{\s*table-layout:\s*fixed/.test(css), 'CSS 必须给 #fpDetailTable 设 table-layout:fixed');
+assert.ok(/fpResetColW/.test(src), '源码必须包含「重置列宽」按钮 id');
 
-console.log('ALL_OK  print_colwidth: 列宽滑块存在、初始列宽精确、140% 放大+记忆、130% 自动还原、fixed 前提就位');
+console.log('ALL_OK  print_colwidth: 拖拽手柄就位、初始列宽精确、拖拽改宽+持久化、重置恢复默认、fixed 前提就位');
