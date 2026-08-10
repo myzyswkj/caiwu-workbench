@@ -787,6 +787,21 @@ td.photo-cell { vertical-align: top; }
 /* 避免某一行的凭证图被分页切断 */
 .flow-print tbody tr { page-break-inside: avoid; }
 
+/* ===== 打印明细表密度（用户调节的"间距/行高"旋钮）=====
+   - dpd-c 紧凑：行高小，适合 60+ 笔一页塞得多；多凭证竖排也不顶到一起
+   - dpd-s 标准：默认值，pad 7/9, 13px
+   - dpd-l 宽松：pad 11/13, 14px（fp-detail-big 16px），便于手写批注 / 视觉舒适 */
+.flow-print.dpd-c table { font-size: 12px; }
+.flow-print.dpd-c th,
+.flow-print.dpd-c td { padding: 3px 6px; }
+.flow-print.dpd-c #fpDetailTable tbody td.fp-detail-big { font-size: 13px; }
+.flow-print.dpd-c td.fp-vcell { padding: 3px 5px; }
+.flow-print.dpd-l table { font-size: 14px; }
+.flow-print.dpd-l th,
+.flow-print.dpd-l td { padding: 11px 13px; }
+.flow-print.dpd-l #fpDetailTable tbody td.fp-detail-big { font-size: 16px; }
+.flow-print.dpd-l td.fp-vcell { padding: 9px 11px; }
+
 /* ===== 打印（仅显示凭证纸 / 账表） ===== */
 /* 页边距设为 0：浏览器没有空隙可画页眉页脚，网址 / 日期 / 页码就不会出现在 PDF 上。
    实际留白改由 .print-area 自身的 padding 提供，观感不变。 */
