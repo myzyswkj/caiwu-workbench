@@ -693,6 +693,9 @@ td.photo-cell { vertical-align: top; }
 .flow-print .fp-kpi b.income { color: var(--income); }
 .flow-print .fp-kpi b.expense { color: var(--expense); }
 .flow-print table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* 明细表必须 fixed 布局，列宽才严格由 colgroup 决定（而非浏览器按内容自动重排），
+   这是「列宽可调 / 窄列不竖排」能生效的前提 */
+.flow-print #fpDetailTable { table-layout: fixed; }
 .flow-print th, .flow-print td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
 .flow-print thead th { background: var(--bg); color: var(--text); font-weight: 600; }
 /* 列头行：取消「每页带标题」时会被移到 tbody，这里保证它在 thead/tbody 都有表头底色 */
