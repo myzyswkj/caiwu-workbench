@@ -3271,6 +3271,9 @@
     // ec（导出列单一来源）= 界面流水表去掉「操作」列；在 openPrintView 函数作用域声明，
     // 供下方 IIFE（生成表头）与 tbody 的 rows.map 共同使用，避免作用域错位导致点击打印无反应
     var ec = txExportColumns();
+    // baseW = 各列基础 px 宽度（屏幕真实渲染宽度），totalW = 列宽之和；
+    // 在 openPrintView 作用域声明，供 IIFE（生成表头）与 onMount（列宽滑块缩放）共用
+    var baseW = [], totalW = 0;
     var html =
       '<div class="flow-print print-area vsz-m">' +
         '<div class="fp-title" id="fpTitle">' + titleBlock + '</div>' +
@@ -3281,22 +3284,24 @@
         '<h4 class="fp-h4">流水明细</h4>' +
         (function () {
           // 打印表列 = 界面流水表（去掉「操作」列），顺序 / 标签 / 列宽与界面逐一对齐（用户要求与界面一致）
-          // 注意：ec 已在 openPrintView 函数作用域声明（见下方），此 IIFE 仅生成表头字符串，不可在此重新用 var 包住 ec，
-          // 否则 tbody 的 rows.map 会因作用域找不到 ec 而抛 ReferenceError（导致点击打印无反应）
+          // 改用 table-layout: fixed + 精确内联列宽，列宽由 colgroup 严格决定（不再被浏览器按内容自动重排），
+          // 这样「列宽可调」才能真正生效：窄列（凭证 / 分类）不会被挤压竖排
           var ppx = screenColPx();
-          var pc = ec.ids.map(function (id) {
+          baseW = ec.ids.map(function (id) {
             var i = TX_COL_IDS.indexOf(id);
             var w = i >= 0 ? ppx[i] : 100;
             if (id === 'voucher') w = Math.max(w, 150); // 凭证列保底，避免缩太窄
             if (id === 'amount') w = Math.max(w, 100);  // 金额列保底，避免被拖窄后打印/PDF 中金额被折行
-            return '<col style="width:' + w + 'px">';
-          }).join('');
+            return w;
+          });
+          var pc = baseW.map(function (w) { return '<col style="width:' + w + 'px">'; }).join('');
+          totalW = baseW.reduce(function (a, b) { return a + b; }, 0);
           // 个别列带特殊样式：金额左对齐、凭证列 / 报销人列固定 class（其余由 ec.labels 驱动，与界面一致）
           var TH_SP = { amount: ' style="text-align:left"', voucher: ' class="fp-vth"', reimburser: ' class="fp-rb"' };
           var headTh = ec.ids.map(function (id, k) {
             return '<th' + (TH_SP[id] || '') + '>' + ec.labels[k] + '</th>';
           }).join('');
-          return '<table id="fpDetailTable"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead">' + headTh + '</tr></thead><tbody>';
+          return '<table id="fpDetailTable" style="width:' + totalW + 'px"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead">' + headTh + '</tr></thead><tbody>';
         })() +
         rows.map(function (t, i) {
           var np = (t.photos || []).filter(Boolean).length;
@@ -3324,7 +3329,7 @@
         '<label class="fp-inc"><input type="checkbox" id="fpTitleEvery"> 每页带标题</label>' +
         '<label class="fp-inc"><input type="checkbox" id="fpIncImg" checked> 包含凭证图片</label>' +
         '<label class="fp-inc">凭证图大小 <select id="fpVSize"><option value="vsz-s">小</option><option value="vsz-m" selected>中</option><option value="vsz-l">大</option></select></label>' +
-        '<label class="fp-inc">打印密度 <select id="fpDensity"><option value="dpd-c">紧凑</option><option value="dpd-s" selected>标准</option><option value="dpd-l">宽松</option></select></label>' +
+        '<label class="fp-inc">列宽 <input type="range" id="fpColScale" min="80" max="160" step="5" value="100" style="vertical-align:middle"> <span id="fpColScaleVal">100%</span></label>' +
         '<button class="btn" id="fpPrint">🖨 打印 / 保存为 PDF</button>' +
         '<button class="btn ghost" id="fpClose">关闭</button>' +
       '</div>' +
@@ -3344,25 +3349,37 @@
           wrap.classList.add(szSel.value);
         };
       }
-      // 打印密度（紧凑 / 标准 / 宽松）：调整张表的 padding + 字号，用户可调"打印间隔"，
-      // 选择持久化到 fw_pref_print_density，下次打开记住
-      var denSel = body.querySelector('#fpDensity');
-      var WRAP_K = 'fw_pref_print_density';
-      var saved = null;
-      try { saved = localStorage.getItem(WRAP_K); } catch (e) {}
-      if (denSel && wrap && saved && /^(dpd-c|dpd-s|dpd-l)$/.test(saved)) {
-        denSel.value = saved;
-        wrap.classList.remove('dpd-c', 'dpd-s', 'dpd-l');
-        wrap.classList.add(saved);
+      // 列宽缩放：让用户可以拉宽/压窄明细表各列，避免窄列文字竖排（如凭证"5 张"、分类"员工福利"）。
+      // 基础列宽 = 屏幕真实渲染宽度（baseW，已在 openPrintView 作用域计算），缩放系数 pct 实时改
+      // 每个 col 的 width 与整表 width；选择持久化到 fw_pref_print_colscale，下次打开自动还原。
+      var scaleSel = body.querySelector('#fpColScale');
+      var scaleVal = body.querySelector('#fpColScaleVal');
+      var tableEl = body.querySelector('#fpDetailTable');
+      var WRAP_K = 'fw_pref_print_colscale';
+      function applyScale(pct) {
+        pct = Math.max(80, Math.min(160, pct | 0));
+        if (scaleVal) scaleVal.textContent = pct + '%';
+        if (tableEl && baseW && baseW.length) {
+          var total = 0;
+          var cols = tableEl.querySelectorAll('colgroup col');
+          baseW.forEach(function (w, k) {
+            var cw = Math.round(w * pct / 100);
+            total += cw;
+            if (cols[k]) cols[k].style.width = cw + 'px';
+          });
+          tableEl.style.width = total + 'px';
+        }
       }
-      if (denSel && wrap) {
-        denSel.onchange = function () {
-          var v = denSel.value;
-          if (!/^(dpd-c|dpd-s|dpd-l)$/.test(v)) return;
-          wrap.classList.remove('dpd-c', 'dpd-s', 'dpd-l');
-          wrap.classList.add(v);
+      var savedScale = 100;
+      try { var sv = parseInt(localStorage.getItem(WRAP_K), 10); if (!isNaN(sv)) savedScale = sv; } catch (e) {}
+      if (scaleSel) scaleSel.value = savedScale;
+      applyScale(savedScale);
+      if (scaleSel) {
+        scaleSel.addEventListener('input', function () {
+          var v = parseInt(scaleSel.value, 10) || 100;
+          applyScale(v);
           try { localStorage.setItem(WRAP_K, v); } catch (e) {}
-        };
+        });
       }
       var titleChk = body.querySelector('#fpTitleEvery');
       if (titleChk) {
