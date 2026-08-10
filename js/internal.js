@@ -3324,6 +3324,7 @@
         '<label class="fp-inc"><input type="checkbox" id="fpTitleEvery"> 每页带标题</label>' +
         '<label class="fp-inc"><input type="checkbox" id="fpIncImg" checked> 包含凭证图片</label>' +
         '<label class="fp-inc">凭证图大小 <select id="fpVSize"><option value="vsz-s">小</option><option value="vsz-m" selected>中</option><option value="vsz-l">大</option></select></label>' +
+        '<label class="fp-inc">打印密度 <select id="fpDensity"><option value="dpd-c">紧凑</option><option value="dpd-s" selected>标准</option><option value="dpd-l">宽松</option></select></label>' +
         '<button class="btn" id="fpPrint">🖨 打印 / 保存为 PDF</button>' +
         '<button class="btn ghost" id="fpClose">关闭</button>' +
       '</div>' +
@@ -3341,6 +3342,26 @@
         szSel.onchange = function () {
           wrap.classList.remove('vsz-s', 'vsz-m', 'vsz-l');
           wrap.classList.add(szSel.value);
+        };
+      }
+      // 打印密度（紧凑 / 标准 / 宽松）：调整张表的 padding + 字号，用户可调"打印间隔"，
+      // 选择持久化到 fw_pref_print_density，下次打开记住
+      var denSel = body.querySelector('#fpDensity');
+      var WRAP_K = 'fw_pref_print_density';
+      var saved = null;
+      try { saved = localStorage.getItem(WRAP_K); } catch (e) {}
+      if (denSel && wrap && saved && /^(dpd-c|dpd-s|dpd-l)$/.test(saved)) {
+        denSel.value = saved;
+        wrap.classList.remove('dpd-c', 'dpd-s', 'dpd-l');
+        wrap.classList.add(saved);
+      }
+      if (denSel && wrap) {
+        denSel.onchange = function () {
+          var v = denSel.value;
+          if (!/^(dpd-c|dpd-s|dpd-l)$/.test(v)) return;
+          wrap.classList.remove('dpd-c', 'dpd-s', 'dpd-l');
+          wrap.classList.add(v);
+          try { localStorage.setItem(WRAP_K, v); } catch (e) {}
         };
       }
       var titleChk = body.querySelector('#fpTitleEvery');
