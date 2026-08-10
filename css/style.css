@@ -697,9 +697,9 @@ td.photo-cell { vertical-align: top; }
    这是「列宽可调 / 窄列不竖排」能生效的前提 */
 .flow-print #fpDetailTable { table-layout: fixed; }
 /* 表头列边界拖拽手柄：像 Excel 一样拖动分隔线单独调列宽 */
-.flow-print #fpDetailTable thead th { position: relative; }
-.flow-print .fp-col-resizer { position: absolute; top: 0; right: -2px; width: 6px; height: 100%; cursor: col-resize; z-index: 2; user-select: none; }
-.flow-print .fp-col-resizer:hover { background: rgba(31, 78, 121, 0.18); }
+/* 列宽拖拽：鼠标移到表头某列最右边缘（9px 感应区）即高亮该列右边界 + 显示 col-resize 光标，按下即拖。
+   用「th 边缘检测」而非内嵌 absolute 手柄，避开 table-cell 内 absolute 子元素在 border-collapse/fixed 布局下定位失效。 */
+.flow-print #fpDetailTable th[data-edge="1"] { outline: 2px solid var(--sidebar-bg, #1F4E79); outline-offset: -2px; cursor: col-resize; }
 body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .fp-colhint { color: var(--muted); font-size: 12px; }
 .flow-print th, .flow-print td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
