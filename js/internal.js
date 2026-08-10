@@ -695,6 +695,14 @@
     var px = screenColPx();
     return ids.map(function (id) { var i = TX_COL_IDS.indexOf(id); return i >= 0 ? px[i] : 100; });
   }
+  // 导出图片的列 = 界面流水表（去掉「操作」列）。顺序 / 标签与界面逐一对齐，
+  // 用户要求「导出的图片和界面排版一样」。作为单一来源供 exportImage 与测试复用。
+  function txExportColumns() {
+    return {
+      ids: TX_COL_IDS.slice(0, TX_COL_IDS.length - 1),
+      labels: TX_COLS.slice(0, TX_COLS.length - 1)
+    };
+  }
   // 拖拽下限：允许列缩到更窄，方便把"距离"压小（之前 40 → 28 → 20）
   var COL_MIN_W = 20;
   function applyColWidths() {
@@ -2740,23 +2748,36 @@
       if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) inc += a;
       else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) exp += a;
     });
-    var head = ['日期', '类型', '项目', '分类', '账户', '金额', '对方单位/个人', '报销人', '备注', '凭证'];
-    var amountCol = 5, imgCol = 9;
-    // 列宽与屏幕调整一致：按图片表头顺序取屏幕宽度（无「操作」列，金额后接对方/报销人/备注/凭证）
-    var colWidths = txExportColWidths(['date', 'type', 'project', 'category', 'account', 'amount', 'party', 'reimburser', 'remark', 'voucher']);
+    // 导出图片的列 = 界面流水表（去掉「操作」列），列顺序 / 标签 / 列宽 与界面逐一对齐（用户要「和界面排版一样」）
+    var ec = txExportColumns();
+    var EXPORT_COL_IDS = ec.ids;
+    var head = ec.labels;
+    var amountCol = EXPORT_COL_IDS.indexOf('amount'); // 5
+    var imgCol = EXPORT_COL_IDS.indexOf('voucher');   // 7
+    var remarkIdx = EXPORT_COL_IDS.indexOf('remark'); // 6
+    var colWidths = txExportColWidths(EXPORT_COL_IDS);
     // 凭证列在图片里放原图，给个保底最小宽度（避免缩太窄看不清）
-    colWidths[9] = Math.max(colWidths[9], 160);
+    colWidths[imgCol] = Math.max(colWidths[imgCol], 160);
     // 金额列保底：装下最长金额 "-¥999,999.99"（约 100px），避免列被压窄后金额被迫折行成 4 行（与屏幕里被 cell 撑大的观感不一致）
-    colWidths[5] = Math.max(colWidths[5], 100);
+    colWidths[amountCol] = Math.max(colWidths[amountCol], 100);
     var outRows = rows.map(function (t) {
       var a = Number(t.amount) || 0;
       var cls = 'neutral', sign = '';
       if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) { cls = 'income'; sign = '+'; }
       else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) { cls = 'expense'; sign = '−'; }
-      return {
-        cells: [t.date, typeLabel(t), txProjectText(t), t.category || '', accountOf(t), sign + FW.fmtMoney(a), t.party || '', t.reimburser || '', (t.remark || '').replace(/[\r\n]+/g, ' '), ''],
-        amountCls: cls
+      var cellById = {
+        date: t.date,
+        type: typeLabel(t),
+        project: txProjectText(t),
+        category: t.category || '',
+        account: accountOf(t),
+        amount: sign + FW.fmtMoney(a),
+        remark: (t.remark || '').replace(/[\r\n]+/g, ' '),
+        voucher: '',
+        party: t.party || '',
+        reimburser: t.reimburser || ''
       };
+      return { cells: EXPORT_COL_IDS.map(function (id) { return cellById[id] != null ? cellById[id] : ''; }), amountCls: cls };
     });
     // 按账户收支副表（与打印视图 / Excel 导出同一套算子：buildAccMap / startBalanceMap / balMapAt）
     var accMap = buildAccMap(rows);
@@ -2798,11 +2819,11 @@
       opts = opts || {};
       var baseCW = scaledColWidths || colWidths;
       var cw = baseCW.slice();
-      // 备注列（索引 8）单独调宽：覆盖缩放后的备注列宽
-      if (opts.remarkW != null) cw[8] = opts.remarkW;
+      // 备注列（索引 remarkIdx）单独调宽：覆盖缩放后的备注列宽
+      if (opts.remarkW != null) cw[remarkIdx] = opts.remarkW;
       // 凭证大小（picScale）：同步放大凭证「列宽」与「图显示尺寸」，视觉一致
       var picScale = (opts.picScale != null) ? opts.picScale : 1;
-      if (picScale !== 1) cw[9] = Math.round(baseCW[9] * picScale);
+      if (picScale !== 1) cw[imgCol] = Math.round(baseCW[imgCol] * picScale);
       function pad2(n) { return (n < 10 ? '0' : '') + n; }
       var d = new Date();
       var stamp = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
@@ -2856,7 +2877,7 @@
             '</label>' +
             '<label class="tx-size-label">备注列宽：' +
               '<input type="range" id="remarkWRange" min="80" max="400" step="10" value="148">' +
-              '<span id="remarkWVal" class="muted">' + Math.round(colWidths[8]) + '</span>' +
+              '<span id="remarkWVal" class="muted">' + Math.round(colWidths[remarkIdx]) + '</span>' +
             '</label>' +
             '<label class="tx-size-label">凭证大小：' +
               '<input type="range" id="picScaleRange" min="0.6" max="1.6" step="0.05" value="1">' +
@@ -2888,7 +2909,7 @@
         // 宽度滑块默认 = 真实渲染总宽，使 scale 默认≈1（导出与界面 1:1 对齐）
         var _dtw = colWidths.reduce(function (s, w) { return s + w; }, 0);
         if (width) width.value = String(Math.min(2400, Math.max(800, Math.round(_dtw))));
-        if (remarkR) remarkR.value = String(Math.round(colWidths[8]));
+        if (remarkR) remarkR.value = String(Math.round(colWidths[remarkIdx]));
         // 计算配置：预览用前 N 行 + 对应凭证图；下载用完整
         function computeCfg(rows, picMap) {
           var px = parseInt(range ? range.value : '23', 10) || 23;
@@ -2899,7 +2920,7 @@
           if (userW > 2400) userW = 2400;
           var scale = userW / defaultTotalW;
           var scaledColWidths = colWidths.map(function (w) { return Math.round(w * scale); });
-          var remarkW = parseInt(remarkR ? remarkR.value : String(colWidths[8]), 10);
+          var remarkW = parseInt(remarkR ? remarkR.value : String(colWidths[remarkIdx]), 10);
           var picScale = parseFloat(picScaleR ? picScaleR.value : '1') || 1;
           return buildImgConfig(picMap, fs, scaledColWidths, { rows: rows, remarkW: remarkW, picScale: picScale });
         }
@@ -2953,7 +2974,7 @@
           if (userW > 2400) userW = 2400;
           var scale = userW / defaultTotalW;
           var scaledColWidths = colWidths.map(function (w) { return Math.round(w * scale); });
-          var remarkW = parseInt(remarkR ? remarkR.value : String(colWidths[8]), 10);
+          var remarkW = parseInt(remarkR ? remarkR.value : String(colWidths[remarkIdx]), 10);
           var picScale = parseFloat(picScaleR ? picScaleR.value : '1') || 1;
           busy = true; if (dl) dl.disabled = true; if (cancel) cancel.disabled = true;
           if (msg) msg.textContent = '正在生成图片…';
@@ -3536,6 +3557,8 @@
     openCatMatchManager: openCatMatchManager,
     // 列宽单一来源：屏幕与导出复用同一套宽度，暴露供测试/外部一致性校验
     screenColPx: screenColPx,
-    txExportColWidths: txExportColWidths
+    txExportColWidths: txExportColWidths,
+    // 导出图片列定义（界面流水表去掉「操作」），与界面排版一致；暴露供回归测试
+    txExportColumns: txExportColumns
   };
 })(window);
