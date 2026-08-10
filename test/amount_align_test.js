@@ -88,9 +88,9 @@ Promise.resolve()
     // 但导出按 col.width 严格执行后只有 30-50px，"-¥97.50" 被迫折行 4 行 → 与屏幕观感不一致。
     // 修法：图片 100px 保底、Excel wch=14（≈105px）保底、PDF 100px 保底——三端统一。
     var src2 = fs.readFileSync(__dirname + '/../js/internal.js', 'utf8');
-    var iImg = src2.indexOf('colWidths[9] = Math.max(colWidths[9], 160)');
+    var iImg = src2.indexOf('colWidths[imgCol] = Math.max(colWidths[imgCol], 160)');
     ok('图片导出：凭证列 160px 保底（不变）', iImg >= 0);
-    var jImg = src2.indexOf('colWidths[5] = Math.max(colWidths[5], 100)');
+    var jImg = src2.indexOf('colWidths[amountCol] = Math.max(colWidths[amountCol], 100)');
     ok('图片导出：金额列新增 100px 保底（装下 -¥999,999.99）', jImg >= 0);
     ok('图片导出：金额保底在凭证保底之后定义', jImg > iImg);
     // Excel 保底
@@ -119,13 +119,13 @@ Promise.resolve()
     console.log('[5] 导出图片弹窗：备注列宽 / 凭证大小 可独立调节 + 实时预览');
     // 背景：用户要"导出图片的备注列加宽一些"+"也可以调凭证的大小"，并且"看能不能预览效果"。
     // 修法：buildImgConfig 第 4 参数 opts 支持 { remarkW, picScale }；
-    //   - remarkW 覆盖备注列（索引 8）宽；
-    //   - picScale 同步放大凭证列（索引 9）宽与图显示尺寸 picMaxW/picMaxH；
+    //   - remarkW 覆盖备注列（remarkIdx）宽；
+    //   - picScale 同步放大凭证列（imgCol）宽与图显示尺寸 picMaxW/picMaxH；
     //   弹窗加"备注列宽""凭证大小"两个滑块 + 实时预览（只渲染前 N 行 + KPI + 副表，布局真实）。
     var src4 = fs.readFileSync(__dirname + '/../js/internal.js', 'utf8');
     ok('buildImgConfig 第 4 参数 opts', /function buildImgConfig\(picMap, fs, scaledColWidths, opts\)/.test(src4));
-    ok('备注列宽覆盖 colWidths[8] = opts.remarkW', src4.indexOf('cw[8] = opts.remarkW;') >= 0);
-    ok('凭证大小同步放大凭证列宽 colWidths[9]', src4.indexOf('cw[9] = Math.round(baseCW[9] * picScale);') >= 0);
+    ok('备注列宽覆盖 cw[remarkIdx] = opts.remarkW', src4.indexOf('cw[remarkIdx] = opts.remarkW;') >= 0);
+    ok('凭证大小同步放大凭证列宽 cw[imgCol]', src4.indexOf('cw[imgCol] = Math.round(baseCW[imgCol] * picScale);') >= 0);
     ok('凭证大小放大图显示尺寸 picMaxW/picMaxH', src4.indexOf('picMaxW: 220 * picScale, picMaxH: 130 * picScale,') >= 0);
     ok('配置支持预览截取行 opts.rows', src4.indexOf('rows: opts.rows || outRows,') >= 0);
     ok('弹窗含"备注列宽"滑块', src4.indexOf("'#remarkWRange'") >= 0);
