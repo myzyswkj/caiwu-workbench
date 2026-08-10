@@ -80,7 +80,8 @@ Promise.resolve()
     ok('internal.js 图片导出触发 amountAlign: left', src.indexOf("amountAlign: 'left'") >= 0);
     ok('internal.js Excel 金额列设左对齐样式', src.indexOf("horizontal: 'left'") >= 0);
     ok('internal.js Excel 写出 cellStyles', src.indexOf('cellStyles: true') >= 0);
-    ok('internal.js PDF 表头金额左对齐', src.indexOf('text-align:left">金额') >= 0);
+    ok('internal.js PDF 表头金额左对齐（TH_SP.amount 带 text-align:left，且表头由 ec.labels 驱动）',
+      /var TH_SP = \{ amount: ' style="text-align:left"'/.test(src) && /headTh = ec\.ids\.map/.test(src));
     ok('internal.js PDF 金额单元格左对齐', src.indexOf('style="text-align:left"') >= 0);
 
     console.log('[3] 金额列保底：导出必须装得下最大金额（不被压成多行）');
