@@ -696,6 +696,12 @@ td.photo-cell { vertical-align: top; }
 /* 明细表必须 fixed 布局，列宽才严格由 colgroup 决定（而非浏览器按内容自动重排），
    这是「列宽可调 / 窄列不竖排」能生效的前提 */
 .flow-print #fpDetailTable { table-layout: fixed; }
+/* 表头列边界拖拽手柄：像 Excel 一样拖动分隔线单独调列宽 */
+.flow-print #fpDetailTable thead th { position: relative; }
+.flow-print .fp-col-resizer { position: absolute; top: 0; right: -2px; width: 6px; height: 100%; cursor: col-resize; z-index: 2; user-select: none; }
+.flow-print .fp-col-resizer:hover { background: rgba(31, 78, 121, 0.18); }
+body.fp-no-select, body.fp-no-select * { user-select: none !important; }
+.fp-colhint { color: var(--muted); font-size: 12px; }
 .flow-print th, .flow-print td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
 .flow-print thead th { background: var(--bg); color: var(--text); font-weight: 600; }
 /* 列头行：取消「每页带标题」时会被移到 tbody，这里保证它在 thead/tbody 都有表头底色 */
