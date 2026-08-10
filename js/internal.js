@@ -3294,12 +3294,20 @@
             if (id === 'amount') w = Math.max(w, 100);  // 金额列保底，避免被拖窄后打印/PDF 中金额被折行
             return w;
           });
+          // 应用上次拖拽保存的逐列宽度（若存在且与列数一致），否则用屏幕默认宽
+          try {
+            var savedW = JSON.parse(localStorage.getItem('fw_pref_print_colw') || 'null');
+            if (Array.isArray(savedW) && savedW.length === baseW.length) {
+              baseW = savedW.map(function (w) { return Math.max(COL_MIN_W, w | 0); });
+            }
+          } catch (e) {}
           var pc = baseW.map(function (w) { return '<col style="width:' + w + 'px">'; }).join('');
           totalW = baseW.reduce(function (a, b) { return a + b; }, 0);
           // 个别列带特殊样式：金额左对齐、凭证列 / 报销人列固定 class（其余由 ec.labels 驱动，与界面一致）
           var TH_SP = { amount: ' style="text-align:left"', voucher: ' class="fp-vth"', reimburser: ' class="fp-rb"' };
+          // th 带 data-col 与右侧拖拽手柄 .fp-col-resizer，支持像 Excel 一样拖列边界单独调宽（onMount 绑定）
           var headTh = ec.ids.map(function (id, k) {
-            return '<th' + (TH_SP[id] || '') + '>' + ec.labels[k] + '</th>';
+            return '<th' + (TH_SP[id] || '') + ' data-col="' + k + '">' + ec.labels[k] + '<span class="fp-col-resizer" data-col="' + k + '"></span></th>';
           }).join('');
           return '<table id="fpDetailTable" style="width:' + totalW + 'px"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead">' + headTh + '</tr></thead><tbody>';
         })() +
@@ -3329,7 +3337,8 @@
         '<label class="fp-inc"><input type="checkbox" id="fpTitleEvery"> 每页带标题</label>' +
         '<label class="fp-inc"><input type="checkbox" id="fpIncImg" checked> 包含凭证图片</label>' +
         '<label class="fp-inc">凭证图大小 <select id="fpVSize"><option value="vsz-s">小</option><option value="vsz-m" selected>中</option><option value="vsz-l">大</option></select></label>' +
-        '<label class="fp-inc">列宽 <input type="range" id="fpColScale" min="80" max="160" step="5" value="100" style="vertical-align:middle"> <span id="fpColScaleVal">100%</span></label>' +
+        '<span class="fp-inc fp-colhint">拖动表头列线可调列宽</span>' +
+        '<button class="btn ghost" id="fpResetColW">重置列宽</button>' +
         '<button class="btn" id="fpPrint">🖨 打印 / 保存为 PDF</button>' +
         '<button class="btn ghost" id="fpClose">关闭</button>' +
       '</div>' +
@@ -3349,37 +3358,60 @@
           wrap.classList.add(szSel.value);
         };
       }
-      // 列宽缩放：让用户可以拉宽/压窄明细表各列，避免窄列文字竖排（如凭证"5 张"、分类"员工福利"）。
-      // 基础列宽 = 屏幕真实渲染宽度（baseW，已在 openPrintView 作用域计算），缩放系数 pct 实时改
-      // 每个 col 的 width 与整表 width；选择持久化到 fw_pref_print_colscale，下次打开自动还原。
-      var scaleSel = body.querySelector('#fpColScale');
-      var scaleVal = body.querySelector('#fpColScaleVal');
+      // 拖拽列边界调整列宽：像 Excel 一样按住表头列与列之间的分隔线左右拖动，单独拉宽/拉窄任意一列，
+      // 每列宽度数组持久化到 fw_pref_print_colw，下次打开自动还原。
       var tableEl = body.querySelector('#fpDetailTable');
-      var WRAP_K = 'fw_pref_print_colscale';
-      function applyScale(pct) {
-        pct = Math.max(80, Math.min(160, pct | 0));
-        if (scaleVal) scaleVal.textContent = pct + '%';
-        if (tableEl && baseW && baseW.length) {
-          var total = 0;
-          var cols = tableEl.querySelectorAll('colgroup col');
-          baseW.forEach(function (w, k) {
-            var cw = Math.round(w * pct / 100);
-            total += cw;
-            if (cols[k]) cols[k].style.width = cw + 'px';
-          });
-          tableEl.style.width = total + 'px';
-        }
+      var WRAP_K = 'fw_pref_print_colw';
+      function persistColW() {
+        try { localStorage.setItem(WRAP_K, JSON.stringify(baseW)); } catch (e) {}
       }
-      var savedScale = 100;
-      try { var sv = parseInt(localStorage.getItem(WRAP_K), 10); if (!isNaN(sv)) savedScale = sv; } catch (e) {}
-      if (scaleSel) scaleSel.value = savedScale;
-      applyScale(savedScale);
-      if (scaleSel) {
-        scaleSel.addEventListener('input', function () {
-          var v = parseInt(scaleSel.value, 10) || 100;
-          applyScale(v);
-          try { localStorage.setItem(WRAP_K, v); } catch (e) {}
+      function setColWidth(k, w) {
+        w = Math.max(COL_MIN_W, w | 0);
+        baseW[k] = w;
+        if (!tableEl) return;
+        var cols = tableEl.querySelectorAll('colgroup col');
+        if (cols[k]) cols[k].style.width = w + 'px';
+        var total = baseW.reduce(function (a, b) { return a + b; }, 0);
+        tableEl.style.width = total + 'px';
+      }
+      body.querySelectorAll('.fp-col-resizer').forEach(function (rz) {
+        rz.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+          var k = parseInt(rz.getAttribute('data-col'), 10);
+          var startX = e.clientX, startW = baseW[k];
+          document.body.classList.add('fp-no-select');
+          function mm(ev) { setColWidth(k, startW + (ev.clientX - startX)); }
+          function mu() {
+            document.removeEventListener('mousemove', mm);
+            document.removeEventListener('mouseup', mu);
+            document.body.classList.remove('fp-no-select');
+            persistColW();
+          }
+          document.addEventListener('mousemove', mm);
+          document.addEventListener('mouseup', mu);
+          e.stopPropagation();
         });
+      });
+      // 重置列宽：清空持久化并恢复屏幕默认宽度
+      var resetBtn = body.querySelector('#fpResetColW');
+      if (resetBtn) {
+        resetBtn.onclick = function () {
+          try { localStorage.removeItem(WRAP_K); } catch (e) {}
+          var ppx = screenColPx();
+          baseW = ec.ids.map(function (id) {
+            var i = TX_COL_IDS.indexOf(id);
+            var w = i >= 0 ? ppx[i] : 100;
+            if (id === 'voucher') w = Math.max(w, 150);
+            if (id === 'amount') w = Math.max(w, 100);
+            return w;
+          });
+          if (tableEl) {
+            var cols = tableEl.querySelectorAll('colgroup col');
+            var total = 0;
+            baseW.forEach(function (w, k) { if (cols[k]) cols[k].style.width = w + 'px'; total += w; });
+            tableEl.style.width = total + 'px';
+          }
+        };
       }
       var titleChk = body.querySelector('#fpTitleEvery');
       if (titleChk) {
