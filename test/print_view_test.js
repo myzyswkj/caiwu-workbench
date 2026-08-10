@@ -73,7 +73,10 @@ assert.ok(modalHtml.indexOf('id="fpDetailTable"') >= 0, '弹窗应含明细表 f
 // thead 列顺序 / 标签必须与界面流水表一致
 var th = modalHtml.match(/<thead id="fpDetailHead">[\s\S]*?<\/thead>/);
 assert.ok(th, '应含 fpDetailHead thead');
-var labels = (th[0].match(/<th\b[^>]*>([\s\S]*?)<\/th>/g) || []).map(function (s) { return s.replace(/<th\b[^>]*>|<\/th>/g, ''); });
+// 去掉 resizer 手柄 <span class="fp-col-resizer"> 后再取纯标签（列标签本身未变，手柄只是交互控件）
+var labels = (th[0].match(/<th\b[^>]*>([\s\S]*?)<\/th>/g) || []).map(function (s) {
+  return s.replace(/<th\b[^>]*>|<\/th>/g, '').replace(/<span[\s\S]*?<\/span>/g, '').trim();
+});
 var expected = ['日期', '类型', '项目', '分类', '账户', '金额', '备注', '凭证', '对方/个人', '报销人'];
 assert.deepStrictEqual(labels, expected, 'PDF thead 必须与界面流水表列顺序/标签一致');
 
