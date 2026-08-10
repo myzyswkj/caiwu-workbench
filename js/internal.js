@@ -3305,9 +3305,10 @@
           totalW = baseW.reduce(function (a, b) { return a + b; }, 0);
           // 个别列带特殊样式：金额左对齐、凭证列 / 报销人列固定 class（其余由 ec.labels 驱动，与界面一致）
           var TH_SP = { amount: ' style="text-align:left"', voucher: ' class="fp-vth"', reimburser: ' class="fp-rb"' };
-          // th 带 data-col 与右侧拖拽手柄 .fp-col-resizer，支持像 Excel 一样拖列边界单独调宽（onMount 绑定）
+          // 表头 th 带 data-col 与 data-edge；列宽调节改用「表头边缘检测拖拽」（见 onMount 绑定），
+          // 不内嵌 absolute 手柄，避免 table-cell 内 absolute 子元素在 border-collapse/fixed 布局下定位失效、抓不到
           var headTh = ec.ids.map(function (id, k) {
-            return '<th' + (TH_SP[id] || '') + ' data-col="' + k + '">' + ec.labels[k] + '<span class="fp-col-resizer" data-col="' + k + '"></span></th>';
+            return '<th' + (TH_SP[id] || '') + ' data-col="' + k + '" data-edge="0">' + ec.labels[k] + '</th>';
           }).join('');
           return '<table id="fpDetailTable" style="width:' + totalW + 'px"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead">' + headTh + '</tr></thead><tbody>';
         })() +
@@ -3374,10 +3375,32 @@
         var total = baseW.reduce(function (a, b) { return a + b; }, 0);
         tableEl.style.width = total + 'px';
       }
-      body.querySelectorAll('.fp-col-resizer').forEach(function (rz) {
-        rz.addEventListener('mousedown', function (e) {
+      // 拖拽列边界：鼠标移到某列表头最右 COL_EDGE px 内即高亮右边界 + 显示 col-resize 光标、按下即拖（像 Excel）。
+      // 用「表头边缘检测」而非内嵌 absolute 手柄，避开 table-cell 内 absolute 子元素在 border-collapse/fixed 布局下定位失效。
+      // 每列宽度数组持久化到 fw_pref_print_colw，下次打开自动还原。
+      var headThs = tableEl ? tableEl.querySelectorAll('.fp-colhead th') : [];
+      var COL_EDGE = 9; // 边缘感应宽度（px）
+      headThs.forEach(function (th) {
+        var k = parseInt(th.getAttribute('data-col'), 10);
+        if (isNaN(k)) return;
+        th.addEventListener('mousemove', function (e) {
+          var rect = th.getBoundingClientRect();
+          var rel = e.clientX - rect.left;
+          if (rect.width > 0 && rel >= rect.width - COL_EDGE) {
+            th.style.cursor = 'col-resize';
+            th.setAttribute('data-edge', '1');
+          } else {
+            if (th.style.cursor === 'col-resize') th.style.cursor = '';
+            th.setAttribute('data-edge', '0');
+          }
+        });
+        th.addEventListener('mouseleave', function () {
+          th.style.cursor = '';
+          th.setAttribute('data-edge', '0');
+        });
+        th.addEventListener('mousedown', function (e) {
+          if (th.getAttribute('data-edge') !== '1') return; // 只在边缘才拖，避免误选中表头文字
           e.preventDefault();
-          var k = parseInt(rz.getAttribute('data-col'), 10);
           var startX = e.clientX, startW = baseW[k];
           document.body.classList.add('fp-no-select');
           function mm(ev) { setColWidth(k, startW + (ev.clientX - startX)); }
