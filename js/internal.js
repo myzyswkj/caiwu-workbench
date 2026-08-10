@@ -3277,17 +3277,22 @@
         '<div class="fp-note">注：区间期初 / 区间期末余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
         '<h4 class="fp-h4">流水明细</h4>' +
         (function () {
-          // 打印表列宽与屏幕调整一致：按打印表头顺序取屏幕宽度（auto 布局会尽量贴合，过宽时自动收缩）
-          var PCOL = ['date', 'type', 'project', 'category', 'account', 'amount', 'party', 'reimburser', 'remark', 'voucher'];
+          // 打印表列 = 界面流水表（去掉「操作」列），顺序 / 标签 / 列宽与界面逐一对齐（用户要求与界面一致）
+          var ec = txExportColumns();
           var ppx = screenColPx();
-          var pc = PCOL.map(function (id) {
+          var pc = ec.ids.map(function (id) {
             var i = TX_COL_IDS.indexOf(id);
             var w = i >= 0 ? ppx[i] : 100;
             if (id === 'voucher') w = Math.max(w, 150); // 凭证列保底，避免缩太窄
             if (id === 'amount') w = Math.max(w, 100);  // 金额列保底，避免被拖窄后打印/PDF 中金额被折行
             return '<col style="width:' + w + 'px">';
           }).join('');
-          return '<table id="fpDetailTable"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead"><th>日期</th><th>类型</th><th>项目</th><th>分类</th><th>账户</th><th style="text-align:left">金额</th><th>对方单位/个人</th><th class="fp-rb">报销人</th><th>备注</th><th class="fp-vth">凭证</th></tr></thead><tbody>';
+          // 个别列带特殊样式：金额左对齐、凭证列 / 报销人列固定 class（其余由 ec.labels 驱动，与界面一致）
+          var TH_SP = { amount: ' style="text-align:left"', voucher: ' class="fp-vth"', reimburser: ' class="fp-rb"' };
+          var headTh = ec.ids.map(function (id, k) {
+            return '<th' + (TH_SP[id] || '') + '>' + ec.labels[k] + '</th>';
+          }).join('');
+          return '<table id="fpDetailTable"><colgroup>' + pc + '</colgroup><thead id="fpDetailHead"><tr class="fp-colhead">' + headTh + '</tr></thead><tbody>';
         })() +
         rows.map(function (t, i) {
           var np = (t.photos || []).filter(Boolean).length;
@@ -3295,17 +3300,19 @@
             '<span class="fp-vn">' + (np ? np + ' 张' : '—') + '</span>' +
             '<span class="fp-vbox">' + (np ? '<span class="fp-vload">加载中…</span>' : '<span class="fp-vnone">—</span>') + '</span>' +
           '</td>';
-          return '<tr>' +
-            '<td class="fp-detail-big">' + FW.esc(t.date) + '</td>' +
-            '<td class="fp-detail-big' + ((t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? ' fp-type-bold' : '') + '">' + FW.esc(typeLabel(t)) + '</td>' +
-            '<td class="fp-detail-big">' + txProjectLabel(t) + '</td>' +
-            '<td class="fp-detail-big">' + FW.esc(t.category || '') + '</td>' +
-            '<td class="fp-detail-big">' + FW.esc(accountOf(t)) + '</td>' +
-            amtCell(t) +
-            '<td>' + FW.esc(t.party || '') + '</td>' +
-            '<td class="fp-rb">' + FW.esc(t.reimburser || '') + '</td>' +
-            '<td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>' +
-            vcell + '</tr>';
+          var cells = {
+            date: '<td class="fp-detail-big">' + FW.esc(t.date) + '</td>',
+            type: '<td class="fp-detail-big' + ((t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? ' fp-type-bold' : '') + '">' + FW.esc(typeLabel(t)) + '</td>',
+            project: '<td class="fp-detail-big">' + txProjectLabel(t) + '</td>',
+            category: '<td class="fp-detail-big">' + FW.esc(t.category || '') + '</td>',
+            account: '<td class="fp-detail-big">' + FW.esc(accountOf(t)) + '</td>',
+            amount: amtCell(t),
+            remark: '<td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>',
+            voucher: vcell,
+            party: '<td>' + FW.esc(t.party || '') + '</td>',
+            reimburser: '<td class="fp-rb">' + FW.esc(t.reimburser || '') + '</td>'
+          };
+          return '<tr>' + ec.ids.map(function (id) { return cells[id]; }).join('') + '</tr>';
         }).join('') +
         '</tbody></table>' +
       '</div>' +
