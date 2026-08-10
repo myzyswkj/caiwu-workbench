@@ -3268,6 +3268,9 @@
         '</div>';
     // 每页重复用的紧凑标题（仅报表名 + 账套/期间，不含 KPI，放进明细表 thead 由浏览器自动跨页重复）
     var titleCompact = '<h2 class="fp-run">内账流水明细</h2><div class="fp-sub">' + subLine + '</div>';
+    // ec（导出列单一来源）= 界面流水表去掉「操作」列；在 openPrintView 函数作用域声明，
+    // 供下方 IIFE（生成表头）与 tbody 的 rows.map 共同使用，避免作用域错位导致点击打印无反应
+    var ec = txExportColumns();
     var html =
       '<div class="flow-print print-area vsz-m">' +
         '<div class="fp-title" id="fpTitle">' + titleBlock + '</div>' +
@@ -3278,7 +3281,8 @@
         '<h4 class="fp-h4">流水明细</h4>' +
         (function () {
           // 打印表列 = 界面流水表（去掉「操作」列），顺序 / 标签 / 列宽与界面逐一对齐（用户要求与界面一致）
-          var ec = txExportColumns();
+          // 注意：ec 已在 openPrintView 函数作用域声明（见下方），此 IIFE 仅生成表头字符串，不可在此重新用 var 包住 ec，
+          // 否则 tbody 的 rows.map 会因作用域找不到 ec 而抛 ReferenceError（导致点击打印无反应）
           var ppx = screenColPx();
           var pc = ec.ids.map(function (id) {
             var i = TX_COL_IDS.indexOf(id);
