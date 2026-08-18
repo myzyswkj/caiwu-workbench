@@ -517,6 +517,23 @@
 
   // 读取文件 → 行数组（array of arrays）
   function readFileRows(file, enc, cb) {
+    // 裁掉“整列为空”的列：Excel 常因格式刷/样式残留产生海量空列（如 dimension 达到 OCC 列），
+    // 导致导入界面列出上万列并全部误判为忽略。表头或任意数据行有内容的列予以保留。
+    function trimEmptyCols(rows) {
+      if (!rows || !rows.length) return rows;
+      var ncol = 0;
+      for (var r = 0; r < rows.length; r++) if (rows[r] && rows[r].length > ncol) ncol = rows[r].length;
+      var keep = [];
+      for (var c = 0; c < ncol; c++) {
+        var has = false;
+        for (var r2 = 0; r2 < rows.length; r2++) {
+          var v = rows[r2] ? rows[r2][c] : undefined;
+          if (v !== undefined && v !== null && String(v).trim() !== '') { has = true; break; }
+        }
+        if (has) keep.push(c);
+      }
+      return rows.map(function (r) { return keep.map(function (c) { return r ? r[c] : ''; }); });
+    }
     var fname = (file.name || '').toLowerCase();
     if (/\.(xlsx|xls)$/.test(fname)) {
       if (typeof XLSX === 'undefined') { FW.toast('Excel 解析库未加载，请刷新页面后重试'); cb(null); return; }
@@ -527,6 +544,7 @@
           if (!wb.SheetNames.length) { FW.toast('Excel 中没有工作表'); cb(null); return; }
           var ws = wb.Sheets[wb.SheetNames[0]];
           var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+          rows = trimEmptyCols(rows); // 裁掉 Excel 残留的空列，避免导入界面列爆炸
           while (rows.length && rows[rows.length - 1].every(function (c) { return c === '' || c == null; })) rows.pop();
           cb(rows);
         } catch (e) { FW.toast('Excel 解析失败：' + (e && e.message ? e.message : e)); cb(null); }
@@ -539,7 +557,7 @@
       if (!text) { FW.toast('文件读取失败'); cb(null); return; }
       var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
       if (!lines.length) { cb([]); return; }
-      cb(lines.map(function (l) { return csvSplit(l); }));
+      cb(trimEmptyCols(lines.map(function (l) { return csvSplit(l); })));
     });
   }
 
