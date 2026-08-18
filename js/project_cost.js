@@ -8,6 +8,9 @@
  *   - 单产：利润率 = 利润 / 收入；投入产出比 = 收入 / 总成本
  *   - 额外：成本结构拆解、逐月趋势、未分配资金提醒、排名 + 下钻
  *   可按年度筛选（默认「全部年度」）。
+ *
+ * 【新增】点击表格中的「收入」金额单元格，弹出该项目的收入明细弹窗，
+ *         展示每笔收入的日期、对方、分类、到账金额、已扣支出、实际收入。
  * ============================================================ */
 (function (window) {
   'use strict';
@@ -338,6 +341,120 @@
     return data.tot.revenue > 0 ? basis / data.tot.revenue * 100 : 0;
   }
 
+  /* ============================================================
+   * 【新增】收入明细弹窗功能
+   * 点击表格中的收入金额 → 弹出该项目所有收入流水的明细列表
+   * ============================================================ */
+
+  /**
+   * 打开指定项目的收入明细弹窗
+   * @param {string} projectName - 项目名称
+   */
+  function openIncomeDetail(projectName) {
+    var year = state.year;
+    // 筛选当前年度的所有收入流水
+    var txs = getInternal().filter(function (t) {
+      return t.type === 'income' && inYear((t.date || '').slice(0, 4), year);
+    });
+
+    var items = [];
+
+    txs.forEach(function (t) {
+      var p = (t.project || '').trim();
+      var split = splitAmounts(t);
+
+      if (split) {
+        // 分摊收入：只取目标项目的份额
+        split.forEach(function (s) {
+          if (s.project === projectName) {
+            items.push({
+              date: t.date || '',
+              party: t.party || '',
+              category: catFull(t),
+              amount: s.amount,
+              deduct: 0,
+              actual: s.amount,
+              remark: '(分摊)',
+              id: t.id
+            });
+          }
+        });
+      } else if (p === projectName) {
+        // 单项目归属的收入
+        var dv = num(t.deduct);
+        items.push({
+          date: t.date || '',
+          party: t.party || '',
+          category: catFull(t),
+          amount: num(t.amount),
+          deduct: dv,
+          actual: num(t.amount) + dv,
+          remark: t.remark || '',
+          id: t.id
+        });
+      }
+    });
+
+    // 按日期降序（最新的在前）
+    items.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+
+    var totalActual = items.reduce(function (s, it) { return s + it.actual; }, 0);
+
+    // 无数据提示
+    if (!items.length) {
+      FW.openModal('「' + FW.esc(projectName) + '」收入明细',
+        '<div style="padding:30px 20px;text-align:center;color:var(--muted)">' +
+        '<div style="font-size:36px;margin-bottom:12px">📋</div>' +
+        '<div style="font-size:14px">当前筛选年度下没有找到该项目的收入记录。</div>' +
+        '<div style="font-size:12px;margin-top:8px">请检查「登记内账」中是否有标记为「<b>' + FW.esc(projectName) + '</b>」的收入流水。</div>' +
+        '</div>');
+      return;
+    }
+
+    // 构建明细表格 HTML
+    var body =
+      '<div style="margin-bottom:10px;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<span style="color:var(--muted)">共</span><b style="color:var(--income)">' + items.length + '</b><span style="color:var(--muted)">笔收入</span>' +
+        '<span style="margin:0 4px;color:var(--border)">|</span>' +
+        '<span style="color:var(--muted)">合计</span><b class="amt-income" style="font-size:16px">' + FW.fmtMoney(totalActual) + '</b>' +
+      '</div>' +
+      '<div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:8px">' +
+      '<table class="pc-income-detail-table"><thead><tr>' +
+        '<th style="width:90px">日期</th>' +
+        '<th style="width:120px">对方 / 客户</th>' +
+        '<th>分类</th>' +
+        '<th class="num" style="width:100px">到账金额</th>' +
+        '<th class="num" style="width:90px">已扣支出</th>' +
+        '<th class="num" style="width:100px">实际收入</th>' +
+        '<th style="width:80px">备注</th>' +
+      '</tr></thead><tbody>';
+
+    items.forEach(function (it) {
+      body += '<tr>' +
+        '<td>' + FW.esc(it.date) + '</td>' +
+        '<td>' + (it.party ? FW.esc(it.party) : '<span class="muted">—</span>') + '</td>' +
+        '<td><span class="tag" style="font-size:11px">' + FW.esc(it.category) + '</span></td>' +
+        '<td class="num">' + FW.fmtMoney(it.amount) + '</td>' +
+        '<td class="num">' + (it.deduct > 0 ? '<span class="amt-expense">' + FW.fmtMoney(it.deduct) + '</span>' : '<span class="muted">—</span>') + '</td>' +
+        '<td class="num amt-income"><b>' + FW.fmtMoney(it.actual) + '</b></td>' +
+        '<td class="muted" style="font-size:11px">' + FW.esc(it.remark || '—') + '</td>' +
+        '</tr>';
+    });
+
+    body += '</tbody><tfoot><tr>' +
+      '<td colspan="5" style="text-align:right;padding:10px;background:#fff8f0;font-weight:700;color:var(--text)">合计</td>' +
+      '<td class="num amt-income" style="padding:10px;background:#fff8f0"><b>' + FW.fmtMoney(totalActual) + '</b></td>' +
+      '<td style="background:#fff8f0"></td>' +
+      '</tr></tfoot></table></div>' +
+      '<div class="muted" style="font-size:11px;margin-top:8px;line-height:1.6">' +
+        '• 到账金额 = 实际到账的净额 &nbsp;|&nbsp; 已扣支出 = 代付/代扣款项（如有）&nbsp;|&nbsp; 实际收入 = 到账金额 + 已扣支出<br>' +
+        '• 标记「(分摊)」的记录表示该笔收入按比例分摊到了多个项目<br>' +
+        '• 数据来源：「登记内账」→ 类型=收入 且 项目=' + FW.esc(projectName) +
+      '</div>';
+
+    FW.openModal('「' + FW.esc(projectName) + '」 — 收入明细', body);
+  }
+
   function render() { buildTop(); buildBody(); }
 
   // 顶部操作区（仅保留导出 / 校正按钮；筛选控件下移至排名表上方）
@@ -458,6 +575,8 @@
         if (!e.target) return;
         // 签收单量输入框不触发行展开
         if (e.target.tagName === 'INPUT' || (e.target.closest && e.target.closest('.pc-qty-cell'))) return;
+        // 【新增】点击收入金额不触发行展开，改为弹出收入明细（由下面的独立事件处理）
+        if (e.target.classList && e.target.classList.contains('amt-income')) return;
         var tr = e.target.closest ? e.target.closest('tr[data-p]') : null;
         if (!tr) return;
         var p = tr.getAttribute('data-p');
@@ -481,6 +600,20 @@
         if (profCell) profCell.textContent = q > 0 ? FW.fmtMoney(prof / q) : '—';
       };
     }
+
+    // 【新增】收入金额点击 → 弹出收入明细（独立于行展开事件）
+    var incomeCells = document.querySelectorAll('#pcTable tbody .amt-income');
+    incomeCells.forEach(function (cell) {
+      cell.style.cursor = 'pointer';
+      cell.title = '点击查看收入明细';
+      cell.onclick = function (e) {
+        e.stopPropagation(); // 阻止冒泡触发行展开
+        var tr = this.closest('tr[data-p]');
+        if (tr) {
+          openIncomeDetail(tr.getAttribute('data-p'));
+        }
+      };
+    });
   }
 
   function statCard(label, val, cls) {
@@ -632,7 +765,7 @@
     ];
     var title = (state.year === 'all' ? '逐月 收入/成本/利润趋势（全部年度）' : '逐月 收入/成本/利润趋势（' + state.year + ' 年）');
     return '<div class="pc-section-title">逐月趋势</div>' + FW.lineChart(title, series, {}) +
-      '<div class="muted" style="font-size:12px;margin:-6px 0 8px">点项目行可展开查看该项目的成本分类、工资构成与应收回款项明细。注：本趋势为当月实际收支（不含预付款余额），表格「总成本 / 利润」为已扣除应收回款项（预付未用完）的口径。</div>';
+      '<div class="muted" style="font-size:12px;margin:-6px 0 8px">点项目行可展开查看该项目的成本分类、工资构成与应收回款项明细。<b>点击收入金额可查看收入流水明细。</b>注：本趋势为当月实际收支（不含预付款余额），表格「总成本 / 利润」为已扣除应收回款项（预付未用完）的口径。</div>';
   }
 
   // 下钻明细
@@ -714,7 +847,7 @@
         '</div>';
     }
     var h = '<div class="proj-sum-wrap"><table class="proj-sum-table" id="pcTable"><thead><tr>' +
-      '<th class="pc-rank">排名</th><th>项目</th><th class="num">签收单量</th><th class="num">收入</th><th class="num">收入单产</th><th class="num">流水成本</th><th class="num">应收回款项</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">净利润单产</th><th class="num">利润率</th><th class="num">' + costRateLabel() + '</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
+      '<th class="pc-rank">排名</th><th>项目</th><th class="num">签收单量</th><th class="num">收入 👆</th><th class="num">收入单产</th><th class="num">流水成本</th><th class="num">应收回款项</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">净利润单产</th><th class="num">利润率</th><th class="num">' + costRateLabel() + '</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
     var totalQty = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
     rows.forEach(function (r) {
       var profitCls = r.profit >= 0 ? 'amt-income' : 'amt-expense';
@@ -726,7 +859,7 @@
         '<td class="pc-rank">' + r.rank + '</td>' +
         '<td><span class="pc-caret">' + (open ? '▾' : '▸') + '</span> ' + FW.esc(r.project) + '</td>' +
         '<td class="num pc-qty-cell"><input class="pc-qty-in" type="number" min="0" step="1" value="' + qtyVal + '" placeholder="填单量" title="签收单量（手动录入，用于核算收入单产与净利润单产）"></td>' +
-        '<td class="num amt-income">' + FW.fmtMoney(r.revenue) + '</td>' +
+        '<td class="num amt-income clickable-amt" title="点击查看收入明细">' + FW.fmtMoney(r.revenue) + '</td>' +
         '<td class="num" data-unit="rev">' + (r.revUnit == null ? '—' : FW.fmtMoney(r.revUnit)) + '</td>' +
         '<td class="num amt-expense">' + FW.fmtMoney(r.flowCost) + '</td>' +
         '<td class="num amt-recover">' + FW.fmtMoney(r.recoverable || 0) + '</td>' +
@@ -868,7 +1001,7 @@
     });
   }
 
-  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct, splitAmounts: splitAmounts };
+  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct, splitAmounts: splitAmounts, openIncomeDetail: openIncomeDetail };
 
   FW.modules = FW.modules || {};
   FW.modules.projectCost = { title: '项目核算', render: render };
