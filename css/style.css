@@ -1197,3 +1197,104 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .alloc-warn { color: var(--income); font-weight: 600; margin-left: 8px; }
 .alloc-tag { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold); white-space: nowrap; cursor: default; }
 .alloc-tag:hover { background: var(--gold); color: #fff; }
+/* ============================================================
+ * 【新增】收入明细弹窗相关样式
+ * 追加到 css/style.css 末尾即可
+ * ============================================================ */
+
+/* 收入金额单元格：可点击状态（手型 + hover 效果） */
+.proj-sum-table .amt-income.clickable-amt {
+  cursor: pointer;
+  position: relative;
+  transition: opacity .15s, text-decoration .15s;
+}
+.proj-sum-table .amt-income.clickable-amt:hover {
+  opacity: .72;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* 点击提示小图标（用伪元素在收入金额旁显示 👆 提示） */
+.proj-sum-table .amt-income.clickable-amt::after {
+  content: '👆';
+  font-size: 11px;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity .2s;
+  vertical-align: super;
+}
+.proj-sum-table .amt-income.clickable-amt:hover::after {
+  opacity: 1;
+}
+
+/* ===== 收入明细弹窗表格 ===== */
+.pc-income-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.pc-income-detail-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fdeaea;     /* 淡红表头，与收入红色主题一致 */
+  color: #C8102E;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 9px 10px;
+  border-bottom: 2px solid #f5c6c6;
+  text-align: left;
+  white-space: nowrap;
+}
+.pc-income-detail-table tbody td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #f5f0f0;
+  vertical-align: middle;
+}
+.pc-income-detail-table tbody tr:nth-child(even) td {
+  background: #fdfafa;
+}
+.pc-income-detail-table tbody tr:hover td {
+  background: #f9ecec;
+}
+.pc-income-detail-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.pc-income-detail-table tfoot td {
+  font-size: 13px;
+}
+/* 合计行高亮 */
+.pc-income-detail-table tfoot tr {
+  background: #fff8f0 !important;
+  border-top: 2px solid #f0d79a;
+}
+.pc-income-detail-table tfoot .amt-income {
+  font-size: 15px;
+}
+
+/* 弹窗内的 tag 样式微调（收入分类标签） */
+.pc-income-detail-table .tag {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #fdeaec;
+  color: #C8102E;
+  border: 1px solid #f5c6c6;
+  white-space: normal;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 响应式：移动端下明细表格横向滚动 */
+@media (max-width: 760px) {
+  .pc-income-detail-table {
+    min-width: 560px;
+  }
+  .proj-sum-table .amt-income.clickable-amt::after {
+    content: none;  /* 移动端不显示 👆 图标，省空间 */
+  }
+}
