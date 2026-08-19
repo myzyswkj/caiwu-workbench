@@ -1322,3 +1322,9 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .be-row .be-label { display: inline-flex; align-items: center; gap: 5px; min-width: 90px; white-space: nowrap; color: var(--text, #333); }
 .be-row input[type="number"], .be-row input[type="text"], .be-row select.be-proj { flex: 1; }
 .be-row select.be-proj { padding: 6px 8px; border: 1px solid var(--border, #d0d7de); border-radius: 6px; background: #fff; font-size: 13px; }
+
+/* 月工资录入弹窗里的项目选择 */
+.pi-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pi-row .pi-proj { flex: 1; padding: 7px 8px; border: 1px solid var(--border, #d0d7de); border-radius: 6px; background: #fff; font-size: 13px; }
+.pi-row .pi-amt { flex: 1; padding: 7px 8px; border: 1px solid var(--border, #d0d7de); border-radius: 6px; font-size: 13px; }
+.pi-row .pi-del { flex-shrink: 0; }
