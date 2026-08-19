@@ -1125,6 +1125,7 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .pc-excl-label { font-size: 13px; color: var(--muted, #6B7A70); align-self: center; margin-left: 2px; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none; }
 .pc-excl-label input { margin: 0; cursor: pointer; }
 .pc-excl-label:disabled { opacity: .45; cursor: not-allowed; }
+.pc-sort-label { font-size: 13px; color: var(--muted, #6B7A70); align-self: center; margin-left: 10px; }
 /* 筛选行：排名表上方的独立筛选条 */
 .pc-filter-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
