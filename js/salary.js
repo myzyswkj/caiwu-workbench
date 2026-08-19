@@ -682,14 +682,19 @@
 
     var body = '<div class="form" style="max-height:46vh;overflow:auto">' + selHtml + '</div>' +
       '<div class="form-row"><label>默认年份（无年份列时）</label><input id="salDefYear" type="number" value="' + state.year + '"></div>' +
-      '<div class="form-row"><label>默认月份（无月份列时，留空则须文件内含月份）</label><input id="salDefMonth" type="number" min="1" max="12" placeholder="如 3"></div>' +
+      '<div class="form-row"><label>默认月份（文件无月份列时必填，已预填当月，可按需改）</label><input id="salDefMonth" type="number" min="1" max="12" value="' + (new Date().getMonth() + 1) + '" placeholder="如 3"></div>' +
       '<div id="salPrev" class="muted" style="font-size:12px;margin:8px 0"></div>' +
       '<div class="modal-foot"><button class="btn" id="salMapCancel">取消</button><button class="btn" id="salMapPrev">预览</button><button class="btn primary" id="salMapOk">确认导入</button></div>';
 
     FW.openModal('导入工资 · 列映射', body, function () {
       function build() {
         var m = {};
-        Array.prototype.forEach.call(document.querySelectorAll('select[data-col]'), function (s) { m[s.getAttribute('data-col')] = s.value; });
+        // 注意：parseSalaryRows 需要的是 { 角色: 列索引 }，而 DOM 里存的是 { 列索引: 角色 }，这里做一次翻转
+        Array.prototype.forEach.call(document.querySelectorAll('select[data-col]'), function (s) {
+          var col = s.getAttribute('data-col');
+          var role = s.value;
+          if (role && role !== 'ignore') m[role] = +col;
+        });
         var defYear = parseInt(document.getElementById('salDefYear').value, 10) || state.year;
         var defMonth = parseInt(document.getElementById('salDefMonth').value, 10) || 0;
         return parseSalaryRows(dataRows, m, defYear, defMonth);
