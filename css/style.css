@@ -1311,3 +1311,12 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .rec-table .muted { color: var(--muted, #999); }
 .rec-table .rec-cb-col { width: 36px; text-align: center; padding-left: 4px; padding-right: 4px; }
 .rec-table .rec-cb-col input { width: 16px; height: 16px; cursor: pointer; }
+.rec-table .rec-checkall { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted, #777); cursor: pointer; white-space: nowrap; }
+.rec-table .rec-checkall input { width: 14px; height: 14px; }
+.rec-table .rec-emp-col { min-width: 80px; }
+.rec-table .rec-month-col { min-width: 50px; text-align: center; }
+
+/* 批量修改弹窗 */
+.be-row { display: flex; align-items: center; gap: 10px; }
+.be-row .be-label { display: inline-flex; align-items: center; gap: 5px; min-width: 90px; white-space: nowrap; color: var(--text, #333); }
+.be-row input[type="number"], .be-row input[type="text"] { flex: 1; }
