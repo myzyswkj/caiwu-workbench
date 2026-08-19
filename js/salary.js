@@ -20,6 +20,20 @@
   function getEmps() { return FW.db.getList('salary_employees'); }
   function getRecs() { return FW.db.getList('salary_records'); }
 
+  // 收集所有已出现过的项目名称（项目核算 + 工资记录 + 项目产量），用于下拉选择
+  function getProjectNames() {
+    var set = {};
+    function add(p) { p = (p || '').trim(); if (p) set[p] = true; }
+    (FW.db.getList('internal') || []).forEach(function (r) { add(r.project); });
+    (FW.db.getList('project_qty') || []).forEach(function (r) { add(r.project); });
+    (FW.db.getList('salary_records') || []).forEach(function (r) {
+      (r.baseItems || []).forEach(function (it) { add(it.project); });
+      (r.bonusItems || []).forEach(function (it) { add(it.project); });
+      (r.commissionItems || []).forEach(function (it) { add(it.project); });
+    });
+    return Object.keys(set).sort(function (a, b) { return a.localeCompare(b, 'zh-Hans-CN'); });
+  }
+
   function recId(empId, year, month) { return empId + '-' + year + '-' + month; }
 
   // 兼容旧数据：旧记录只含 salary 字段 → 记作底薪；旧 bonus(奖金/提成合并) → 记为奖金，提成置 0
@@ -264,12 +278,15 @@
     var recs = getRecs().filter(function (r) { return ids.indexOf(r.id) > -1; });
     if (!recs.length) { FW.toast('未找到选中的记录'); return; }
     var names = recs.slice(0, 3).map(function (r) { return nameById[r.empId] || r.empId || '未知'; }).join('、');
+    var projOpts = getProjectNames();
+    var projSelect = '<option value="">— 不分类 —</option>' +
+      projOpts.map(function (p) { return '<option value="' + FW.esc(p) + '">' + FW.esc(p) + '</option>'; }).join('');
     var body = '<div class="form">' +
       '<p class="sal-tip">已选 <b>' + ids.length + '</b> 条记录：' + FW.esc(names) + (ids.length > 3 ? ' 等' : '') + '</p>' +
-      '<p class="sal-tip" style="margin-top:2px">勾选要修改的项，填写金额，并在「项目」里指定归入哪个项目（留空表示不分类）。</p>' +
-      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBaseChk"> 底薪</label><input id="beBase" type="number" step="0.01" placeholder="金额"><input id="beBaseProj" type="text" placeholder="项目名"></div>' +
-      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBonusChk"> 奖金</label><input id="beBonus" type="number" step="0.01" placeholder="金额"><input id="beBonusProj" type="text" placeholder="项目名"></div>' +
-      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beCommChk"> 提成</label><input id="beComm" type="number" step="0.01" placeholder="金额"><input id="beCommProj" type="text" placeholder="项目名"></div>' +
+      '<p class="sal-tip" style="margin-top:2px">勾选要修改的项，填写金额，并在「项目」里选择归入哪个项目。</p>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBaseChk"> 底薪</label><input id="beBase" type="number" step="0.01" placeholder="金额"><select id="beBaseProj" class="be-proj">' + projSelect + '</select></div>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBonusChk"> 奖金</label><input id="beBonus" type="number" step="0.01" placeholder="金额"><select id="beBonusProj" class="be-proj">' + projSelect + '</select></div>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beCommChk"> 提成</label><input id="beComm" type="number" step="0.01" placeholder="金额"><select id="beCommProj" class="be-proj">' + projSelect + '</select></div>' +
       '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beRemarkChk"> 备注</label><input id="beRemark" type="text" placeholder="留空则不变"></div>' +
       '</div>' +
       '<div class="modal-foot"><button class="btn" id="beCancel">取消</button><button class="btn" id="beOk">确认修改</button></div>';
