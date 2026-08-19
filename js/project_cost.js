@@ -269,7 +269,7 @@
     return Object.keys(set).sort();
   }
 
-  var state = { year: 'all', expanded: {}, kw: '', pnl: 'all', costType: '', costType2: '', costExcl: false };
+  var state = { year: 'all', expanded: {}, kw: '', pnl: 'all', costType: '', costType2: '', costExcl: false, sortKey: 'profit', sortDir: 'desc' };
 
   // 项目筛选（关键词匹配项目名 + 盈亏过滤）；纯函数，便于测试与外部复用
   function filterRows(rows, kw, pnl) {
@@ -311,6 +311,29 @@
       r.profitUnit = q > 0 ? r.profit / q : null;     // 净利润单产
     });
     return rows;
+  }
+
+  // 自定义排序：按 state.sortKey / state.sortDir 排序，并重排 rank（使「排名」列等于当前显示顺序）
+  function sortRows(rows) {
+    var key = state.sortKey || 'profit';
+    var dir = state.sortDir === 'asc' ? 1 : -1;
+    var arr = (rows || []).slice().sort(function (a, b) {
+      var va, vb;
+      if (key === 'cr') {
+        va = costRateOf(a, state.costType, state.costType2, state.costExcl).rate;
+        vb = costRateOf(b, state.costType, state.costType2, state.costExcl).rate;
+      } else if (key === 'roi') {
+        va = a.roi === Infinity ? Number.MAX_VALUE : a.roi;
+        vb = b.roi === Infinity ? Number.MAX_VALUE : b.roi;
+      } else {
+        va = (typeof a[key] === 'number') ? a[key] : 0;
+        vb = (typeof b[key] === 'number') ? b[key] : 0;
+      }
+      if (va === vb) return 0;
+      return va < vb ? -dir : dir;
+    });
+    arr.forEach(function (r, i) { r.rank = i + 1; });
+    return arr;
   }
 
   // 成本率：默认用总成本口径（总成本 / 收入）；可选某一级 / 二级分类成本，或「工资成本」作为口径
@@ -498,6 +521,15 @@
       '<select id="pcCostType" class="pc-year"><option value="">总成本（默认）</option></select>' +
       '<select id="pcCostType2" class="pc-year" disabled><option value="">全部二级</option></select>' +
       '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"' + (state.costExcl ? ' checked' : '') + '> 剔除所选成本类</label>' +
+      '<span class="pc-sort-label">排序</span>' +
+      '<select id="pcSortKey" class="pc-year">' +
+      [['profit', '利润'], ['revenue', '收入'], ['flowCost', '流水成本'], ['recoverable', '应收回款项'], ['laborCost', '工资成本'], ['totalCost', '总成本'], ['rate', '利润率'], ['cr', '成本率'], ['roi', '投入产出比'], ['qty', '签收单量']]
+        .map(function (o) { return '<option value="' + o[0] + '"' + (state.sortKey === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+      '</select>' +
+      '<select id="pcSortDir" class="pc-year">' +
+      '<option value="desc"' + (state.sortDir === 'desc' ? ' selected' : '') + '>降序</option>' +
+      '<option value="asc"' + (state.sortDir === 'asc' ? ' selected' : '') + '>升序</option>' +
+      '</select>' +
       '</div>';
   }
 
@@ -510,7 +542,7 @@
 
   function buildBody() {
     var v = getView();
-    var data = v.data, rows = v.rows;
+    var data = v.data, rows = sortRows(v.rows);
     var filterNote = (state.kw || state.pnl !== 'all') ?
       '<div class="pc-filter-note">已筛选显示 <b>' + rows.length + '</b> 个项目（筛选仅作用于项目列表与下方对比图；上方 KPI 卡片为全部项目汇总）。</div>' : '';
     var html = '<div class="salary-wrap">';
@@ -534,6 +566,12 @@
     if (searchEl) searchEl.oninput = function () { state.kw = this.value; buildBody(); };
     var pnlEl = document.getElementById('pcPnl');
     if (pnlEl) pnlEl.onchange = function () { state.pnl = this.value; buildBody(); };
+
+    // 自定义排序控件
+    var sortKeyEl = document.getElementById('pcSortKey');
+    if (sortKeyEl) sortKeyEl.onchange = function () { state.sortKey = this.value; buildBody(); };
+    var sortDirEl = document.getElementById('pcSortDir');
+    if (sortDirEl) sortDirEl.onchange = function () { state.sortDir = this.value; buildBody(); };
 
     // 成本率口径下拉（一级 + 二级联动）
     var ctSel = document.getElementById('pcCostType');
