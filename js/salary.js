@@ -265,12 +265,13 @@
     var names = recs.slice(0, 3).map(function (r) { return nameById[r.empId] || r.empId || '未知'; }).join('、');
     var body = '<div class="form">' +
       '<p class="sal-tip">已选 <b>' + ids.length + '</b> 条记录：' + FW.esc(names) + (ids.length > 3 ? ' 等' : '') + '</p>' +
-      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBaseChk"> 修改底薪</label><input id="beBase" type="number" step="0.01" placeholder="留空则不变"></div>' +
-      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBonusChk"> 修改奖金</label><input id="beBonus" type="number" step="0.01" placeholder="留空则不变"></div>' +
-      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beCommChk"> 修改提成</label><input id="beComm" type="number" step="0.01" placeholder="留空则不变"></div>' +
-      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beRemarkChk"> 修改备注</label><input id="beRemark" type="text" placeholder="留空则不变"></div>' +
+      '<p class="sal-tip" style="margin-top:2px">勾选要修改的项，填写金额，并在「项目」里指定归入哪个项目（留空表示不分类）。</p>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBaseChk"> 底薪</label><input id="beBase" type="number" step="0.01" placeholder="金额"><input id="beBaseProj" type="text" placeholder="项目名"></div>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBonusChk"> 奖金</label><input id="beBonus" type="number" step="0.01" placeholder="金额"><input id="beBonusProj" type="text" placeholder="项目名"></div>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beCommChk"> 提成</label><input id="beComm" type="number" step="0.01" placeholder="金额"><input id="beCommProj" type="text" placeholder="项目名"></div>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beRemarkChk"> 备注</label><input id="beRemark" type="text" placeholder="留空则不变"></div>' +
       '</div>' +
-      '<div class="modal-foot"><button class="btn" id="beCancel">取消</button><button class="btn primary" id="beOk">确认修改</button></div>';
+      '<div class="modal-foot"><button class="btn" id="beCancel">取消</button><button class="btn" id="beOk">确认修改</button></div>';
     FW.openModal('批量修改工资记录', body, function () {
       document.getElementById('beCancel').onclick = FW.closeModal;
       document.getElementById('beOk').onclick = function () {
@@ -281,14 +282,20 @@
         var base = num(document.getElementById('beBase').value);
         var bonus = num(document.getElementById('beBonus').value);
         var commission = num(document.getElementById('beComm').value);
+        var baseProj = document.getElementById('beBaseProj').value.trim();
+        var bonusProj = document.getElementById('beBonusProj').value.trim();
+        var commProj = document.getElementById('beCommProj').value.trim();
         var remark = document.getElementById('beRemark').value;
         if (!baseChk && !bonusChk && !commChk && !remarkChk) { FW.toast('请至少勾选一项要修改的内容'); return; }
+        if (baseChk && !document.getElementById('beBase').value) { FW.toast('请填写底薪金额'); return; }
+        if (bonusChk && !document.getElementById('beBonus').value) { FW.toast('请填写奖金金额'); return; }
+        if (commChk && !document.getElementById('beComm').value) { FW.toast('请填写提成金额'); return; }
         var updated = 0;
         recs.forEach(function (r) {
           var obj = JSON.parse(JSON.stringify(r));
-          if (baseChk) { obj.base = base; obj.baseItems = base > 0 ? [{ project: '', amount: base }] : []; }
-          if (bonusChk) { obj.bonus = bonus; obj.bonusItems = bonus > 0 ? [{ project: '', amount: bonus }] : []; }
-          if (commChk) { obj.commission = commission; obj.commissionItems = commission > 0 ? [{ project: '', amount: commission }] : []; }
+          if (baseChk) { obj.base = base; obj.baseItems = [{ project: baseProj, amount: base }]; }
+          if (bonusChk) { obj.bonus = bonus; obj.bonusItems = [{ project: bonusProj, amount: bonus }]; }
+          if (commChk) { obj.commission = commission; obj.commissionItems = [{ project: commProj, amount: commission }]; }
           if (remarkChk) obj.remark = remark;
           FW.db.upsert('salary_records', obj);
           updated++;
