@@ -191,6 +191,13 @@
         FW.toast('已删除 ' + ids.length + ' 条记录');
         render();
       };
+      var batchEditBtn = document.getElementById('recBatchEdit');
+      if (batchEditBtn) batchEditBtn.onclick = function () {
+        var ids = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.rec-table .rec-check:checked'), function (c) { ids.push(c.value); });
+        if (!ids.length) { FW.toast('请先勾选要修改的记录'); return; }
+        openBatchEdit(ids);
+      };
     }
   }
 
@@ -215,12 +222,13 @@
       if (na !== nb) return na.localeCompare(nb, 'zh-Hans-CN');
       return a.month - b.month;
     });
-    var html = '<p class="sal-tip">💡 这里列出 <b>' + state.year + '</b> 年导入 / 登记的所有工资记录。点「编辑」可改底薪 / 奖金 / 提成 / 备注（支持按项目拆分），点「删除」可移除整条记录；勾选多行后可「批量删除选中」。也可切回「工资表」点具体格子修改某月。</p>';
+    var html = '<p class="sal-tip">💡 这里列出 <b>' + state.year + '</b> 年导入 / 登记的所有工资记录。点「编辑」可改底薪 / 奖金 / 提成 / 备注（支持按项目拆分），点「删除」可移除整条记录；勾选多行后可「批量修改选中」或「批量删除选中」。也可切回「工资表」点具体格子修改某月。</p>';
     html += '<div class="rec-toolbar"><span class="muted">共 ' + recs.length + ' 条记录</span>' +
+      '<button class="btn sm" id="recBatchEdit">批量修改选中</button>' +
       '<button class="btn sm danger" id="recBatchDel">🗑 批量删除选中 (<span id="recSelCount">0</span>)</button></div>';
     html += '<table class="rec-table"><thead><tr>' +
-      '<th class="rec-cb-col"><input type="checkbox" id="recCheckAll" title="全选"></th>' +
-      '<th>员工</th><th>月份</th>' +
+      '<th class="rec-cb-col"><label class="rec-checkall"><input type="checkbox" id="recCheckAll"> 全选</label></th>' +
+      '<th class="rec-emp-col">员工</th><th class="rec-month-col">月份</th>' +
       '<th class="num">底薪</th><th class="num">奖金</th><th class="num">提成</th>' +
       '<th>备注</th><th>操作</th>' +
       '</tr></thead><tbody>';
@@ -228,11 +236,11 @@
       html += '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">暂无记录。可点「📥 导入工资」导入，或切到「工资表」点格子逐月登记。</td></tr>';
     } else {
       recs.forEach(function (r) {
-        var nm = empName[r.empId] || r.empId;
+        var nm = empName[r.empId] || r.empId || '（未知员工）';
         html += '<tr>' +
           '<td class="rec-cb-col"><input type="checkbox" class="rec-check" value="' + FW.esc(r.id) + '"></td>' +
-          '<td>' + FW.esc(nm) + '</td>' +
-          '<td>' + r.month + '月</td>' +
+          '<td class="rec-emp-col">' + FW.esc(nm) + '</td>' +
+          '<td class="rec-month-col">' + r.month + '月</td>' +
           '<td class="num">' + FW.fmtMoney(r.base || 0) + '</td>' +
           '<td class="num">' + FW.fmtMoney(r.bonus || 0) + '</td>' +
           '<td class="num">' + FW.fmtMoney(r.commission || 0) + '</td>' +
@@ -245,6 +253,51 @@
     }
     html += '</tbody></table>';
     return html;
+  }
+
+  // 批量修改：勾选多条后统一改底薪/奖金/提成/备注
+  function openBatchEdit(ids) {
+    var emps = getEmps();
+    var nameById = {};
+    emps.forEach(function (e) { nameById[e.id] = e.name; });
+    var recs = getRecs().filter(function (r) { return ids.indexOf(r.id) > -1; });
+    if (!recs.length) { FW.toast('未找到选中的记录'); return; }
+    var names = recs.slice(0, 3).map(function (r) { return nameById[r.empId] || r.empId || '未知'; }).join('、');
+    var body = '<div class="form">' +
+      '<p class="sal-tip">已选 <b>' + ids.length + '</b> 条记录：' + FW.esc(names) + (ids.length > 3 ? ' 等' : '') + '</p>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBaseChk"> 修改底薪</label><input id="beBase" type="number" step="0.01" placeholder="留空则不变"></div>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beBonusChk"> 修改奖金</label><input id="beBonus" type="number" step="0.01" placeholder="留空则不变"></div>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beCommChk"> 修改提成</label><input id="beComm" type="number" step="0.01" placeholder="留空则不变"></div>' +
+      '<div class="form-row be-row"><label class="be-label"><input type="checkbox" id="beRemarkChk"> 修改备注</label><input id="beRemark" type="text" placeholder="留空则不变"></div>' +
+      '</div>' +
+      '<div class="modal-foot"><button class="btn" id="beCancel">取消</button><button class="btn primary" id="beOk">确认修改</button></div>';
+    FW.openModal('批量修改工资记录', body, function () {
+      document.getElementById('beCancel').onclick = FW.closeModal;
+      document.getElementById('beOk').onclick = function () {
+        var baseChk = document.getElementById('beBaseChk').checked;
+        var bonusChk = document.getElementById('beBonusChk').checked;
+        var commChk = document.getElementById('beCommChk').checked;
+        var remarkChk = document.getElementById('beRemarkChk').checked;
+        var base = num(document.getElementById('beBase').value);
+        var bonus = num(document.getElementById('beBonus').value);
+        var commission = num(document.getElementById('beComm').value);
+        var remark = document.getElementById('beRemark').value;
+        if (!baseChk && !bonusChk && !commChk && !remarkChk) { FW.toast('请至少勾选一项要修改的内容'); return; }
+        var updated = 0;
+        recs.forEach(function (r) {
+          var obj = JSON.parse(JSON.stringify(r));
+          if (baseChk) { obj.base = base; obj.baseItems = base > 0 ? [{ project: '', amount: base }] : []; }
+          if (bonusChk) { obj.bonus = bonus; obj.bonusItems = bonus > 0 ? [{ project: '', amount: bonus }] : []; }
+          if (commChk) { obj.commission = commission; obj.commissionItems = commission > 0 ? [{ project: '', amount: commission }] : []; }
+          if (remarkChk) obj.remark = remark;
+          FW.db.upsert('salary_records', obj);
+          updated++;
+        });
+        FW.closeModal();
+        FW.toast('已更新 ' + updated + ' 条记录');
+        render();
+      };
+    });
   }
 
   function drawTableView(rows) {
