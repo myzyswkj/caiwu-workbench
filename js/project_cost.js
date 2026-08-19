@@ -92,7 +92,7 @@
 
     var map = {};
     function ensure(p) {
-      if (!map[p]) map[p] = { revenue: 0, flowCost: 0, laborCost: 0, byCat: {}, byCat2: {}, laborByType: { base: 0, bonus: 0, commission: 0 }, recoverable: 0, recoverList: [] };
+      if (!map[p]) map[p] = { revenue: 0, flowCost: 0, laborCost: 0, byCat: {}, byCat2: {}, revByCat: {}, revByCat2: {}, laborByType: { base: 0, bonus: 0, commission: 0 }, recoverable: 0, recoverList: [] };
       return map[p];
     }
 
@@ -110,7 +110,13 @@
         if (split) {
           if (t.type === 'income') {
             // 收入分摊：各项目收入增加；已扣支出(dv)按单项目字段归属成本，无单项目则进未分配
-            split.forEach(function (s) { ensure(s.project).revenue += s.amount; });
+            split.forEach(function (s) {
+              var dd = ensure(s.project);
+              dd.revenue += s.amount;
+              var rn1 = cat1(t), rn2 = catFull(t);
+              dd.revByCat[rn1] = (dd.revByCat[rn1] || 0) + s.amount;
+              dd.revByCat2[rn2] = (dd.revByCat2[rn2] || 0) + s.amount;
+            });
             if (dv > 0) {
               var dvp = (t.project || '').trim();
               if (dvp) { var dd = ensure(dvp); dd.flowCost += dv; var dn1 = cat1(t), dn2 = catFull(t); dd.byCat[dn1] = (dd.byCat[dn1] || 0) + dv; dd.byCat2[dn2] = (dd.byCat2[dn2] || 0) + dv; }
@@ -137,7 +143,10 @@
       if (t.type === 'income') {
         // 实际收入 = 到账净额 + 已扣支出（还原毛额）；已扣支出计入流水成本（只计一次，不重复）
         d.revenue += (a + dv);
-        if (dv > 0) { var ic = cat1(t); var icf = catFull(t); d.flowCost += dv; d.byCat[ic] = (d.byCat[ic] || 0) + dv; d.byCat2[icf] = (d.byCat2[icf] || 0) + dv; }
+        var ic = cat1(t), icf = catFull(t);
+        d.revByCat[ic] = (d.revByCat[ic] || 0) + (a + dv);
+        d.revByCat2[icf] = (d.revByCat2[icf] || 0) + (a + dv);
+        if (dv > 0) { d.flowCost += dv; d.byCat[ic] = (d.byCat[ic] || 0) + dv; d.byCat2[icf] = (d.byCat2[icf] || 0) + dv; }
       }
       else if (t.type === 'expense') { d.flowCost += a; var c = cat1(t); var cf = catFull(t); d.byCat[c] = (d.byCat[c] || 0) + a; d.byCat2[cf] = (d.byCat2[cf] || 0) + a; }
       else if (t.type === 'refund') { d.flowCost -= a; var c2 = cat1(t); var cf2 = catFull(t); d.byCat[c2] = (d.byCat[c2] || 0) - a; d.byCat2[cf2] = (d.byCat2[cf2] || 0) - a; }
@@ -184,7 +193,7 @@
       return {
         project: p, revenue: d.revenue, flowCost: d.flowCost, laborCost: d.laborCost,
         totalCost: totalCost, profit: profit, rate: rate, roi: roi, gain: profit >= 0,
-        rank: idx + 1, byCat: d.byCat, byCat2: d.byCat2, laborByType: d.laborByType, recoverable: d.recoverable || 0, recoverList: d.recoverList || []
+        rank: idx + 1, byCat: d.byCat, byCat2: d.byCat2, revByCat: d.revByCat, revByCat2: d.revByCat2, laborByType: d.laborByType, recoverable: d.recoverable || 0, recoverList: d.recoverList || []
       };
     });
 
@@ -575,8 +584,12 @@
         if (!e.target) return;
         // 签收单量输入框不触发行展开
         if (e.target.tagName === 'INPUT' || (e.target.closest && e.target.closest('.pc-qty-cell'))) return;
-        // 【新增】点击收入金额不触发行展开，改为弹出收入明细（由下面的独立事件处理）
-        if (e.target.classList && e.target.classList.contains('amt-income')) return;
+        // 【新增】点击收入金额 → 弹出收入明细
+        var incomeCell = e.target.closest ? e.target.closest('td.amt-income.clickable-amt') : null;
+        if (incomeCell) {
+          var incTr = incomeCell.closest ? incomeCell.closest('tr[data-p]') : null;
+          if (incTr) { openIncomeDetail(incTr.getAttribute('data-p')); return; }
+        }
         var tr = e.target.closest ? e.target.closest('tr[data-p]') : null;
         if (!tr) return;
         var p = tr.getAttribute('data-p');
@@ -601,19 +614,7 @@
       };
     }
 
-    // 【新增】收入金额点击 → 弹出收入明细（独立于行展开事件）
-    var incomeCells = document.querySelectorAll('#pcTable tbody .amt-income');
-    incomeCells.forEach(function (cell) {
-      cell.style.cursor = 'pointer';
-      cell.title = '点击查看收入明细';
-      cell.onclick = function (e) {
-        e.stopPropagation(); // 阻止冒泡触发行展开
-        var tr = this.closest('tr[data-p]');
-        if (tr) {
-          openIncomeDetail(tr.getAttribute('data-p'));
-        }
-      };
-    });
+    // 收入金额样式已在 tableHtml 中通过 clickable-amt 类设置
   }
 
   function statCard(label, val, cls) {
@@ -768,48 +769,59 @@
       '<div class="muted" style="font-size:12px;margin:-6px 0 8px">点项目行可展开查看该项目的成本分类、工资构成与应收回款项明细。<b>点击收入金额可查看收入流水明细。</b>注：本趋势为当月实际收支（不含预付款余额），表格「总成本 / 利润」为已扣除应收回款项（预付未用完）的口径。</div>';
   }
 
+  // 按一二级分类渲染明细表（用于收入构成 / 流水成本构成）
+  function cat2DetailTable(byCat2, colorClass) {
+    var cat2Keys = Object.keys(byCat2 || {}).filter(function (k) { return byCat2[k] !== 0; });
+    if (!cat2Keys.length) return '';
+    // 按一级分组
+    var grouped = {};
+    cat2Keys.forEach(function (full) {
+      var parts = full.split(' / ');
+      var lvl1 = (parts[0] || '').trim() || '其他';
+      var lvl2 = (parts.slice(1).join(' / ') || '').trim() || '其他';
+      if (!grouped[lvl1]) grouped[lvl1] = [];
+      grouped[lvl1].push({ full: full, sub: lvl2, val: byCat2[full] });
+    });
+    // 按一级的合计降序
+    var lvl1Order = Object.keys(grouped).map(function (l1) {
+      return { l1: l1, total: grouped[l1].reduce(function (s, x) { return s + x.val; }, 0), items: grouped[l1] };
+    }).sort(function (a, b) { return b.total - a.total; });
+
+    var h = '<table class="pc-cat2-table"><thead><tr><th>一级分类</th><th>二级分类</th><th class="num">金额</th></tr></thead><tbody>';
+    lvl1Order.forEach(function (g) {
+      g.items.sort(function (a, b) { return Math.abs(b.val) - Math.abs(a.val); });
+      var rowSpan = g.items.length;
+      g.items.forEach(function (it, ii) {
+        h += '<tr>';
+        if (ii === 0) h += '<td rowspan="' + rowSpan + '" class="cat2-l1">' + FW.esc(g.l1) + '</td>';
+        h += '<td class="cat2-l2">' + FW.esc(it.sub) + '</td>';
+        h += '<td class="num ' + colorClass(it.val) + '">' + FW.fmtMoney(it.val) + '</td></tr>';
+      });
+      // 一级小计行
+      h += '<tr class="cat2-subtotal"><td colspan="2" class="cat2-l1-total">「' + FW.esc(g.l1) + '」小计</td>';
+      h += '<td class="num"><b>' + FW.fmtMoney(g.total) + '</b></td></tr>';
+    });
+    h += '</tbody></table>';
+    return h;
+  }
+
   // 下钻明细
   function detailHtml(r) {
     var h = '<tr class="pc-detail-row"><td colspan="15"><div class="pc-detail">';
-    h += '<div class="pc-detail-block"><h5>利润形成（瀑布图）</h5>' + profitWaterfall(r) +
-      '<div class="muted" style="font-size:11px;margin-top:4px">收入 − 流水成本 + 应收回款项 − 工资成本 = 利润（应收回款项为预付未用完、从成本中扣除的可收回项）</div></div>';
+    h += '<div class="pc-detail-block"><h5>利润形成（瀑布图）</h5>' + profitWaterfall(r);
+    // 瀑布图下方：收入构成按分类明细
+    var revCatTable = cat2DetailTable(r.revByCat2, function () { return 'amt-income'; });
+    if (revCatTable) {
+      h += '<div style="margin-top:12px"><h5 style="margin:0 0 8px;font-size:13px;color:var(--text)">收入构成（按分类）</h5>' + revCatTable + '</div>';
+    }
+    h += '<div class="muted" style="font-size:11px;margin-top:8px">收入 − 流水成本 + 应收回款项 − 工资成本 = 利润（应收回款项为预付未用完、从成本中扣除的可收回项）</div></div>';
     var cats = Object.keys(r.byCat).map(function (c) { return { label: c, value: r.byCat[c] }; }).sort(function (a, b) { return b.value - a.value; });
     h += '<div class="pc-detail-block"><h5>流水成本构成（按分类）</h5>';
     h += cats.length ? FW.barChart('', cats, { height: 180 }) : '<div class="muted">无</div>';
 
     // 二级分类明细：按一级分组，展示 "一级 → 二级 → 金额"
-    var cat2Keys = Object.keys(r.byCat2 || {}).filter(function (k) { return r.byCat2[k] !== 0; });
-    if (cat2Keys.length) {
-      // 按一级分组
-      var grouped = {};
-      cat2Keys.forEach(function (full) {
-        var parts = full.split(' / ');
-        var lvl1 = (parts[0] || '').trim() || '其他';
-        var lvl2 = (parts.slice(1).join(' / ') || '').trim() || '其他';
-        if (!grouped[lvl1]) grouped[lvl1] = [];
-        grouped[lvl1].push({ full: full, sub: lvl2, val: r.byCat2[full] });
-      });
-      // 按一级的合计降序
-      var lvl1Order = Object.keys(grouped).map(function (l1) {
-        return { l1: l1, total: grouped[l1].reduce(function (s, x) { return s + x.val; }, 0), items: grouped[l1] };
-      }).sort(function (a, b) { return b.total - a.total; });
-
-      h += '<table class="pc-cat2-table"><thead><tr><th>一级分类</th><th>二级分类</th><th class="num">金额</th></tr></thead><tbody>';
-      lvl1Order.forEach(function (g) {
-        g.items.sort(function (a, b) { return Math.abs(b.val) - Math.abs(a.val); });
-        var rowSpan = g.items.length;
-        g.items.forEach(function (it, ii) {
-          h += '<tr>';
-          if (ii === 0) h += '<td rowspan="' + rowSpan + '" class="cat2-l1">' + FW.esc(g.l1) + '</td>';
-          h += '<td class="cat2-l2">' + FW.esc(it.sub) + '</td>';
-          h += '<td class="num ' + (it.val >= 0 ? 'amt-expense' : 'amt-recover') + '">' + FW.fmtMoney(it.val) + '</td></tr>';
-        });
-        // 一级小计行
-        h += '<tr class="cat2-subtotal"><td colspan="2" class="cat2-l1-total">「' + FW.esc(g.l1) + '」小计</td>';
-        h += '<td class="num"><b>' + FW.fmtMoney(g.total) + '</b></td></tr>';
-      });
-      h += '</tbody></table>';
-    }
+    var costCatTable = cat2DetailTable(r.byCat2, function (v) { return v >= 0 ? 'amt-expense' : 'amt-recover'; });
+    if (costCatTable) h += costCatTable;
 
     h += '</div>';
     var lt = [
