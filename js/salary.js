@@ -80,7 +80,7 @@
   FW.salaryAgg = function (year) { return buildMindData(year); };
 
   // ===== 渲染 =====
-  var state = { year: new Date().getFullYear(), tab: 'table' };
+  var state = { year: new Date().getFullYear(), tab: 'table', recSearch: '' };
   var MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
   function render() {
@@ -191,7 +191,11 @@
       }
       var chkAll = document.getElementById('recCheckAll');
       if (chkAll) chkAll.onchange = function () {
-        Array.prototype.forEach.call(document.querySelectorAll('.rec-table .rec-check'), function (c) { c.checked = chkAll.checked; });
+        Array.prototype.forEach.call(document.querySelectorAll('.rec-table .rec-check'), function (c) {
+          var tr = c.closest('tr');
+          if (tr && tr.style.display === 'none') return;
+          c.checked = chkAll.checked;
+        });
         updateRecSel();
       };
       Array.prototype.forEach.call(document.querySelectorAll('.rec-table .rec-check'), function (c) { c.onchange = updateRecSel; });
@@ -213,6 +217,25 @@
         openBatchEdit(ids);
       };
       updateRecSel();
+      var searchBox = document.getElementById('recSearch');
+      if (searchBox) {
+        function applyFilter() {
+          var q = (searchBox.value || '').trim().toLowerCase();
+          state.recSearch = searchBox.value;
+          var shown = 0;
+          Array.prototype.forEach.call(document.querySelectorAll('.rec-table tbody tr'), function (tr) {
+            var hit = !q || (tr.getAttribute('data-kw') || '').indexOf(q) > -1;
+            tr.style.display = hit ? '' : 'none';
+            if (!hit) { var cb = tr.querySelector('.rec-check'); if (cb) cb.checked = false; }
+            if (hit) shown++;
+          });
+          var cnt = document.getElementById('recCount');
+          if (cnt) cnt.textContent = q ? ('筛出 ' + shown + ' / ' + recs.length + ' 条') : ('共 ' + recs.length + ' 条记录');
+          updateRecSel();
+        }
+        searchBox.oninput = applyFilter;
+        applyFilter();
+      }
     }
   }
 
@@ -238,7 +261,8 @@
       return a.month - b.month;
     });
     var html = '<p class="sal-tip">💡 这里列出 <b>' + state.year + '</b> 年导入 / 登记的所有工资记录。点「编辑」可改底薪 / 奖金 / 提成 / 备注（支持按项目拆分），点「删除」可移除整条记录；勾选多行后可「批量修改选中」或「批量删除选中」。也可切回「工资表」点具体格子修改某月。</p>';
-    html += '<div class="rec-toolbar"><span class="muted">共 ' + recs.length + ' 条记录</span>' +
+    html += '<div class="rec-toolbar"><span class="muted" id="recCount">共 ' + recs.length + ' 条记录</span>' +
+      '<input id="recSearch" class="rec-search" type="text" placeholder="🔍 搜索 姓名 / 月份 / 备注" value="' + FW.esc(state.recSearch) + '">' +
       '<button class="btn sm" id="recBatchEdit">批量修改选中</button>' +
       '<button class="btn sm danger" id="recBatchDel">🗑 批量删除选中 (<span id="recSelCount">0</span>)</button></div>';
     html += '<table class="rec-table"><thead><tr>' +
@@ -252,7 +276,8 @@
     } else {
       recs.forEach(function (r) {
         var nm = empName[r.empId] || r.empId || '（未知员工）';
-        html += '<tr>' +
+        var kw = (nm + ' ' + r.month + '月 ' + (r.remark || '')).toLowerCase();
+        html += '<tr data-kw="' + FW.esc(kw) + '">' +
           '<td class="rec-cb-col"><input type="checkbox" class="rec-check" value="' + FW.esc(r.id) + '"></td>' +
           '<td class="rec-emp-col">' + FW.esc(nm) + '</td>' +
           '<td class="rec-month-col">' + r.month + '月</td>' +
