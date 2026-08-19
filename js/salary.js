@@ -461,11 +461,22 @@
     var recBonusItems = (rec && rec.bonusItems && rec.bonusItems.length) ? rec.bonusItems : (rec && num(rec.bonus) > 0 ? [{ project: '', amount: num(rec.bonus) }] : []);
     var recCommItems = (rec && rec.commissionItems && rec.commissionItems.length) ? rec.commissionItems : (rec && num(rec.commission) > 0 ? [{ project: '', amount: num(rec.commission) }] : []);
 
+    var projOpts = getProjectNames();
+    function projSelect(selected) {
+      selected = (selected || '').trim();
+      var html = '<select class="pi-proj"><option value=""' + (selected ? '' : ' selected') + '>— 不分类 —</option>';
+      projOpts.forEach(function (p) {
+        html += '<option value="' + FW.esc(p) + '"' + (p === selected ? ' selected' : '') + '>' + FW.esc(p) + '</option>';
+      });
+      html += '</select>';
+      return html;
+    }
+
     function rowsHtml(items, kindLabel) {
       if (!items.length) return '<div class="pi-empty muted">暂无，点下面「＋ 添加' + kindLabel + '项」</div>';
       return items.map(function (it) {
         return '<div class="pi-row">' +
-          '<input class="pi-proj" type="text" value="' + FW.esc(it.project || '') + '" placeholder="项目/客户名（可空）">' +
+          projSelect(it.project) +
           '<input class="pi-amt" type="number" step="0.01" value="' + (it.amount != null ? it.amount : '') + '" placeholder="金额">' +
           '<button type="button" class="btn sm danger pi-del">✕</button></div>';
       }).join('');
@@ -515,7 +526,7 @@
           var empty = cont.querySelector('.pi-empty'); if (empty) cont.removeChild(empty);
           var div = document.createElement('div');
           div.className = 'pi-row';
-          div.innerHTML = '<input class="pi-proj" type="text" placeholder="项目/客户（可空）"><input class="pi-amt" type="number" step="0.01" placeholder="金额"><button type="button" class="btn sm danger pi-del">✕</button>';
+          div.innerHTML = projSelect('') + '<input class="pi-amt" type="number" step="0.01" placeholder="金额"><button type="button" class="btn sm danger pi-del">✕</button>';
           cont.appendChild(div);
           div.querySelector('.pi-amt').oninput = function () { recompute(cid, tid); };
           div.querySelector('.pi-del').onclick = function () { cont.removeChild(div); recompute(cid, tid); };
