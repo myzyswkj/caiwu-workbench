@@ -4,7 +4,7 @@
  *  - 静态资源（js/css/png/svg）：stale-while-revalidate，先秒开再后台更新
  *  - 跨域请求（Supabase 等）一律放行，不进缓存
  */
-const CACHE = 'cw-cache-v10';
+const CACHE = 'cw-cache-v11';
 const PRECACHE = [
   './',
   './index.html',
