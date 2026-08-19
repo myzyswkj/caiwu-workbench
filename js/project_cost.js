@@ -325,6 +325,11 @@
       } else if (key === 'roi') {
         va = a.roi === Infinity ? Number.MAX_VALUE : a.roi;
         vb = b.roi === Infinity ? Number.MAX_VALUE : b.roi;
+      } else if (key === 'project') {
+        var ca = (a.project || '').toString(), cb = (b.project || '').toString();
+        var cmp = ca.localeCompare(cb, 'zh-Hans-CN');
+        if (cmp === 0) return 0;
+        return cmp < 0 ? -dir : dir;
       } else {
         va = (typeof a[key] === 'number') ? a[key] : 0;
         vb = (typeof b[key] === 'number') ? b[key] : 0;
@@ -523,7 +528,7 @@
       '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"' + (state.costExcl ? ' checked' : '') + '> 剔除所选成本类</label>' +
       '<span class="pc-sort-label">排序</span>' +
       '<select id="pcSortKey" class="pc-year">' +
-      [['profit', '利润'], ['revenue', '收入'], ['flowCost', '流水成本'], ['recoverable', '应收回款项'], ['laborCost', '工资成本'], ['totalCost', '总成本'], ['rate', '利润率'], ['cr', '成本率'], ['roi', '投入产出比'], ['qty', '签收单量']]
+      [['profit', '利润'], ['revenue', '收入'], ['flowCost', '流水成本'], ['recoverable', '应收回款项'], ['laborCost', '工资成本'], ['totalCost', '总成本'], ['rate', '利润率'], ['cr', '成本率'], ['roi', '投入产出比'], ['qty', '签收单量'], ['project', '项目']]
         .map(function (o) { return '<option value="' + o[0] + '"' + (state.sortKey === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
       '</select>' +
       '<select id="pcSortDir" class="pc-year">' +
