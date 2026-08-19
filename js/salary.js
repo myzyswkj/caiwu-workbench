@@ -164,6 +164,30 @@
           render();
         };
       });
+      function updateRecSel() {
+        var all = document.querySelectorAll('.rec-table .rec-check');
+        var checked = document.querySelectorAll('.rec-table .rec-check:checked');
+        var n = checked.length;
+        var cnt = document.getElementById('recSelCount'); if (cnt) cnt.textContent = n;
+        var ca = document.getElementById('recCheckAll');
+        if (ca) ca.checked = all.length > 0 && n === all.length;
+      }
+      var chkAll = document.getElementById('recCheckAll');
+      if (chkAll) chkAll.onchange = function () {
+        Array.prototype.forEach.call(document.querySelectorAll('.rec-table .rec-check'), function (c) { c.checked = chkAll.checked; });
+        updateRecSel();
+      };
+      Array.prototype.forEach.call(document.querySelectorAll('.rec-table .rec-check'), function (c) { c.onchange = updateRecSel; });
+      var batchBtn = document.getElementById('recBatchDel');
+      if (batchBtn) batchBtn.onclick = function () {
+        var ids = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.rec-table .rec-check:checked'), function (c) { ids.push(c.value); });
+        if (!ids.length) { FW.toast('请先勾选要删除的记录'); return; }
+        if (!window.confirm('确定删除选中的 ' + ids.length + ' 条工资记录？此操作不可恢复。')) return;
+        ids.forEach(function (id) { FW.db.remove('salary_records', id); });
+        FW.toast('已删除 ' + ids.length + ' 条记录');
+        render();
+      };
     }
   }
 
@@ -188,19 +212,22 @@
       if (na !== nb) return na.localeCompare(nb, 'zh-Hans-CN');
       return a.month - b.month;
     });
-    var html = '<p class="sal-tip">💡 这里列出 <b>' + state.year + '</b> 年导入 / 登记的所有工资记录。点「编辑」可改底薪 / 奖金 / 提成 / 备注（支持按项目拆分），点「删除」可移除整条记录。也可切回「工资表」点具体格子修改某月。</p>';
-    html += '<div class="rec-toolbar"><span class="muted">共 ' + recs.length + ' 条记录</span></div>';
+    var html = '<p class="sal-tip">💡 这里列出 <b>' + state.year + '</b> 年导入 / 登记的所有工资记录。点「编辑」可改底薪 / 奖金 / 提成 / 备注（支持按项目拆分），点「删除」可移除整条记录；勾选多行后可「批量删除选中」。也可切回「工资表」点具体格子修改某月。</p>';
+    html += '<div class="rec-toolbar"><span class="muted">共 ' + recs.length + ' 条记录</span>' +
+      '<button class="btn sm danger" id="recBatchDel">🗑 批量删除选中 (<span id="recSelCount">0</span>)</button></div>';
     html += '<table class="rec-table"><thead><tr>' +
+      '<th class="rec-cb-col"><input type="checkbox" id="recCheckAll" title="全选"></th>' +
       '<th>员工</th><th>月份</th>' +
       '<th class="num">底薪</th><th class="num">奖金</th><th class="num">提成</th>' +
       '<th>备注</th><th>操作</th>' +
       '</tr></thead><tbody>';
     if (!recs.length) {
-      html += '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">暂无记录。可点「📥 导入工资」导入，或切到「工资表」点格子逐月登记。</td></tr>';
+      html += '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">暂无记录。可点「📥 导入工资」导入，或切到「工资表」点格子逐月登记。</td></tr>';
     } else {
       recs.forEach(function (r) {
         var nm = empName[r.empId] || r.empId;
         html += '<tr>' +
+          '<td class="rec-cb-col"><input type="checkbox" class="rec-check" value="' + FW.esc(r.id) + '"></td>' +
           '<td>' + FW.esc(nm) + '</td>' +
           '<td>' + r.month + '月</td>' +
           '<td class="num">' + FW.fmtMoney(r.base || 0) + '</td>' +
