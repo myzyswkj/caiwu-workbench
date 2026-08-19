@@ -3,7 +3,10 @@
   var FW = window.FW || (window.FW = {});
 
   function num(v) {
-    var n = parseFloat(v);
+    if (v == null) return 0;
+    // Excel 常用千分位（10,000.00）或带 ¥/$ 符号，parseFloat 会在逗号处截断，先清理
+    var s = String(v).replace(/[\s\u00a5\u0024\uffe5]/g, '').replace(/,/g, '');
+    var n = parseFloat(s);
     return isNaN(n) ? 0 : n;
   }
 
