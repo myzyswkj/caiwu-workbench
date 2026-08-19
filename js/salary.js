@@ -198,6 +198,7 @@
         if (!ids.length) { FW.toast('请先勾选要修改的记录'); return; }
         openBatchEdit(ids);
       };
+      updateRecSel();
     }
   }
 
