@@ -1315,6 +1315,7 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .rec-table .rec-checkall input { width: 14px; height: 14px; }
 .rec-table .rec-emp-col { min-width: 80px; }
 .rec-table .rec-month-col { min-width: 50px; text-align: center; }
+.rec-table th.num { text-align: right; width: 90px; }
 
 /* 批量修改弹窗 */
 .be-row { display: flex; align-items: center; gap: 10px; }
