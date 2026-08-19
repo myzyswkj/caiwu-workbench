@@ -1309,3 +1309,5 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .rec-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .rec-table .rec-ops { white-space: nowrap; }
 .rec-table .muted { color: var(--muted, #999); }
+.rec-table .rec-cb-col { width: 36px; text-align: center; padding-left: 4px; padding-right: 4px; }
+.rec-table .rec-cb-col input { width: 16px; height: 16px; cursor: pointer; }
