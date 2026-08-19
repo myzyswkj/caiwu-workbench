@@ -112,7 +112,8 @@
 
     // 子标签
     html += '<div class="tabs sal-tabs">' +
-      '<button class="tab ' + (state.tab !== 'mind' ? 'active' : '') + '" data-tab="table">工资表</button>' +
+      '<button class="tab ' + (state.tab === 'table' ? 'active' : '') + '" data-tab="table">工资表</button>' +
+      '<button class="tab ' + (state.tab === 'records' ? 'active' : '') + '" data-tab="records">记录管理</button>' +
       '<button class="tab ' + (state.tab === 'mind' ? 'active' : '') + '" data-tab="mind">项目工资图</button>' +
       '</div>';
 
@@ -132,6 +133,7 @@
     html += '<p class="sal-tip">💡 工资登记：逐月登记每个人的<strong>底薪</strong>、<strong>奖金</strong>与<strong>提成</strong>，三者分开记录；底薪、奖金与提成均可按<strong>项目/客户</strong>分类（点格子编辑时分行填写）。右侧自动累计各项。切到「项目工资图」可直观看到每个项目发了多少底薪、奖金与提成。</p>';
 
     if (state.tab === 'mind') html += drawMindView();
+    else if (state.tab === 'records') html += drawRecordsView();
     else html += drawTableView(rows);
 
     html += '</div>';
@@ -147,6 +149,22 @@
         };
       });
     }
+    if (state.tab === 'records') {
+      Array.prototype.forEach.call(document.querySelectorAll('.rec-table [data-edit]'), function (bt) {
+        bt.onclick = function () {
+          var rec = getRecs().filter(function (x) { return x.id === bt.getAttribute('data-edit'); })[0];
+          if (rec) openMonthEdit(rec.empId, rec.month);
+        };
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.rec-table [data-del]'), function (bt) {
+        bt.onclick = function () {
+          if (!window.confirm('确定删除这条工资记录？此操作不可恢复。')) return;
+          FW.db.remove('salary_records', bt.getAttribute('data-del'));
+          FW.toast('已删除该记录');
+          render();
+        };
+      });
+    }
   }
 
   function bindTabs() {
@@ -158,6 +176,45 @@
         state.tab = v; render();
       };
     });
+  }
+
+  // 记录管理：列出当前年份所有工资记录，支持编辑/删除
+  function drawRecordsView() {
+    var emps = getEmps();
+    var empName = {}; emps.forEach(function (e) { empName[e.id] = e.name; });
+    var recs = getRecs().filter(function (r) { return r.year === state.year; });
+    recs.sort(function (a, b) {
+      var na = (empName[a.empId] || ''), nb = (empName[b.empId] || '');
+      if (na !== nb) return na.localeCompare(nb, 'zh-Hans-CN');
+      return a.month - b.month;
+    });
+    var html = '<p class="sal-tip">💡 这里列出 <b>' + state.year + '</b> 年导入 / 登记的所有工资记录。点「编辑」可改底薪 / 奖金 / 提成 / 备注（支持按项目拆分），点「删除」可移除整条记录。也可切回「工资表」点具体格子修改某月。</p>';
+    html += '<div class="rec-toolbar"><span class="muted">共 ' + recs.length + ' 条记录</span></div>';
+    html += '<table class="rec-table"><thead><tr>' +
+      '<th>员工</th><th>月份</th>' +
+      '<th class="num">底薪</th><th class="num">奖金</th><th class="num">提成</th>' +
+      '<th>备注</th><th>操作</th>' +
+      '</tr></thead><tbody>';
+    if (!recs.length) {
+      html += '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">暂无记录。可点「📥 导入工资」导入，或切到「工资表」点格子逐月登记。</td></tr>';
+    } else {
+      recs.forEach(function (r) {
+        var nm = empName[r.empId] || r.empId;
+        html += '<tr>' +
+          '<td>' + FW.esc(nm) + '</td>' +
+          '<td>' + r.month + '月</td>' +
+          '<td class="num">' + FW.fmtMoney(r.base || 0) + '</td>' +
+          '<td class="num">' + FW.fmtMoney(r.bonus || 0) + '</td>' +
+          '<td class="num">' + FW.fmtMoney(r.commission || 0) + '</td>' +
+          '<td>' + FW.esc(r.remark || '') + '</td>' +
+          '<td class="rec-ops">' +
+            '<button class="btn sm" data-edit="' + FW.esc(r.id) + '">编辑</button> ' +
+            '<button class="btn sm danger" data-del="' + FW.esc(r.id) + '">删除</button>' +
+          '</td></tr>';
+      });
+    }
+    html += '</tbody></table>';
+    return html;
   }
 
   function drawTableView(rows) {
