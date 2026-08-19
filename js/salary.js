@@ -874,6 +874,7 @@
     var guess = guessSalaryMap(headers);
     var roles = [['ignore', '忽略'], ['name', '姓名'], ['dept', '部门'], ['month', '月份'], ['year', '年份'], ['base', '底薪'], ['bonus', '奖金'], ['commission', '提成']];
     var map = {};
+    var projOpts = getProjectNames().map(function (p) { return '<option value="' + FW.esc(p) + '">' + FW.esc(p) + '</option>'; }).join('');
     var selHtml = headers.map(function (h, i) {
       var def = guess.name === i ? 'name' : (guess.dept === i ? 'dept' : (guess.month === i ? 'month' : (guess.year === i ? 'year' : (guess.base === i ? 'base' : (guess.bonus === i ? 'bonus' : (guess.commission === i ? 'commission' : 'ignore'))))));
       map[i] = def;
@@ -884,6 +885,7 @@
     var body = '<div class="form" style="max-height:46vh;overflow:auto">' + selHtml + '</div>' +
       '<div class="form-row"><label>默认年份（无年份列时）</label><input id="salDefYear" type="number" value="' + state.year + '"></div>' +
       '<div class="form-row"><label>默认月份（文件无月份列时必填，已预填当月，可按需改）</label><input id="salDefMonth" type="number" min="1" max="12" value="' + (new Date().getMonth() + 1) + '" placeholder="如 3"></div>' +
+      '<div class="form-row"><label>默认项目（可选：本次导入的所有工资直接归入该项目，避免变成未分类）</label><select id="salDefProject"><option value="">— 不指定（保持未分类）—</option>' + projOpts + '</select></div>' +
       '<div id="salPrev" class="muted" style="font-size:12px;margin:8px 0"></div>' +
       '<div class="modal-foot"><button class="btn" id="salMapCancel">取消</button><button class="btn" id="salMapPrev">预览</button><button class="btn primary" id="salMapOk">确认导入</button></div>';
 
@@ -912,6 +914,7 @@
         var emps = getEmps();
         var byName = {};
         emps.forEach(function (e) { byName[(e.name || '').trim().toLowerCase()] = e; });
+        var defProject = (document.getElementById('salDefProject').value || '').trim();
         r.newEmps.forEach(function (nm) {
           var e = { id: 'emp_' + Date.now() + '_' + Math.floor(Math.random() * 1000), name: nm, dept: r.deptByEmp[nm] || '', remark: '' };
           FW.db.upsert('salary_employees', e);
@@ -921,9 +924,9 @@
           var emp = byName[(rec.name || '').trim().toLowerCase()];
           if (!emp) return;
           var id = recId(emp.id, rec.year, rec.month);
-          var baseItems = rec.base > 0 ? [{ project: '', amount: rec.base }] : [];
-          var bonusItems = rec.bonus > 0 ? [{ project: '', amount: rec.bonus }] : [];
-          var commissionItems = rec.commission > 0 ? [{ project: '', amount: rec.commission }] : [];
+          var baseItems = rec.base > 0 ? [{ project: defProject, amount: rec.base }] : [];
+          var bonusItems = rec.bonus > 0 ? [{ project: defProject, amount: rec.bonus }] : [];
+          var commissionItems = rec.commission > 0 ? [{ project: defProject, amount: rec.commission }] : [];
           FW.db.upsert('salary_records', { id: id, empId: emp.id, year: rec.year, month: rec.month, base: rec.base, bonus: rec.bonus, commission: rec.commission, baseItems: baseItems, bonusItems: bonusItems, commissionItems: commissionItems, remark: '' });
         });
         FW.closeModal();
