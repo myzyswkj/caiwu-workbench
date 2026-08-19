@@ -109,7 +109,7 @@
         var split = splitAmounts(t);
         if (split) {
           if (t.type === 'income') {
-            // 收入分摊：各项目收入增加；已扣支出(dv)按单项目字段归属成本，无单项目则进未分配
+            // 收入分摊：各项目收入增加
             split.forEach(function (s) {
               var dd = ensure(s.project);
               dd.revenue += s.amount;
@@ -117,10 +117,14 @@
               dd.revByCat[rn1] = (dd.revByCat[rn1] || 0) + s.amount;
               dd.revByCat2[rn2] = (dd.revByCat2[rn2] || 0) + s.amount;
             });
+            // 已扣支出(dv)按各项目分摊额占比计入对应项目流水成本（总额守恒、不再漏计）
             if (dv > 0) {
-              var dvp = (t.project || '').trim();
-              if (dvp) { var dd = ensure(dvp); dd.flowCost += dv; var dn1 = cat1(t), dn2 = catFull(t); dd.byCat[dn1] = (dd.byCat[dn1] || 0) + dv; dd.byCat2[dn2] = (dd.byCat2[dn2] || 0) + dv; }
-              else { unFlowCount++; unFlowAmt += dv; }
+              var sumAmt = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
+              var dn1 = cat1(t), dn2 = catFull(t);
+              split.forEach(function (s) {
+                var ddv = dv * s.amount / sumAmt;
+                if (ddv > 0) { var dd = ensure(s.project); dd.flowCost += ddv; dd.byCat[dn1] = (dd.byCat[dn1] || 0) + ddv; dd.byCat2[dn2] = (dd.byCat2[dn2] || 0) + ddv; }
+              });
             }
           } else {
             var sgn = t.type === 'refund' ? -1 : 1;
@@ -401,16 +405,19 @@
       var split = splitAmounts(t);
 
       if (split) {
-        // 分摊收入：只取目标项目的份额
+        // 分摊收入：只取目标项目的份额，并按占比补上应摊的已扣支出
+        var dvTotal = num(t.deduct);
+        var splitSum = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
         split.forEach(function (s) {
           if (s.project === projectName) {
+            var dShare = dvTotal > 0 ? dvTotal * s.amount / splitSum : 0;
             items.push({
               date: t.date || '',
               party: t.party || '',
               category: catFull(t),
               amount: s.amount,
-              deduct: 0,
-              actual: s.amount,
+              deduct: dShare,
+              actual: s.amount + dShare,
               remark: '(分摊)',
               id: t.id
             });
@@ -501,9 +508,11 @@
     top.innerHTML =
       '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
       '<button class="btn ghost" id="pcExportX">⬇ 导出Excel</button>' +
+      '<button class="btn ghost" id="pcBatchQty" title="批量粘贴 项目名,单量 录入签收单量">📝 批量录单量</button>' +
       '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
     document.getElementById('pcExport').onclick = function () { var v = getView(); exportCSV(v.rows, v.data); };
     document.getElementById('pcExportX').onclick = function () { var v = getView(); exportXLSX(v.rows, v.data); };
+    document.getElementById('pcBatchQty').onclick = function () { openBatchQty(); };
     document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
   }
 
@@ -535,6 +544,7 @@
       '<option value="desc"' + (state.sortDir === 'desc' ? ' selected' : '') + '>降序</option>' +
       '<option value="asc"' + (state.sortDir === 'asc' ? ' selected' : '') + '>升序</option>' +
       '</select>' +
+      '<button class="btn ghost" id="pcToggleAll">' + (Object.keys(state.expanded).length ? '收起全部' : '展开全部') + '</button>' +
       '</div>';
   }
 
@@ -577,6 +587,14 @@
     if (sortKeyEl) sortKeyEl.onchange = function () { state.sortKey = this.value; buildBody(); };
     var sortDirEl = document.getElementById('pcSortDir');
     if (sortDirEl) sortDirEl.onchange = function () { state.sortDir = this.value; buildBody(); };
+
+    // 展开全部 / 收起全部
+    var toggleEl = document.getElementById('pcToggleAll');
+    if (toggleEl) toggleEl.onclick = function () {
+      if (Object.keys(state.expanded).length > 0) state.expanded = {};
+      else rows.forEach(function (r) { state.expanded[r.project] = true; });
+      buildBody();
+    };
 
     // 成本率口径下拉（一级 + 二级联动）
     var ctSel = document.getElementById('pcCostType');
@@ -1008,6 +1026,35 @@
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     FW.toast('已导出 Excel');
+  }
+
+  // 批量录入签收单量：粘贴「项目名,单量」多行文本，一次性写入（单量=0 表示清空）
+  function openBatchQty() {
+    var body =
+      '<div class="muted" style="font-size:12px;margin-bottom:8px">每行填写：<b>项目名,单量</b>（逗号、中文逗号或空格分隔均可，单量=0 表示清空）。例如：<br><code>项目A,120</code> &nbsp; <code>项目B 85</code> &nbsp; <code>项目C，0</code></div>' +
+      '<textarea id="pcQtyInput" rows="10" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px" placeholder="项目A,120\n项目B,85"></textarea>' +
+      '<div class="form-actions"><button class="btn ghost" id="pcQtyCancel">取消</button><button class="btn" id="pcQtySave">保存</button></div>';
+    FW.openModal('批量录入签收单量', body, function () {
+      document.getElementById('pcQtyCancel').onclick = FW.closeModal;
+      document.getElementById('pcQtySave').onclick = function () {
+        var txt = document.getElementById('pcQtyInput').value || '';
+        var n = 0, bad = 0;
+        txt.split('\n').forEach(function (ln) {
+          ln = ln.trim();
+          if (!ln) return;
+          var m = ln.split(/[,，\s]+/);
+          if (m.length < 2) { bad++; return; }
+          var proj = (m[0] || '').trim();
+          var q = num(m[1]);
+          if (!proj) { bad++; return; }
+          setQty(proj, q);
+          n++;
+        });
+        FW.closeModal();
+        buildBody();
+        FW.toast(n ? ('已录入 ' + n + ' 个项目单量' + (bad ? ('，' + bad + ' 行格式有误已跳过') : '')) : (bad ? (bad + ' 行格式有误') : '无变更'));
+      };
+    });
   }
 
   // 批量校正：把按净额记的收入，补填被扣除的支出（已扣支出）
