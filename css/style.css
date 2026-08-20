@@ -1227,6 +1227,22 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
   opacity: 1;
 }
 
+/* 计算结果单元格：可点击下钻显示公式与分项 */
+.proj-sum-table td.calc-detail,
+.proj-sum-table td.calc-detail-total {
+  cursor: pointer;
+  transition: opacity .15s, background .15s;
+}
+.proj-sum-table td.calc-detail:hover,
+.proj-sum-table td.calc-detail-total:hover {
+  opacity: .78;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.proj-sum-table td.calc-detail-total {
+  font-weight: 700;
+}
+
 /* ===== 收入明细弹窗表格 ===== */
 .pc-income-detail-table {
   width: 100%;
