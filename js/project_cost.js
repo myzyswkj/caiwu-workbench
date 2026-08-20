@@ -17,6 +17,26 @@
   var FW = window.FW || (window.FW = {});
 
   function num(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+  // 表格列定义（用于「显示列」控制）
+  var COL_DEFS = [
+    { key: 'rank', label: '排名', fixed: true },
+    { key: 'project', label: '项目', fixed: true },
+    { key: 'qty', label: '签收单量' },
+    { key: 'revenue', label: '收入' },
+    { key: 'revUnit', label: '收入单产' },
+    { key: 'flowCost', label: '流水成本' },
+    { key: 'recoverable', label: '应收回款项' },
+    { key: 'laborCost', label: '工资成本' },
+    { key: 'totalCost', label: '总成本' },
+    { key: 'profit', label: '利润' },
+    { key: 'profitUnit', label: '净利润单产' },
+    { key: 'rate', label: '利润率' },
+    { key: 'costRate', label: '成本率', dynamicLabel: true },
+    { key: 'roi', label: '投入产出比' },
+    { key: 'pnl', label: '盈亏' }
+  ];
+
   // 往来账余额：金额 − 已核销
   function contactBalance(r) { return (Number(r.amount) || 0) - (Number(r.settled) || 0); }
 
@@ -292,7 +312,14 @@
     return Object.keys(set).sort();
   }
 
-  var state = { year: 'all', expanded: {}, kw: '', pnl: 'all', costType: '', costType2: '', costExcl: false, sortKey: 'profit', sortDir: 'desc', hiddenCats: {}, showCatPanel: false };
+  var state = {
+    year: 'all', expanded: {}, kw: '', pnl: 'all',
+    costType: '', costType2: '', costExcl: false,
+    sortKey: 'profit', sortDir: 'desc',
+    hiddenCats: {}, showCatPanel: false,
+    visibleCols: COL_DEFS.map(function (c) { return c.key; }),
+    showColPanel: false
+  };
 
   // 项目筛选（关键词匹配项目名 + 盈亏过滤）；纯函数，便于测试与外部复用
   function filterRows(rows, kw, pnl) {
@@ -555,6 +582,7 @@
       '<select id="pcCostType2" class="pc-year" disabled><option value="">全部二级</option></select>' +
       '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"' + (state.costExcl ? ' checked' : '') + '> 剔除所选成本类</label>' +
       '<button class="btn ghost" id="pcCatToggle">筛选成本分类 ▼</button>' +
+      '<button class="btn ghost" id="pcColToggle">显示列 ▼</button>' +
       '<span class="pc-sort-label">排序</span>' +
       '<select id="pcSortKey" class="pc-year">' +
       [['profit', '利润'], ['revenue', '收入'], ['flowCost', '流水成本'], ['recoverable', '应收回款项'], ['laborCost', '工资成本'], ['totalCost', '总成本'], ['rate', '利润率'], ['cr', '成本率'], ['roi', '投入产出比'], ['qty', '签收单量'], ['project', '项目']]
@@ -570,6 +598,11 @@
       '<div class="pc-cat-panel-hd"><b>显示的成本分类</b><span class="muted">取消勾选后，该分类会从流水成本、总成本、利润及成本率中剔除并重算</span></div>' +
       '<div class="pc-cat-list">' + catCheckboxes(data) + '</div>' +
       '<div class="pc-cat-panel-ft"><button class="btn sm" id="pcCatAll">全选</button> <button class="btn sm" id="pcCatNone">全不选</button></div>' +
+      '</div>' +
+      '<div id="pcColPanel" class="pc-cat-panel"' + (state.showColPanel ? '' : ' style="display:none"') + '>' +
+      '<div class="pc-cat-panel-hd"><b>显示的表格列</b><span class="muted">取消勾选后仅隐藏该列，不影响利润/成本率等计算结果</span></div>' +
+      '<div class="pc-cat-list">' + colCheckboxes() + '</div>' +
+      '<div class="pc-cat-panel-ft"><button class="btn sm" id="pcColAll">全选</button> <button class="btn sm" id="pcColNone">全不选</button></div>' +
       '</div>';
   }
 
@@ -581,6 +614,15 @@
       var checked = !state.hiddenCats[c];
       var amt = data.catTot[c] || 0;
       return '<label class="pc-cat-item"><input type="checkbox" class="pc-cat-chk" value="' + FW.esc(c) + '"' + (checked ? ' checked' : '') + '> ' + FW.esc(c) + ' <span class="muted">' + FW.fmtMoney(amt) + '</span></label>';
+    }).join('');
+  }
+
+  // 列显示控制面板里的复选框
+  function colCheckboxes() {
+    return COL_DEFS.map(function (c) {
+      var checked = state.visibleCols.indexOf(c.key) > -1;
+      var disabled = c.fixed ? ' disabled' : '';
+      return '<label class="pc-cat-item' + (c.fixed ? ' disabled' : '') + '"><input type="checkbox" class="pc-col-chk" value="' + FW.esc(c.key) + '"' + (checked ? ' checked' : '') + disabled + '> ' + FW.esc(c.label) + (c.fixed ? ' <span class="muted">固定</span>' : '') + '</label>';
     }).join('');
   }
 
@@ -683,6 +725,8 @@
     if (catToggle && catPanel) {
       catToggle.onclick = function () {
         state.showCatPanel = !state.showCatPanel;
+        // 列面板互斥：打开成本分类时关闭列面板
+        if (state.showCatPanel) { state.showColPanel = false; var colPanel = document.getElementById('pcColPanel'); if (colPanel) colPanel.style.display = 'none'; var colToggle = document.getElementById('pcColToggle'); if (colToggle) colToggle.textContent = '显示列 ▼'; }
         catPanel.style.display = state.showCatPanel ? '' : 'none';
         catToggle.textContent = '筛选成本分类 ' + (state.showCatPanel ? '▲' : '▼');
       };
@@ -696,6 +740,33 @@
       if (catAll) catAll.onclick = function () { state.hiddenCats = {}; buildBody(); };
       var catNone = document.getElementById('pcCatNone');
       if (catNone) catNone.onclick = function () { (data.allCats || Object.keys(data.catTot || {})).forEach(function (c) { state.hiddenCats[c] = 1; }); buildBody(); };
+    }
+
+    // 列显示控制面板
+    var colToggle = document.getElementById('pcColToggle');
+    var colPanel = document.getElementById('pcColPanel');
+    if (colToggle && colPanel) {
+      colToggle.onclick = function () {
+        state.showColPanel = !state.showColPanel;
+        // 成本分类面板互斥
+        if (state.showColPanel) { state.showCatPanel = false; if (catPanel) catPanel.style.display = 'none'; if (catToggle) catToggle.textContent = '筛选成本分类 ▼'; }
+        colPanel.style.display = state.showColPanel ? '' : 'none';
+        colToggle.textContent = '显示列 ' + (state.showColPanel ? '▲' : '▼');
+      };
+      Array.prototype.forEach.call(colPanel.querySelectorAll('.pc-col-chk'), function (chk) {
+        chk.onchange = function () {
+          if (this.checked) {
+            if (state.visibleCols.indexOf(this.value) < 0) state.visibleCols.push(this.value);
+          } else {
+            state.visibleCols = state.visibleCols.filter(function (k) { return k !== this.value; }.bind(this));
+          }
+          buildBody();
+        };
+      });
+      var colAll = document.getElementById('pcColAll');
+      if (colAll) colAll.onclick = function () { state.visibleCols = COL_DEFS.map(function (c) { return c.key; }); buildBody(); };
+      var colNone = document.getElementById('pcColNone');
+      if (colNone) colNone.onclick = function () { state.visibleCols = COL_DEFS.filter(function (c) { return c.fixed; }).map(function (c) { return c.key; }); buildBody(); };
     }
 
     // 下钻：点击项目行展开/收起明细
@@ -971,6 +1042,63 @@
     return h;
   }
 
+  // 表格单元格渲染（根据列 key 与行/合计数据生成）
+  function colTh(colKey) {
+    var def = COL_DEFS.find(function (c) { return c.key === colKey; });
+    var label = def ? def.label : colKey;
+    if (colKey === 'costRate') label = costRateLabel();
+    if (colKey === 'revenue') return '<th class="num">' + label + ' 👆</th>';
+    if (colKey === 'rank') return '<th class="pc-rank">' + label + '</th>';
+    if (['qty', 'revenue', 'revUnit', 'flowCost', 'recoverable', 'laborCost', 'totalCost', 'profit', 'profitUnit', 'rate', 'costRate', 'roi'].indexOf(colKey) > -1) return '<th class="num">' + label + '</th>';
+    return '<th>' + label + '</th>';
+  }
+  function colTd(colKey, r) {
+    var profitCls = r.profit >= 0 ? 'amt-income' : 'amt-expense';
+    var badge = r.profit >= 0 ? '<span class="badge ok">盈利</span>' : '<span class="badge bad">亏损</span>';
+    var open = !!state.expanded[r.project];
+    var qtyVal = r.qty ? r.qty : '';
+    var cr = costRateOf(r, state.costType, state.costType2, state.costExcl);
+    switch (colKey) {
+      case 'rank': return '<td class="pc-rank">' + r.rank + '</td>';
+      case 'project': return '<td><span class="pc-caret">' + (open ? '▾' : '▸') + '</span> ' + FW.esc(r.project) + '</td>';
+      case 'qty': return '<td class="num pc-qty-cell"><input class="pc-qty-in" type="number" min="0" step="1" value="' + qtyVal + '" placeholder="填单量" title="签收单量（手动录入，用于核算收入单产与净利润单产）"></td>';
+      case 'revenue': return '<td class="num amt-income clickable-amt" title="点击查看收入明细">' + FW.fmtMoney(r.revenue) + '</td>';
+      case 'revUnit': return '<td class="num" data-unit="rev">' + (r.revUnit == null ? '—' : FW.fmtMoney(r.revUnit)) + '</td>';
+      case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(r.flowCost) + '</td>';
+      case 'recoverable': return '<td class="num amt-recover">' + FW.fmtMoney(r.recoverable || 0) + '</td>';
+      case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(r.laborCost) + '</td>';
+      case 'totalCost': return '<td class="num">' + FW.fmtMoney(r.totalCost) + '</td>';
+      case 'profit': return '<td class="num ' + profitCls + '"><b>' + FW.fmtMoney(r.profit) + '</b></td>';
+      case 'profitUnit': return '<td class="num" data-unit="profit">' + (r.profitUnit == null ? '—' : FW.fmtMoney(r.profitUnit)) + '</td>';
+      case 'rate': return '<td class="num">' + r.rate.toFixed(1) + '%</td>';
+      case 'costRate': return '<td class="num" data-cost="' + cr.cost + '">' + cr.rate.toFixed(1) + '%</td>';
+      case 'roi': return '<td class="num">' + fmtRoi(r.roi) + '</td>';
+      case 'pnl': return '<td>' + badge + '</td>';
+      default: return '<td></td>';
+    }
+  }
+  function colTotalTd(colKey, data, totalQty) {
+    var totCostRate = totalCostRatePct(data);
+    switch (colKey) {
+      case 'rank': return '<td></td>';
+      case 'project': return '<td>合计</td>';
+      case 'qty': return '<td class="num">' + totalQty + '</td>';
+      case 'revenue': return '<td class="num amt-income">' + FW.fmtMoney(data.tot.revenue) + '</td>';
+      case 'revUnit': return '<td class="num">—</td>';
+      case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.tot.flowCost) + '</td>';
+      case 'recoverable': return '<td class="num amt-recover"><b>' + FW.fmtMoney(data.tot.recoverable) + '</b></td>';
+      case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.tot.laborCost) + '</td>';
+      case 'totalCost': return '<td class="num">' + FW.fmtMoney(data.tot.totalCost) + '</td>';
+      case 'profit': return '<td class="num ' + (data.tot.profit >= 0 ? 'amt-income' : 'amt-expense') + '"><b>' + FW.fmtMoney(data.tot.profit) + '</b></td>';
+      case 'profitUnit': return '<td class="num">—</td>';
+      case 'rate': return '<td class="num">' + (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—') + '%</td>';
+      case 'costRate': return '<td class="num">' + totCostRate.toFixed(1) + '%</td>';
+      case 'roi': return '<td class="num">' + fmtRoi(data.avgRoi) + '</td>';
+      case 'pnl': return '<td></td>';
+      default: return '<td></td>';
+    }
+  }
+
   function tableHtml(rows, data) {
     if (!rows.length) {
       return '<div class="empty-state">' +
@@ -979,47 +1107,19 @@
         '<div class="empty-sub">请在「登记内账」的流水里填写 <b>项目</b> 字段（收入与支出都计入），并在「工资登记」里把底薪 / 奖金 / 提成按 <b>项目</b> 分类。系统会把同一项目的收入、流水支出与工资成本汇总，自动核算利润、利润率与投入产出比（单产）。</div>' +
         '</div>';
     }
+    var cols = COL_DEFS.filter(function (c) { return state.visibleCols.indexOf(c.key) > -1; });
     var h = '<div class="proj-sum-wrap"><table class="proj-sum-table" id="pcTable"><thead><tr>' +
-      '<th class="pc-rank">排名</th><th>项目</th><th class="num">签收单量</th><th class="num">收入 👆</th><th class="num">收入单产</th><th class="num">流水成本</th><th class="num">应收回款项</th><th class="num">工资成本</th><th class="num">总成本</th><th class="num">利润</th><th class="num">净利润单产</th><th class="num">利润率</th><th class="num">' + costRateLabel() + '</th><th class="num">投入产出比</th><th>盈亏</th></tr></thead><tbody>';
+      cols.map(function (c) { return colTh(c.key); }).join('') +
+      '</tr></thead><tbody>';
     var totalQty = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
     rows.forEach(function (r) {
-      var profitCls = r.profit >= 0 ? 'amt-income' : 'amt-expense';
-      var badge = r.profit >= 0 ? '<span class="badge ok">盈利</span>' : '<span class="badge bad">亏损</span>';
       var open = !!state.expanded[r.project];
-      var qtyVal = r.qty ? r.qty : '';
-      var cr = costRateOf(r, state.costType, state.costType2, state.costExcl);
       h += '<tr class="pc-row' + (open ? ' open' : '') + '" data-p="' + FW.esc(r.project) + '" data-rev="' + r.revenue + '" data-profit="' + r.profit + '">' +
-        '<td class="pc-rank">' + r.rank + '</td>' +
-        '<td><span class="pc-caret">' + (open ? '▾' : '▸') + '</span> ' + FW.esc(r.project) + '</td>' +
-        '<td class="num pc-qty-cell"><input class="pc-qty-in" type="number" min="0" step="1" value="' + qtyVal + '" placeholder="填单量" title="签收单量（手动录入，用于核算收入单产与净利润单产）"></td>' +
-        '<td class="num amt-income clickable-amt" title="点击查看收入明细">' + FW.fmtMoney(r.revenue) + '</td>' +
-        '<td class="num" data-unit="rev">' + (r.revUnit == null ? '—' : FW.fmtMoney(r.revUnit)) + '</td>' +
-        '<td class="num amt-expense">' + FW.fmtMoney(r.flowCost) + '</td>' +
-        '<td class="num amt-recover">' + FW.fmtMoney(r.recoverable || 0) + '</td>' +
-        '<td class="num amt-expense">' + FW.fmtMoney(r.laborCost) + '</td>' +
-        '<td class="num">' + FW.fmtMoney(r.totalCost) + '</td>' +
-        '<td class="num ' + profitCls + '"><b>' + FW.fmtMoney(r.profit) + '</b></td>' +
-        '<td class="num" data-unit="profit">' + (r.profitUnit == null ? '—' : FW.fmtMoney(r.profitUnit)) + '</td>' +
-        '<td class="num">' + r.rate.toFixed(1) + '%</td>' +
-        '<td class="num" data-cost="' + cr.cost + '">' + cr.rate.toFixed(1) + '%</td>' +
-        '<td class="num">' + fmtRoi(r.roi) + '</td>' +
-        '<td>' + badge + '</td></tr>';
+        cols.map(function (c) { return colTd(c.key, r); }).join('') +
+        '</tr>';
       if (open) h += detailHtml(r);
     });
-    var totCostRate = totalCostRatePct(data);
-    h += '<tr class="proj-sum-total"><td></td><td>合计</td>' +
-      '<td class="num">' + totalQty + '</td>' +
-      '<td class="num amt-income">' + FW.fmtMoney(data.tot.revenue) + '</td>' +
-      '<td class="num">—</td>' +
-      '<td class="num amt-expense">' + FW.fmtMoney(data.tot.flowCost) + '</td>' +
-      '<td class="num amt-recover"><b>' + FW.fmtMoney(data.tot.recoverable) + '</b></td>' +
-      '<td class="num amt-expense">' + FW.fmtMoney(data.tot.laborCost) + '</td>' +
-      '<td class="num">' + FW.fmtMoney(data.tot.totalCost) + '</td>' +
-      '<td class="num ' + (data.tot.profit >= 0 ? 'amt-income' : 'amt-expense') + '"><b>' + FW.fmtMoney(data.tot.profit) + '</b></td>' +
-      '<td class="num">—</td>' +
-      '<td class="num">' + (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—') + '%</td>' +
-      '<td class="num">' + totCostRate.toFixed(1) + '%</td>' +
-      '<td class="num">' + fmtRoi(data.avgRoi) + '</td><td></td></tr>';
+    h += '<tr class="proj-sum-total">' + cols.map(function (c) { return colTotalTd(c.key, data, totalQty); }).join('') + '</tr>';
     h += '</tbody></table></div>';
     return h;
   }
