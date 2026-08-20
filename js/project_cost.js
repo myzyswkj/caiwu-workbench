@@ -569,6 +569,190 @@
     FW.openModal('「' + FW.esc(projectName) + '」 — 收入明细', body);
   }
 
+  /* ============================================================
+   * 【新增】计算结果下钻：点击利润率 / 成本率 / 投入产出比 / 净利润单产 /
+   *         盈亏 / 总成本 / 利润 等单元格，弹出该数字由哪些基础数字计算而来。
+   * ============================================================ */
+  function openCalcDetail(row, colKey, data) {
+    var isTotal = !row;
+    var v;
+    if (isTotal) {
+      v = {
+        project: '合计',
+        revenue: data.vTot.revenue,
+        flowCost: data.vTot.flowCost,
+        recoverable: data.vTot.recoverable,
+        laborCost: data.vTot.laborCost,
+        totalCost: data.vTot.totalCost,
+        profit: data.vTot.profit,
+        rate: data.vTot.rate,
+        costRate: data.vTot.costRate,
+        roi: data.vTot.roi,
+        qty: (data.rows || []).reduce(function (s, r) { return s + (r.qty || 0); }, 0)
+      };
+    } else {
+      v = {
+        project: row.project,
+        revenue: row.vRevenue,
+        flowCost: row.vFlowCost,
+        recoverable: row.vRecoverable,
+        laborCost: row.vLaborCost,
+        totalCost: row.vTotalCost,
+        profit: row.vProfit,
+        rate: row.vRate,
+        costRate: row.vCostRate,
+        roi: row.vRoi,
+        qty: row.qty || 0
+      };
+    }
+
+    // 自定义成本率口径（仅非合计行且选了成本分类口径时）
+    var cr = null;
+    if (colKey === 'costRate' && state.costType && !isTotal) {
+      cr = costRateOf(row, state.costType, state.costType2, state.costExcl);
+    }
+
+    function valRow(label, value, colorVar) {
+      var style = 'padding:8px 12px;border-bottom:1px solid var(--border);';
+      var valStyle = style + 'font-weight:700;text-align:right;';
+      if (colorVar) valStyle += 'color:var(--' + colorVar + ');';
+      var disp = (typeof value === 'number' && !isNaN(value)) ? FW.fmtMoney(value) : value;
+      return '<tr><td style="' + style + 'color:var(--muted)">' + FW.esc(label) + '</td>' +
+        '<td style="' + valStyle + '">' + disp + '</td></tr>';
+    }
+
+    var title, formula = '', body = '';
+    switch (colKey) {
+      case 'profitUnit':
+        title = '净利润单产';
+        formula = '净利润单产 = 利润 ÷ 签收单量';
+        body += '<table style="width:100%;border-collapse:collapse;margin:12px 0">' +
+          valRow('利润', v.profit, v.profit >= 0 ? 'income' : 'expense') +
+          valRow('签收单量', v.qty, '') +
+          valRow('净利润单产', v.qty > 0 ? FW.fmtMoney(v.profit / v.qty) : '—', '') +
+          '</table>';
+        break;
+      case 'rate':
+        title = '利润率';
+        formula = '利润率 = 利润 ÷ 收入 × 100%';
+        body += '<table style="width:100%;border-collapse:collapse;margin:12px 0">' +
+          valRow('利润', v.profit, v.profit >= 0 ? 'income' : 'expense') +
+          valRow('收入', v.revenue, 'income') +
+          valRow('利润率', (isFinite(v.rate) ? v.rate.toFixed(1) : '—') + '%', '') +
+          '</table>';
+        break;
+      case 'costRate':
+        title = '成本率';
+        if (cr) {
+          var rateName = costRateLabel().replace('成本率', '').replace(/[()]/g, '');
+          formula = '成本率（' + rateName + '）= 所选成本 ÷ 收入 × 100%';
+          body += '<table style="width:100%;border-collapse:collapse;margin:12px 0">' +
+            valRow('所选成本口径', cr.cost, 'expense') +
+            valRow('收入', v.revenue, 'income') +
+            valRow('成本率', cr.rate.toFixed(1) + '%', '') +
+            '</table>';
+        } else {
+          formula = '成本率 = 总成本 ÷ 收入 × 100%';
+          body += '<table style="width:100%;border-collapse:collapse;margin:12px 0">' +
+            valRow('总成本', v.totalCost, 'expense') +
+            valRow('收入', v.revenue, 'income') +
+            valRow('成本率', (isFinite(v.costRate) ? v.costRate.toFixed(1) : '—') + '%', '') +
+            '</table>';
+        }
+        break;
+      case 'roi':
+        title = '投入产出比';
+        formula = '投入产出比 = 收入 ÷ 总成本';
+        body += '<table style="width:100%;border-collapse:collapse;margin:12px 0">' +
+          valRow('收入', v.revenue, 'income') +
+          valRow('总成本', v.totalCost, 'expense') +
+          valRow('投入产出比', isFinite(v.roi) ? v.roi.toFixed(2) : '∞', '') +
+          '</table>';
+        break;
+      case 'pnl':
+        title = '盈亏状态';
+        formula = '盈亏由利润决定：利润 ≥ 0 为盈利，< 0 为亏损';
+        body += '<table style="width:100%;border-collapse:collapse;margin:12px 0">' +
+          valRow('利润', v.profit, v.profit >= 0 ? 'income' : 'expense') +
+          valRow('状态', v.profit >= 0 ? '盈利' : '亏损', v.profit >= 0 ? 'income' : 'expense') +
+          '</table>';
+        break;
+      case 'totalCost':
+        title = '总成本';
+        formula = '总成本 = 流水成本 − 应收回款项 + 工资成本';
+        body += '<table style="width:100%;border-collapse:collapse;margin:12px 0">' +
+          valRow('流水成本', v.flowCost, 'expense') +
+          valRow('应收回款项（扣减）', -v.recoverable, 'recover') +
+          valRow('工资成本', v.laborCost, 'expense') +
+          valRow('总成本', v.totalCost, 'expense') +
+          '</table>';
+        break;
+      case 'profit':
+        title = '利润';
+        formula = '利润 = 收入 − 总成本';
+        body += '<table style="width:100%;border-collapse:collapse;margin:12px 0">' +
+          valRow('收入', v.revenue, 'income') +
+          valRow('总成本', v.totalCost, 'expense') +
+          valRow('利润', v.profit, v.profit >= 0 ? 'income' : 'expense') +
+          '</table>';
+        break;
+      default:
+        return;
+    }
+
+    var html =
+      '<div style="background:#f7f9fb;border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:14px">' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">计算公式</div>' +
+      '<div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.5">' + FW.esc(formula) + '</div></div>' +
+      body;
+
+    // 合计行额外展示各项目贡献 Top 5
+    if (isTotal && data.rows && data.rows.length) {
+      var metricMap = {
+        profit: ['vProfit', '利润', '利润贡献 Top 5'],
+        revenue: ['vRevenue', '收入', '收入贡献 Top 5'],
+        flowCost: ['vFlowCost', '流水成本', '流水成本 Top 5'],
+        laborCost: ['vLaborCost', '工资成本', '工资成本 Top 5'],
+        totalCost: ['vTotalCost', '总成本', '总成本 Top 5'],
+        rate: ['vRate', '利润率', '利润率 Top 5'],
+        costRate: ['vCostRate', '成本率', '成本率 Top 5'],
+        roi: ['vRoi', '投入产出比', '投入产出比 Top 5']
+      };
+      var mm = metricMap[colKey];
+      if (mm) {
+        var metric = mm[0], label = mm[1], desc = mm[2];
+        var sorted = data.rows.slice().sort(function (a, b) {
+          var va = a[metric], vb = b[metric];
+          if (va === Infinity) return -1; if (vb === Infinity) return 1;
+          if (!isFinite(va)) va = -Infinity; if (!isFinite(vb)) vb = -Infinity;
+          return vb - va;
+        }).slice(0, 5);
+        var list = sorted.map(function (r, i) {
+          var val = r[metric];
+          var disp = metric === 'vRate' || metric === 'vCostRate' ? (isFinite(val) ? val.toFixed(1) + '%' : '—') :
+            metric === 'vRoi' ? (isFinite(val) ? val.toFixed(2) : '∞') :
+              FW.fmtMoney(val);
+          return '<tr><td style="padding:6px 10px;border-bottom:1px solid var(--border)">' + (i + 1) + '</td>' +
+            '<td style="padding:6px 10px;border-bottom:1px solid var(--border)">' + FW.esc(r.project) + '</td>' +
+            '<td class="num" style="padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">' + disp + '</td></tr>';
+        }).join('');
+        html += '<div style="margin-top:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px">' + FW.esc(desc) + '</div>' +
+          '<table style="width:100%;border-collapse:collapse">' +
+          '<thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">排名</th>' +
+          '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">项目</th>' +
+          '<th class="num" style="padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">' + FW.esc(label) + '</th></tr></thead>' +
+          '<tbody>' + list + '</tbody></table></div>';
+      }
+    }
+
+    html += '<div class="muted" style="font-size:11px;margin-top:14px;line-height:1.6">' +
+      '• 以上金额均按当前「显示列」设置口径计算；隐藏的收入 / 流水成本 / 应收回款项 / 工资成本列不会计入<br>' +
+      '• 点击项目行可展开查看完整成本分类、工资构成与应收回款项明细；点击收入金额可查看收入流水明细' +
+      '</div>';
+
+    FW.openModal('「' + FW.esc(v.project) + '」 — ' + FW.esc(title) + '计算过程', html);
+  }
+
   function render() { buildTop(); buildBody(); }
 
   // 顶部操作区（仅保留导出 / 校正按钮；筛选控件下移至排名表上方）
@@ -805,6 +989,20 @@
         if (incomeCell) {
           var incTr = incomeCell.closest ? incomeCell.closest('tr[data-p]') : null;
           if (incTr) { openIncomeDetail(incTr.getAttribute('data-p')); return; }
+        }
+        // 【新增】点击计算结果单元格 → 弹出计算过程
+        var calcCell = e.target.closest ? e.target.closest('td.calc-detail, td.calc-detail-total') : null;
+        if (calcCell) {
+          var calcTr = calcCell.closest ? calcCell.closest('tr') : null;
+          var colKey = calcCell.getAttribute('data-col');
+          if (calcTr && calcTr.classList.contains('proj-sum-total')) {
+            openCalcDetail(null, colKey, data);
+          } else {
+            var p2 = calcTr && calcTr.getAttribute('data-p');
+            var row = p2 && rows.find(function (r) { return r.project === p2; });
+            if (row) openCalcDetail(row, colKey, data);
+          }
+          return;
         }
         var tr = e.target.closest ? e.target.closest('tr[data-p]') : null;
         if (!tr) return;
@@ -1091,13 +1289,13 @@
       case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(r.flowCost) + '</td>';
       case 'recoverable': return '<td class="num amt-recover">' + FW.fmtMoney(r.recoverable || 0) + '</td>';
       case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(r.laborCost) + '</td>';
-      case 'totalCost': return '<td class="num">' + FW.fmtMoney(r.vTotalCost) + '</td>';
-      case 'profit': return '<td class="num ' + profitCls + '"><b>' + FW.fmtMoney(r.vProfit) + '</b></td>';
-      case 'profitUnit': return '<td class="num" data-unit="profit">' + (r.profitUnit == null ? '—' : FW.fmtMoney(r.profitUnit)) + '</td>';
-      case 'rate': return '<td class="num">' + (isFinite(r.vRate) ? r.vRate.toFixed(1) + '%' : '—') + '</td>';
-      case 'costRate': return '<td class="num" data-cost="' + (state.costType ? cr.cost : r.vTotalCost) + '">' + (state.costType ? cr.rate.toFixed(1) + '%' : (isFinite(r.vCostRate) ? r.vCostRate.toFixed(1) + '%' : '—')) + '</td>';
-      case 'roi': return '<td class="num">' + fmtRoi(r.vRoi) + '</td>';
-      case 'pnl': return '<td>' + badge + '</td>';
+      case 'totalCost': return '<td class="num calc-detail" data-col="totalCost" title="点击查看计算过程">' + FW.fmtMoney(r.vTotalCost) + '</td>';
+      case 'profit': return '<td class="num ' + profitCls + ' calc-detail" data-col="profit" title="点击查看计算过程"><b>' + FW.fmtMoney(r.vProfit) + '</b></td>';
+      case 'profitUnit': return '<td class="num calc-detail" data-col="profitUnit" data-unit="profit" title="点击查看计算过程">' + (r.profitUnit == null ? '—' : FW.fmtMoney(r.profitUnit)) + '</td>';
+      case 'rate': return '<td class="num calc-detail" data-col="rate" title="点击查看计算过程">' + (isFinite(r.vRate) ? r.vRate.toFixed(1) + '%' : '—') + '</td>';
+      case 'costRate': return '<td class="num calc-detail" data-col="costRate" data-cost="' + (state.costType ? cr.cost : r.vTotalCost) + '" title="点击查看计算过程">' + (state.costType ? cr.rate.toFixed(1) + '%' : (isFinite(r.vCostRate) ? r.vCostRate.toFixed(1) + '%' : '—')) + '</td>';
+      case 'roi': return '<td class="num calc-detail" data-col="roi" title="点击查看计算过程">' + fmtRoi(r.vRoi) + '</td>';
+      case 'pnl': return '<td class="calc-detail" data-col="pnl" title="点击查看计算过程">' + badge + '</td>';
       default: return '<td></td>';
     }
   }
@@ -1111,12 +1309,12 @@
       case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.vTot.flowCost) + '</td>';
       case 'recoverable': return '<td class="num amt-recover"><b>' + FW.fmtMoney(data.vTot.recoverable) + '</b></td>';
       case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.vTot.laborCost) + '</td>';
-      case 'totalCost': return '<td class="num">' + FW.fmtMoney(data.vTot.totalCost) + '</td>';
-      case 'profit': return '<td class="num ' + (data.vTot.profit >= 0 ? 'amt-income' : 'amt-expense') + '"><b>' + FW.fmtMoney(data.vTot.profit) + '</b></td>';
+      case 'totalCost': return '<td class="num calc-detail-total" data-col="totalCost" title="点击查看计算过程">' + FW.fmtMoney(data.vTot.totalCost) + '</td>';
+      case 'profit': return '<td class="num calc-detail-total" data-col="profit" title="点击查看计算过程"><b>' + FW.fmtMoney(data.vTot.profit) + '</b></td>';
       case 'profitUnit': return '<td class="num">—</td>';
-      case 'rate': return '<td class="num">' + (isFinite(data.vTot.rate) ? data.vTot.rate.toFixed(1) : '—') + '%</td>';
-      case 'costRate': return '<td class="num">' + (isFinite(data.vTot.costRate) ? data.vTot.costRate.toFixed(1) : '—') + '%</td>';
-      case 'roi': return '<td class="num">' + fmtRoi(data.vTot.roi) + '</td>';
+      case 'rate': return '<td class="num calc-detail-total" data-col="rate" title="点击查看计算过程">' + (isFinite(data.vTot.rate) ? data.vTot.rate.toFixed(1) : '—') + '%</td>';
+      case 'costRate': return '<td class="num calc-detail-total" data-col="costRate" title="点击查看计算过程">' + (isFinite(data.vTot.costRate) ? data.vTot.costRate.toFixed(1) : '—') + '%</td>';
+      case 'roi': return '<td class="num calc-detail-total" data-col="roi" title="点击查看计算过程">' + fmtRoi(data.vTot.roi) + '</td>';
       case 'pnl': return '<td></td>';
       default: return '<td></td>';
     }
