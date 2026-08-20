@@ -226,26 +226,50 @@
       return pb - pa;
     });
 
+    var vis = {
+      flow: state.visibleCols.indexOf('flowCost') > -1,
+      rec: state.visibleCols.indexOf('recoverable') > -1,
+      labor: state.visibleCols.indexOf('laborCost') > -1,
+      rev: state.visibleCols.indexOf('revenue') > -1
+    };
     var rows = projects.map(function (p, idx) {
       var d = map[p];
       var totalCost = d.flowCost - (d.recoverable || 0) + d.laborCost;
       var profit = d.revenue - totalCost;
       var rate = d.revenue > 0 ? profit / d.revenue * 100 : 0;
       var roi = totalCost > 0 ? d.revenue / totalCost : (d.revenue > 0 ? Infinity : 0);
+      // 可见值：隐藏对应列后，该项不计入总成本，利润/利润率/成本率/投入产出比随之重算
+      var vFlow = vis.flow ? d.flowCost : 0;
+      var vRec = vis.rec ? (d.recoverable || 0) : 0;
+      var vLabor = vis.labor ? d.laborCost : 0;
+      var vTotal = vFlow - vRec + vLabor;
+      var vRev = vis.rev ? d.revenue : 0;
+      var vProfit = vRev - vTotal;
+      var vRate = vRev > 0 ? vProfit / vRev * 100 : NaN;
+      var vRoi = vTotal > 0 ? vRev / vTotal : (vRev > 0 ? Infinity : NaN);
+      var vCostRate = vRev > 0 ? vTotal / vRev * 100 : NaN;
       return {
         project: p, revenue: d.revenue, flowCost: d.flowCost, laborCost: d.laborCost,
         totalCost: totalCost, profit: profit, rate: rate, roi: roi, gain: profit >= 0,
+        vRevenue: vRev, vFlowCost: vFlow, vRecoverable: vRec, vLaborCost: vLabor,
+        vTotalCost: vTotal, vProfit: vProfit, vRate: vRate, vCostRate: vCostRate, vRoi: vRoi,
         rank: idx + 1, byCat: d.byCat, byCat2: d.byCat2, revByCat: d.revByCat, revByCat2: d.revByCat2, laborByType: d.laborByType, recoverable: d.recoverable || 0, recoverList: d.recoverList || []
       };
     });
 
     var tot = { revenue: 0, flowCost: 0, laborCost: 0, totalCost: 0, profit: 0, recoverable: 0 };
+    var vTot = { revenue: 0, flowCost: 0, laborCost: 0, recoverable: 0, totalCost: 0, profit: 0, rate: NaN, roi: NaN, costRate: NaN };
     rows.forEach(function (r) {
       tot.revenue += r.revenue; tot.flowCost += r.flowCost; tot.laborCost += r.laborCost;
       tot.totalCost += r.totalCost; tot.profit += r.profit; tot.recoverable += (r.recoverable || 0);
+      vTot.revenue += r.vRevenue; vTot.flowCost += r.vFlowCost; vTot.laborCost += r.vLaborCost;
+      vTot.recoverable += r.vRecoverable; vTot.totalCost += r.vTotalCost; vTot.profit += r.vProfit;
     });
     var avgRate = tot.revenue > 0 ? tot.profit / tot.revenue * 100 : 0;
     var avgRoi = tot.totalCost > 0 ? tot.revenue / tot.totalCost : (tot.revenue > 0 ? Infinity : 0);
+    vTot.rate = vTot.revenue > 0 ? vTot.profit / vTot.revenue * 100 : NaN;
+    vTot.roi = vTot.totalCost > 0 ? vTot.revenue / vTot.totalCost : (vTot.revenue > 0 ? Infinity : NaN);
+    vTot.costRate = vTot.revenue > 0 ? vTot.totalCost / vTot.revenue * 100 : NaN;
 
     // ===== 成本结构（全局） =====
     var catTot = {};
@@ -264,35 +288,35 @@
 
     // ===== 逐月趋势 =====
     var mMap = {};
-    function mEnsure(k) { if (!mMap[k]) mMap[k] = { rev: 0, cost: 0 }; return mMap[k]; }
+    function mEnsure(k) { if (!mMap[k]) mMap[k] = { rev: 0, flow: 0, labor: 0 }; return mMap[k]; }
     txs.forEach(function (t) {
       var k = (t.date || '').slice(0, 7); if (k.length < 7) return;
       // 项目分摊：支出 / 退款 / 收入按 allocations 拆分到各项目的月度趋势
       if (t.type === 'expense' || t.type === 'refund' || t.type === 'income') {
         var split = splitAmounts(t);
         if (split) {
-          if (t.type === 'income') split.forEach(function (s) { mEnsure(k).rev += s.amount; });
-          else { var sgn = t.type === 'refund' ? -1 : 1; var mc = cat1(t); if (!catHidden(mc)) split.forEach(function (s) { mEnsure(k).cost += s.amount * sgn; }); }
+          if (t.type === 'income') { if (vis.rev) split.forEach(function (s) { mEnsure(k).rev += s.amount; }); }
+          else { var sgn = t.type === 'refund' ? -1 : 1; var mc = cat1(t); if (!catHidden(mc) && vis.flow) split.forEach(function (s) { mEnsure(k).flow += s.amount * sgn; }); }
           return;
         }
       }
       var p = (t.project || '').trim(); if (!p) return;
       var d = mEnsure(k);
-      if (t.type === 'income') d.rev += num(t.amount);
-      else if (t.type === 'expense') { var me = cat1(t); if (!catHidden(me)) d.cost += num(t.amount); }
-      else if (t.type === 'refund') { var mr = cat1(t); if (!catHidden(mr)) d.cost -= num(t.amount); }
+      if (t.type === 'income') { if (vis.rev) d.rev += num(t.amount); }
+      else if (t.type === 'expense') { var me = cat1(t); if (!catHidden(me) && vis.flow) d.flow += num(t.amount); }
+      else if (t.type === 'refund') { var mr = cat1(t); if (!catHidden(mr) && vis.flow) d.flow -= num(t.amount); }
     });
     recs.forEach(function (r) {
       var k = String(r.year) + '-' + ('0' + r.month).slice(-2);
       var sum = salaryComps(r).reduce(function (s, c) { return s + (c.project === '未分类' ? 0 : c.amount); }, 0);
-      mEnsure(k).cost += sum;
+      if (vis.labor) mEnsure(k).labor += sum;
     });
     var mkeys = Object.keys(mMap).sort();
     var monthly = {
       labels: mkeys.map(function (k) { return year === 'all' ? k : k.slice(5); }),
       revenue: mkeys.map(function (k) { return mMap[k].rev; }),
-      cost: mkeys.map(function (k) { return mMap[k].cost; }),
-      profit: mkeys.map(function (k) { return mMap[k].rev - mMap[k].cost; })
+      cost: mkeys.map(function (k) { return mMap[k].flow + mMap[k].labor; }),
+      profit: mkeys.map(function (k) { return mMap[k].rev - mMap[k].flow - mMap[k].labor; })
     };
 
     var unalloc = {
@@ -302,7 +326,7 @@
     };
 
     var allCatKeys = Object.keys(allCats).sort();
-    return { rows: rows, tot: tot, avgRate: avgRate, avgRoi: avgRoi, cats: cats, laborTypes: laborTypes, monthly: monthly, unalloc: unalloc, catTot: catTot, cat2Tot: cat2Tot, allCats: allCatKeys };
+    return { rows: rows, tot: tot, vTot: vTot, avgRate: vTot.rate, avgRoi: vTot.roi, cats: cats, laborTypes: laborTypes, monthly: monthly, unalloc: unalloc, catTot: catTot, cat2Tot: cat2Tot, allCats: allCatKeys };
   }
 
   function getYears() {
@@ -358,7 +382,7 @@
       var q = m[r.project] || 0;
       r.qty = q;
       r.revUnit = q > 0 ? r.revenue / q : null;       // 收入单产
-      r.profitUnit = q > 0 ? r.profit / q : null;     // 净利润单产
+      r.profitUnit = q > 0 ? r.vProfit / q : null;     // 净利润单产（随隐藏列重算）
     });
     return rows;
   }
@@ -370,11 +394,11 @@
     var arr = (rows || []).slice().sort(function (a, b) {
       var va, vb;
       if (key === 'cr') {
-        va = costRateOf(a, state.costType, state.costType2, state.costExcl).rate;
-        vb = costRateOf(b, state.costType, state.costType2, state.costExcl).rate;
+        va = state.costType ? costRateOf(a, state.costType, state.costType2, state.costExcl).rate : (isFinite(a.vCostRate) ? a.vCostRate : -Infinity);
+        vb = state.costType ? costRateOf(b, state.costType, state.costType2, state.costExcl).rate : (isFinite(b.vCostRate) ? b.vCostRate : -Infinity);
       } else if (key === 'roi') {
-        va = a.roi === Infinity ? Number.MAX_VALUE : a.roi;
-        vb = b.roi === Infinity ? Number.MAX_VALUE : b.roi;
+        va = a.vRoi === Infinity ? Number.MAX_VALUE : (isFinite(a.vRoi) ? a.vRoi : -Infinity);
+        vb = b.vRoi === Infinity ? Number.MAX_VALUE : (isFinite(b.vRoi) ? b.vRoi : -Infinity);
       } else if (key === 'project') {
         var ca = (a.project || '').toString(), cb = (b.project || '').toString();
         var cmp = ca.localeCompare(cb, 'zh-Hans-CN');
@@ -600,7 +624,7 @@
       '<div class="pc-cat-panel-ft"><button class="btn sm" id="pcCatAll">全选</button> <button class="btn sm" id="pcCatNone">全不选</button></div>' +
       '</div>' +
       '<div id="pcColPanel" class="pc-cat-panel"' + (state.showColPanel ? '' : ' style="display:none"') + '>' +
-      '<div class="pc-cat-panel-hd"><b>显示的表格列</b><span class="muted">取消勾选后仅隐藏该列，不影响利润/成本率等计算结果</span></div>' +
+      '<div class="pc-cat-panel-hd"><b>显示的表格列</b><span class="muted">取消勾选「流水成本 / 应收回款项 / 工资成本 / 收入」后，对应项会从总成本中剔除，利润、利润率、成本率、投入产出比随之重算</span></div>' +
       '<div class="pc-cat-list">' + colCheckboxes() + '</div>' +
       '<div class="pc-cat-panel-ft"><button class="btn sm" id="pcColAll">全选</button> <button class="btn sm" id="pcColNone">全不选</button></div>' +
       '</div>';
@@ -814,7 +838,7 @@
   }
 
   function statRow(data) {
-    var t = data.tot;
+    var t = data.vTot;
     return '<div class="sal-stats">' +
       statCard('参与核算项目', data.rows.length + ' 个') +
       statCard('总收入', FW.fmtMoney(t.revenue), 'amt-income') +
@@ -823,8 +847,8 @@
       statCard('总成本', FW.fmtMoney(t.totalCost)) +
       statCard('总利润', FW.fmtMoney(t.profit), t.profit >= 0 ? 'amt-income' : 'amt-expense') +
       statCard('应收回款项（预付未用完）', FW.fmtMoney(t.recoverable), 'amt-recover') +
-      statCard('平均利润率', (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—') + '%') +
-      statCard('平均投入产出比', isFinite(data.avgRoi) ? data.avgRoi.toFixed(2) : '∞') +
+      statCard('平均利润率', (isFinite(t.rate) ? t.rate.toFixed(1) : '—') + '%') +
+      statCard('平均投入产出比', isFinite(t.roi) ? t.roi.toFixed(2) : '∞') +
       '</div>';
   }
 
@@ -861,9 +885,9 @@
     if (!rows.length) return '';
     var labels = rows.map(function (r) { return r.project; });
     var series = [
-      { name: '收入', color: '#C8102E', values: rows.map(function (r) { return r.revenue; }) },
-      { name: '总成本', color: '#1f9d55', values: rows.map(function (r) { return r.totalCost; }) },
-      { name: '利润', color: '#C9A227', values: rows.map(function (r) { return r.profit; }) }
+      { name: '收入', color: '#C8102E', values: rows.map(function (r) { return r.vRevenue; }) },
+      { name: '总成本', color: '#1f9d55', values: rows.map(function (r) { return r.vTotalCost; }) },
+      { name: '利润', color: '#C9A227', values: rows.map(function (r) { return r.vProfit; }) }
     ];
     var chartW = Math.max(440, labels.length * 74 + 70);
     var title = (state.year === 'all' ? '各项目 收入/成本/利润（全部年度）' : '各项目 收入/成本/利润（' + state.year + ' 年）');
@@ -881,10 +905,10 @@
     if (structParts.length) {
       h += '<div class="pc-section-title">成本结构拆解</div>';
       h += '<div class="pc-charts">' + structParts.join('') + '</div>';
-      if (data.tot.flowCost || data.tot.laborCost) {
+      if (data.vTot.flowCost || data.vTot.laborCost) {
         h += FW.pieChart('总成本构成（流水 vs 工资）', [
-          { label: '流水成本', value: data.tot.flowCost },
-          { label: '工资成本', value: data.tot.laborCost }
+          { label: '流水成本', value: data.vTot.flowCost },
+          { label: '工资成本', value: data.vTot.laborCost }
         ]);
       }
     }
@@ -894,16 +918,16 @@
   // 各项目利润率横向对比条（红=盈利 绿=亏损，按利润率降序）
   function profitRateHtml(rows) {
     if (!rows || !rows.length) return '';
-    var maxAbs = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.rate); }).concat([1]));
-    var items = rows.slice().sort(function (a, b) { return b.rate - a.rate; });
+    var maxAbs = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.vRate); }).concat([1]));
+    var items = rows.slice().sort(function (a, b) { return b.vRate - a.vRate; });
     var bars = items.map(function (r) {
-      var w = (Math.abs(r.rate) / maxAbs * 100).toFixed(1);
-      var color = r.rate >= 0 ? '#C8102E' : '#1f9d55';
-      var sign = r.rate >= 0 ? '+' : '';
+      var w = (Math.abs(r.vRate) / maxAbs * 100).toFixed(1);
+      var color = r.vRate >= 0 ? '#C8102E' : '#1f9d55';
+      var sign = r.vRate >= 0 ? '+' : '';
       return '<div class="pc-rate-row">' +
         '<span class="pc-rate-name" title="' + FW.esc(r.project) + '">' + FW.esc(FW.clip(r.project, 8)) + '</span>' +
         '<span class="pc-rate-track"><span class="pc-rate-fill" style="width:' + w + '%;background:' + color + '"></span></span>' +
-        '<span class="pc-rate-val" style="color:' + color + '">' + sign + r.rate.toFixed(1) + '%</span>' +
+        '<span class="pc-rate-val" style="color:' + color + '">' + sign + (isFinite(r.vRate) ? r.vRate.toFixed(1) : '—') + '%</span>' +
         '</div>';
     }).join('');
     return '<div class="pc-section-title">各项目利润率对比（红=盈利 绿=亏损）</div><div class="pc-rate-list">' + bars + '</div>';
@@ -1067,33 +1091,32 @@
       case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(r.flowCost) + '</td>';
       case 'recoverable': return '<td class="num amt-recover">' + FW.fmtMoney(r.recoverable || 0) + '</td>';
       case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(r.laborCost) + '</td>';
-      case 'totalCost': return '<td class="num">' + FW.fmtMoney(r.totalCost) + '</td>';
-      case 'profit': return '<td class="num ' + profitCls + '"><b>' + FW.fmtMoney(r.profit) + '</b></td>';
+      case 'totalCost': return '<td class="num">' + FW.fmtMoney(r.vTotalCost) + '</td>';
+      case 'profit': return '<td class="num ' + profitCls + '"><b>' + FW.fmtMoney(r.vProfit) + '</b></td>';
       case 'profitUnit': return '<td class="num" data-unit="profit">' + (r.profitUnit == null ? '—' : FW.fmtMoney(r.profitUnit)) + '</td>';
-      case 'rate': return '<td class="num">' + r.rate.toFixed(1) + '%</td>';
-      case 'costRate': return '<td class="num" data-cost="' + cr.cost + '">' + cr.rate.toFixed(1) + '%</td>';
-      case 'roi': return '<td class="num">' + fmtRoi(r.roi) + '</td>';
+      case 'rate': return '<td class="num">' + (isFinite(r.vRate) ? r.vRate.toFixed(1) + '%' : '—') + '</td>';
+      case 'costRate': return '<td class="num" data-cost="' + (state.costType ? cr.cost : r.vTotalCost) + '">' + (state.costType ? cr.rate.toFixed(1) + '%' : (isFinite(r.vCostRate) ? r.vCostRate.toFixed(1) + '%' : '—')) + '</td>';
+      case 'roi': return '<td class="num">' + fmtRoi(r.vRoi) + '</td>';
       case 'pnl': return '<td>' + badge + '</td>';
       default: return '<td></td>';
     }
   }
   function colTotalTd(colKey, data, totalQty) {
-    var totCostRate = totalCostRatePct(data);
     switch (colKey) {
       case 'rank': return '<td></td>';
       case 'project': return '<td>合计</td>';
       case 'qty': return '<td class="num">' + totalQty + '</td>';
-      case 'revenue': return '<td class="num amt-income">' + FW.fmtMoney(data.tot.revenue) + '</td>';
+      case 'revenue': return '<td class="num amt-income">' + FW.fmtMoney(data.vTot.revenue) + '</td>';
       case 'revUnit': return '<td class="num">—</td>';
-      case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.tot.flowCost) + '</td>';
-      case 'recoverable': return '<td class="num amt-recover"><b>' + FW.fmtMoney(data.tot.recoverable) + '</b></td>';
-      case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.tot.laborCost) + '</td>';
-      case 'totalCost': return '<td class="num">' + FW.fmtMoney(data.tot.totalCost) + '</td>';
-      case 'profit': return '<td class="num ' + (data.tot.profit >= 0 ? 'amt-income' : 'amt-expense') + '"><b>' + FW.fmtMoney(data.tot.profit) + '</b></td>';
+      case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.vTot.flowCost) + '</td>';
+      case 'recoverable': return '<td class="num amt-recover"><b>' + FW.fmtMoney(data.vTot.recoverable) + '</b></td>';
+      case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.vTot.laborCost) + '</td>';
+      case 'totalCost': return '<td class="num">' + FW.fmtMoney(data.vTot.totalCost) + '</td>';
+      case 'profit': return '<td class="num ' + (data.vTot.profit >= 0 ? 'amt-income' : 'amt-expense') + '"><b>' + FW.fmtMoney(data.vTot.profit) + '</b></td>';
       case 'profitUnit': return '<td class="num">—</td>';
-      case 'rate': return '<td class="num">' + (isFinite(data.avgRate) ? data.avgRate.toFixed(1) : '—') + '%</td>';
-      case 'costRate': return '<td class="num">' + totCostRate.toFixed(1) + '%</td>';
-      case 'roi': return '<td class="num">' + fmtRoi(data.avgRoi) + '</td>';
+      case 'rate': return '<td class="num">' + (isFinite(data.vTot.rate) ? data.vTot.rate.toFixed(1) : '—') + '%</td>';
+      case 'costRate': return '<td class="num">' + (isFinite(data.vTot.costRate) ? data.vTot.costRate.toFixed(1) : '—') + '%</td>';
+      case 'roi': return '<td class="num">' + fmtRoi(data.vTot.roi) + '</td>';
       case 'pnl': return '<td></td>';
       default: return '<td></td>';
     }
