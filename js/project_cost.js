@@ -84,9 +84,12 @@
     return String(val) === String(year);
   }
 
-  // 核心聚合：返回 { rows, tot, avgRate, avgRoi, cats, laborTypes, monthly, unalloc }
-  function compute(year) {
+  // 核心聚合：返回 { rows, tot, avgRate, avgRoi, cats, laborTypes, monthly, unalloc, allCats }
+  function compute(year, hiddenCats) {
     year = (year == null) ? state.year : year;
+    hiddenCats = hiddenCats || {};
+    function catHidden(c) { return !!hiddenCats[c]; }
+    var allCats = {};
     var txs = getInternal().filter(function (t) { return inYear((t.date || '').slice(0, 4), year); });
     var recs = getSalaryRecs().filter(function (r) { return inYear(r.year, year); });
 
@@ -121,21 +124,27 @@
             if (dv > 0) {
               var sumAmt = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
               var dn1 = cat1(t), dn2 = catFull(t);
-              split.forEach(function (s) {
-                var ddv = dv * s.amount / sumAmt;
-                if (ddv > 0) { var dd = ensure(s.project); dd.flowCost += ddv; dd.byCat[dn1] = (dd.byCat[dn1] || 0) + ddv; dd.byCat2[dn2] = (dd.byCat2[dn2] || 0) + ddv; }
-              });
+              allCats[dn1] = 1;
+              if (!catHidden(dn1)) {
+                split.forEach(function (s) {
+                  var ddv = dv * s.amount / sumAmt;
+                  if (ddv > 0) { var dd = ensure(s.project); dd.flowCost += ddv; dd.byCat[dn1] = (dd.byCat[dn1] || 0) + ddv; dd.byCat2[dn2] = (dd.byCat2[dn2] || 0) + ddv; }
+                });
+              }
             }
           } else {
             var sgn = t.type === 'refund' ? -1 : 1;
-            split.forEach(function (s) {
-              var d = ensure(s.project);
-              var a2 = s.amount * sgn;
-              d.flowCost += a2;
-              var c = cat1(t), cf = catFull(t);
-              d.byCat[c] = (d.byCat[c] || 0) + a2;
-              d.byCat2[cf] = (d.byCat2[cf] || 0) + a2;
-            });
+            var c = cat1(t), cf = catFull(t);
+            allCats[c] = 1;
+            if (!catHidden(c)) {
+              split.forEach(function (s) {
+                var d = ensure(s.project);
+                var a2 = s.amount * sgn;
+                d.flowCost += a2;
+                d.byCat[c] = (d.byCat[c] || 0) + a2;
+                d.byCat2[cf] = (d.byCat2[cf] || 0) + a2;
+              });
+            }
           }
           return; // 已按分摊分发，不再走单项目分支（也不计未分配）
         }
@@ -150,10 +159,19 @@
         var ic = cat1(t), icf = catFull(t);
         d.revByCat[ic] = (d.revByCat[ic] || 0) + (a + dv);
         d.revByCat2[icf] = (d.revByCat2[icf] || 0) + (a + dv);
-        if (dv > 0) { d.flowCost += dv; d.byCat[ic] = (d.byCat[ic] || 0) + dv; d.byCat2[icf] = (d.byCat2[icf] || 0) + dv; }
+        allCats[ic] = 1;
+        if (dv > 0 && !catHidden(ic)) { d.flowCost += dv; d.byCat[ic] = (d.byCat[ic] || 0) + dv; d.byCat2[icf] = (d.byCat2[icf] || 0) + dv; }
       }
-      else if (t.type === 'expense') { d.flowCost += a; var c = cat1(t); var cf = catFull(t); d.byCat[c] = (d.byCat[c] || 0) + a; d.byCat2[cf] = (d.byCat2[cf] || 0) + a; }
-      else if (t.type === 'refund') { d.flowCost -= a; var c2 = cat1(t); var cf2 = catFull(t); d.byCat[c2] = (d.byCat[c2] || 0) - a; d.byCat2[cf2] = (d.byCat2[cf2] || 0) - a; }
+      else if (t.type === 'expense') {
+        var c = cat1(t), cf = catFull(t);
+        allCats[c] = 1;
+        if (!catHidden(c)) { d.flowCost += a; d.byCat[c] = (d.byCat[c] || 0) + a; d.byCat2[cf] = (d.byCat2[cf] || 0) + a; }
+      }
+      else if (t.type === 'refund') {
+        var c2 = cat1(t), cf2 = catFull(t);
+        allCats[c2] = 1;
+        if (!catHidden(c2)) { d.flowCost -= a; d.byCat[c2] = (d.byCat[c2] || 0) - a; d.byCat2[cf2] = (d.byCat2[cf2] || 0) - a; }
+      }
     });
 
     // 工资：底薪/奖金/提成按项目汇总；「未分类」部分进入未分配
@@ -234,15 +252,15 @@
         var split = splitAmounts(t);
         if (split) {
           if (t.type === 'income') split.forEach(function (s) { mEnsure(k).rev += s.amount; });
-          else { var sgn = t.type === 'refund' ? -1 : 1; split.forEach(function (s) { mEnsure(k).cost += s.amount * sgn; }); }
+          else { var sgn = t.type === 'refund' ? -1 : 1; var mc = cat1(t); if (!catHidden(mc)) split.forEach(function (s) { mEnsure(k).cost += s.amount * sgn; }); }
           return;
         }
       }
       var p = (t.project || '').trim(); if (!p) return;
       var d = mEnsure(k);
       if (t.type === 'income') d.rev += num(t.amount);
-      else if (t.type === 'expense') d.cost += num(t.amount);
-      else if (t.type === 'refund') d.cost -= num(t.amount);
+      else if (t.type === 'expense') { var me = cat1(t); if (!catHidden(me)) d.cost += num(t.amount); }
+      else if (t.type === 'refund') { var mr = cat1(t); if (!catHidden(mr)) d.cost -= num(t.amount); }
     });
     recs.forEach(function (r) {
       var k = String(r.year) + '-' + ('0' + r.month).slice(-2);
@@ -263,7 +281,8 @@
       prepayCount: preUnallocCount, prepayAmt: preUnallocAmt
     };
 
-    return { rows: rows, tot: tot, avgRate: avgRate, avgRoi: avgRoi, cats: cats, laborTypes: laborTypes, monthly: monthly, unalloc: unalloc, catTot: catTot, cat2Tot: cat2Tot };
+    var allCatKeys = Object.keys(allCats).sort();
+    return { rows: rows, tot: tot, avgRate: avgRate, avgRoi: avgRoi, cats: cats, laborTypes: laborTypes, monthly: monthly, unalloc: unalloc, catTot: catTot, cat2Tot: cat2Tot, allCats: allCatKeys };
   }
 
   function getYears() {
@@ -273,7 +292,7 @@
     return Object.keys(set).sort();
   }
 
-  var state = { year: 'all', expanded: {}, kw: '', pnl: 'all', costType: '', costType2: '', costExcl: false, sortKey: 'profit', sortDir: 'desc' };
+  var state = { year: 'all', expanded: {}, kw: '', pnl: 'all', costType: '', costType2: '', costExcl: false, sortKey: 'profit', sortDir: 'desc', hiddenCats: {}, showCatPanel: false };
 
   // 项目筛选（关键词匹配项目名 + 盈亏过滤）；纯函数，便于测试与外部复用
   function filterRows(rows, kw, pnl) {
@@ -516,8 +535,8 @@
     document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
   }
 
-  // 筛选行 HTML（年度 / 搜索 / 盈亏 / 成本率口径 / 剔除）——插入在排名表正上方
-  function filterBarHtml() {
+  // 筛选行 HTML（年度 / 搜索 / 盈亏 / 成本率口径 / 剔除 / 分类筛选）——插入在排名表正上方
+  function filterBarHtml(data) {
     var years = getYears();
     return '<div id="pcFilterBar" class="pc-filter-bar">' +
       '<label class="pc-year-label">统计年度</label>' +
@@ -535,6 +554,7 @@
       '<select id="pcCostType" class="pc-year"><option value="">总成本（默认）</option></select>' +
       '<select id="pcCostType2" class="pc-year" disabled><option value="">全部二级</option></select>' +
       '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"' + (state.costExcl ? ' checked' : '') + '> 剔除所选成本类</label>' +
+      '<button class="btn ghost" id="pcCatToggle">筛选成本分类 ▼</button>' +
       '<span class="pc-sort-label">排序</span>' +
       '<select id="pcSortKey" class="pc-year">' +
       [['profit', '利润'], ['revenue', '收入'], ['flowCost', '流水成本'], ['recoverable', '应收回款项'], ['laborCost', '工资成本'], ['totalCost', '总成本'], ['rate', '利润率'], ['cr', '成本率'], ['roi', '投入产出比'], ['qty', '签收单量'], ['project', '项目']]
@@ -545,12 +565,28 @@
       '<option value="asc"' + (state.sortDir === 'asc' ? ' selected' : '') + '>升序</option>' +
       '</select>' +
       '<button class="btn ghost" id="pcToggleAll">' + (Object.keys(state.expanded).length ? '收起全部' : '展开全部') + '</button>' +
+      '</div>' +
+      '<div id="pcCatPanel" class="pc-cat-panel"' + (state.showCatPanel ? '' : ' style="display:none"') + '>' +
+      '<div class="pc-cat-panel-hd"><b>显示的成本分类</b><span class="muted">取消勾选后，该分类会从流水成本、总成本、利润及成本率中剔除并重算</span></div>' +
+      '<div class="pc-cat-list">' + catCheckboxes(data) + '</div>' +
+      '<div class="pc-cat-panel-ft"><button class="btn sm" id="pcCatAll">全选</button> <button class="btn sm" id="pcCatNone">全不选</button></div>' +
       '</div>';
   }
 
-  // 计算当前视图数据（含筛选 + 单量/单产补全）
+  // 成本分类筛选面板里的复选框（data.allCats 为全部一级分类，data.catTot 为当前可见金额）
+  function catCheckboxes(data) {
+    var cats = data.allCats || Object.keys(data.catTot || {}).sort();
+    if (!cats.length) return '<span class="muted">暂无成本分类</span>';
+    return cats.map(function (c) {
+      var checked = !state.hiddenCats[c];
+      var amt = data.catTot[c] || 0;
+      return '<label class="pc-cat-item"><input type="checkbox" class="pc-cat-chk" value="' + FW.esc(c) + '"' + (checked ? ' checked' : '') + '> ' + FW.esc(c) + ' <span class="muted">' + FW.fmtMoney(amt) + '</span></label>';
+    }).join('');
+  }
+
+  // 计算当前视图数据（含筛选 + 单量/单产补全 + 成本分类剔除）
   function getView() {
-    var data = compute(state.year);
+    var data = compute(state.year, state.hiddenCats);
     var rows = enrichRows(filterRows(data.rows, state.kw, state.pnl));
     return { data: data, rows: rows };
   }
@@ -558,14 +594,17 @@
   function buildBody() {
     var v = getView();
     var data = v.data, rows = sortRows(v.rows);
-    var filterNote = (state.kw || state.pnl !== 'all') ?
-      '<div class="pc-filter-note">已筛选显示 <b>' + rows.length + '</b> 个项目（筛选仅作用于项目列表与下方对比图；上方 KPI 卡片为全部项目汇总）。</div>' : '';
+    var hiddenList = Object.keys(state.hiddenCats || {});
+    var filterNote = ((state.kw || state.pnl !== 'all' || hiddenList.length) ?
+      '<div class="pc-filter-note">已筛选显示 <b>' + rows.length + '</b> 个项目' +
+      (hiddenList.length ? '；已剔除成本分类：<b>' + hiddenList.map(FW.esc).join('、') + '</b>（流水成本/总成本/利润/成本率已重算）' : '') +
+      '（筛选作用于下方图表与表格；上方 KPI 卡片为当前筛选汇总）。</div>' : '');
     var html = '<div class="salary-wrap">';
     html += statRow(data);
     html += recoverNote(data);
     html += unallocHtml(data);
     // 筛选行 + 排名数据表置于图表上方
-    html += filterBarHtml();
+    html += filterBarHtml(data);
     html += filterNote;
     html += tableHtml(rows, data);
     html += chartHtml(data, rows);
@@ -636,6 +675,27 @@
       exclEl.disabled = !state.costType;
       exclEl.checked = !!state.costExcl && !!state.costType;
       exclEl.onchange = function () { state.costExcl = this.checked; buildBody(); };
+    }
+
+    // 成本分类筛选面板
+    var catToggle = document.getElementById('pcCatToggle');
+    var catPanel = document.getElementById('pcCatPanel');
+    if (catToggle && catPanel) {
+      catToggle.onclick = function () {
+        state.showCatPanel = !state.showCatPanel;
+        catPanel.style.display = state.showCatPanel ? '' : 'none';
+        catToggle.textContent = '筛选成本分类 ' + (state.showCatPanel ? '▲' : '▼');
+      };
+      Array.prototype.forEach.call(catPanel.querySelectorAll('.pc-cat-chk'), function (chk) {
+        chk.onchange = function () {
+          if (this.checked) delete state.hiddenCats[this.value]; else state.hiddenCats[this.value] = 1;
+          buildBody();
+        };
+      });
+      var catAll = document.getElementById('pcCatAll');
+      if (catAll) catAll.onclick = function () { state.hiddenCats = {}; buildBody(); };
+      var catNone = document.getElementById('pcCatNone');
+      if (catNone) catNone.onclick = function () { (data.allCats || Object.keys(data.catTot || {})).forEach(function (c) { state.hiddenCats[c] = 1; }); buildBody(); };
     }
 
     // 下钻：点击项目行展开/收起明细
