@@ -57,17 +57,28 @@
   }
   // 兼容旧代码中直接引用 ACCTS 的地方（余额统计/期初等）
   var ACCTS = getAccounts();
-  function refreshAccts() { ACCTS = getAccounts(); }
 
-  // 账户配色：导出/打印时按账户名渲染不同颜色，便于一眼区分（深蓝主题下挑选对比清晰、白底可读的色）
+  // 账户配色：按账户在账户列表中的固定顺序分配颜色，保证不同账户一定不同色（hash 取色易撞色）
   var ACC_COLORS = ['#1F6FB2', '#C8102E', '#1F9D55', '#B45F06', '#7A4FB5', '#0E8C8C', '#C77F0A', '#9C27B0', '#3F7CAC', '#C2185B'];
+  var ACC_COLOR_MAP = null;  // 账户名 -> 颜色，按 getAccounts() 顺序建立，缓存
+  function buildAccColorMap() {
+    ACC_COLOR_MAP = {};
+    var list = getAccounts();
+    list.forEach(function (n, i) {
+      if (n) ACC_COLOR_MAP[n] = ACC_COLORS[i % ACC_COLORS.length];
+    });
+  }
   function accColor(name) {
     var s = String(name || '');
     if (!s) return '#1F2D3D';
+    if (ACC_COLOR_MAP === null) buildAccColorMap();
+    if (ACC_COLOR_MAP[s]) return ACC_COLOR_MAP[s];
+    // 不在账户列表里的（旧数据/临时值）：回退到稳定 hash 取色
     var h = 0;
     for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
     return ACC_COLORS[h % ACC_COLORS.length];
   }
+  function refreshAccts() { ACCTS = getAccounts(); ACC_COLOR_MAP = null; }
 
   var CATKEY_ = CATKEY;
   function cats() { return FW.db.getList(CATKEY_); }
