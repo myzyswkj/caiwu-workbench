@@ -157,6 +157,28 @@ body {
 .btn.danger { background: #ffe9e9; color: #d33; }
 .btn.sm { padding: 6px 11px; font-size: 12px; }
 
+/* 导出菜单 */
+.exp-menu-wrap { position: relative; display: inline-block; }
+.exp-menu {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 6px; min-width: 180px; z-index: 20;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.exp-menu .em-hint {
+  font-size: 11px; color: var(--muted); padding: 4px 8px 2px; pointer-events: none;
+}
+.exp-menu button {
+  border: none; background: transparent; color: var(--text);
+  padding: 8px 10px; border-radius: 7px; cursor: pointer; font-size: 13px;
+  text-align: left; transition: .12s;
+}
+.exp-menu button:hover { background: var(--bg); }
+.exp-menu button.em-img { background: #eef6ff; color: #1a5fb4; }
+.exp-menu button.em-img:hover { background: #dbeafe; }
+.exp-menu button.em-pdf { background: #fff4e6; color: #b45f06; }
+.exp-menu button.em-pdf:hover { background: #ffe8cc; }
+
 /* 卡片 */
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; margin-bottom: 18px; }
 .card h3 { margin: 0 0 14px; font-size: 16px; display: flex; align-items: center; gap: 8px; padding-left: 10px; border-left: 3px solid var(--primary); }
