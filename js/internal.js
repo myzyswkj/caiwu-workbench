@@ -539,7 +539,7 @@
         '<td class="tx-detail">' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td class="col-tight-r tx-detail">' + FW.esc(acctTxt) + '</td>' +
         '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
-        '<td class="remark col-loose-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣支出 ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
+        '<td class="remark col-loose-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣' + FW.esc(t.feeName || '支出') + ' ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
         '<td class="photo-cell">' + vcell + '</td>' +
         '<td>' + FW.esc(t.party || '—') + '</td>' +
         '<td>' + FW.esc(t.reimburser || '—') + '</td>' +
@@ -1417,9 +1417,15 @@
       var c1 = v.cat1 || '', c2 = v.cat2 || '';
       var deductField = '';
       if (type === 'income') {
-        deductField = '<div class="field full"><label>其中已扣除的支出（代付/代扣）¥</label>' +
-          '<input id="f_deduct" type="number" step="0.01" min="0" value="' + FW.esc(v.deduct || '') + '" placeholder="如本笔收入是扣除支出后的净额，填被扣除的金额">' +
-          '<div class="muted" style="font-size:12px;margin-top:4px">填了之后：实际收入 = 本笔金额 + 此处；该扣除额会计入<b>项目成本</b>（只计一次），对账/到账金额仍按本笔金额。用于修正「收入按净额记导致利润率失真」。</div></div>';
+        var feeP = (v.feePermille != null && v.feePermille !== '') ? v.feePermille : '';
+        var feeN = v.feeName || '服务费';
+        deductField = '<div class="field full"><label>已扣服务费（反推毛收入，按收入占比分摊到各项目成本）</label>' +
+          '<div class="form-grid" style="margin-top:6px">' +
+            '<div class="field"><label>费率（‰）</label><input id="f_fee_permille" type="number" step="0.1" min="0" value="' + FW.esc(feeP) + '" placeholder="如 6 表示千分之六"></div>' +
+            '<div class="field"><label>费用名称</label><input id="f_fee_name" type="text" value="' + FW.esc(feeN) + '" placeholder="如 快递代收服务费"></div>' +
+          '</div>' +
+          '<div id="feePreview" class="muted" style="font-size:12px;margin-top:6px"></div>' +
+          '<div class="muted" style="font-size:12px;margin-top:4px">填写费率后：服务费 = 本笔金额 × 费率 ÷ (1 − 费率)（按毛收入口径反推）；实际收入 = 本笔金额 + 服务费。多项目分摊时，服务费按各项目收入占比自动分摊，并作为独立成本分类「<b>' + FW.esc(feeN) + '</b>」计入对应项目。</div></div>';
       }
       el.innerHTML =
         '<div class="tx-title">核算维度</div>' +
@@ -1440,6 +1446,27 @@
       var mgr = document.getElementById('mgRules');
       if (mgr) mgr.onclick = function (e) { e.preventDefault(); openCatMatchManager(); };
       if (type === 'income' || type === 'expense' || type === 'refund') bindAllocBox();
+      if (type === 'income') {
+        function updateFeePreview() {
+          var amtEl = document.getElementById('f_amount');
+          var perEl = document.getElementById('f_fee_permille');
+          var prev = document.getElementById('feePreview');
+          if (!amtEl || !perEl || !prev) return;
+          var amt = parseFloat(amtEl.value) || 0;
+          var per = parseFloat(perEl.value);
+          if (!(per > 0)) { prev.innerHTML = '未填费率：不自动计算服务费。'; prev.className = 'muted'; return; }
+          var r = per / 1000;
+          var deduct = amt * r / (1 - r);
+          var gross = amt + deduct;
+          prev.innerHTML = '费率 ' + per + '‰（' + (r * 100).toFixed(3) + '%）｜ 服务费 <b>' + FW.fmtMoney(deduct) + '</b> ｜ 实际收入（毛） <b>' + FW.fmtMoney(gross) + '</b>';
+          prev.className = 'muted';
+        }
+        var perEl2 = document.getElementById('f_fee_permille');
+        if (perEl2) perEl2.oninput = updateFeePreview;
+        var amtEl2 = document.getElementById('f_amount');
+        if (amtEl2) amtEl2.addEventListener('input', updateFeePreview);
+        updateFeePreview();
+      }
     }
   }
 
@@ -2257,8 +2284,16 @@
           rec.category = c1 ? (c2 ? c1 + ' / ' + c2 : c1) : '';
           rec.account = document.getElementById('f_account').value;
           if (type === 'income') {
-            var dv = parseFloat(document.getElementById('f_deduct').value);
-            rec.deduct = (dv > 0 && !isNaN(dv)) ? dv : 0;
+            var per = parseFloat(document.getElementById('f_fee_permille').value);
+            var feeName = (document.getElementById('f_fee_name').value || '').trim();
+            if (per > 0 && !isNaN(per)) {
+              var rr = per / 1000;
+              rec.deduct = +((amount * rr / (1 - rr))).toFixed(2);
+              rec.feePermille = per;
+              rec.feeName = feeName || '服务费';
+            } else {
+              rec.deduct = 0; rec.feePermille = ''; rec.feeName = '';
+            }
           }
         } else if (type === 'transfer') {
           rec.fromAccount = document.getElementById('f_from').value;
