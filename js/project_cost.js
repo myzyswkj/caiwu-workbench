@@ -143,7 +143,9 @@
             // 已扣支出(dv)按各项目分摊额占比计入对应项目流水成本（总额守恒、不再漏计）
             if (dv > 0) {
               var sumAmt = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
-              var dn1 = cat1(t), dn2 = catFull(t);
+              // 服务费类扣除：按自定义名称归为独立成本分类（如「快递代收服务费」）；否则归入收入原分类
+              var dn1 = t.feeName ? t.feeName : cat1(t);
+              var dn2 = t.feeName ? (t.feeName + ' / ' + t.feeName) : catFull(t);
               allCats[dn1] = 1;
               if (!catHidden(dn1)) {
                 split.forEach(function (s) {
@@ -180,7 +182,12 @@
         d.revByCat[ic] = (d.revByCat[ic] || 0) + (a + dv);
         d.revByCat2[icf] = (d.revByCat2[icf] || 0) + (a + dv);
         allCats[ic] = 1;
-        if (dv > 0 && !catHidden(ic)) { d.flowCost += dv; d.byCat[ic] = (d.byCat[ic] || 0) + dv; d.byCat2[icf] = (d.byCat2[icf] || 0) + dv; }
+        if (dv > 0) {
+          var fcat1 = t.feeName ? t.feeName : ic;
+          var fcat2 = t.feeName ? (t.feeName + ' / ' + t.feeName) : icf;
+          allCats[fcat1] = 1;
+          if (!catHidden(fcat1)) { d.flowCost += dv; d.byCat[fcat1] = (d.byCat[fcat1] || 0) + dv; d.byCat2[fcat2] = (d.byCat2[fcat2] || 0) + dv; }
+        }
       }
       else if (t.type === 'expense') {
         var c = cat1(t), cf = catFull(t);
@@ -489,6 +496,7 @@
               deduct: dShare,
               actual: s.amount + dShare,
               remark: '(分摊)',
+              feeName: t.feeName || '',
               id: t.id
             });
           }
@@ -504,6 +512,7 @@
           deduct: dv,
           actual: num(t.amount) + dv,
           remark: t.remark || '',
+          feeName: t.feeName || '',
           id: t.id
         });
       }
@@ -549,7 +558,7 @@
         '<td>' + (it.party ? FW.esc(it.party) : '<span class="muted">—</span>') + '</td>' +
         '<td><span class="tag" style="font-size:11px">' + FW.esc(it.category) + '</span></td>' +
         '<td class="num">' + FW.fmtMoney(it.amount) + '</td>' +
-        '<td class="num">' + (it.deduct > 0 ? '<span class="amt-expense">' + FW.fmtMoney(it.deduct) + '</span>' : '<span class="muted">—</span>') + '</td>' +
+        '<td class="num">' + (it.deduct > 0 ? '<span class="amt-expense">' + FW.fmtMoney(it.deduct) + '</span>' + (it.feeName ? '<div class="muted" style="font-size:11px">' + FW.esc(it.feeName) + '</div>' : '') : '<span class="muted">—</span>') + '</td>' +
         '<td class="num amt-income"><b>' + FW.fmtMoney(it.actual) + '</b></td>' +
         '<td class="muted" style="font-size:11px">' + FW.esc(it.remark || '—') + '</td>' +
         '</tr>';
@@ -561,7 +570,7 @@
       '<td style="background:#fff8f0"></td>' +
       '</tr></tfoot></table></div>' +
       '<div class="muted" style="font-size:11px;margin-top:8px;line-height:1.6">' +
-        '• 到账金额 = 实际到账的净额 &nbsp;|&nbsp; 已扣支出 = 代付/代扣款项（如有）&nbsp;|&nbsp; 实际收入 = 到账金额 + 已扣支出<br>' +
+        '• 到账金额 = 实际到账的净额 &nbsp;|&nbsp; 已扣服务费 = 按费率反推（毛收入口径），名称可自定义（如快递代收服务费）&nbsp;|&nbsp; 实际收入 = 到账金额 + 已扣服务费<br>' +
         '• 标记「(分摊)」的记录表示该笔收入按比例分摊到了多个项目<br>' +
         '• 数据来源：「登记内账」→ 类型=收入 且 项目=' + FW.esc(projectName) +
       '</div>';
