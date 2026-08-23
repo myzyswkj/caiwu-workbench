@@ -547,7 +547,7 @@
         '<td class="tx-detail">' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
         '<td class="tx-detail">' + txProjectLabel(t) + '</td>' +
         '<td class="tx-detail">' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
-        '<td class="col-tight-r tx-detail">' + FW.esc(acctTxt) + '</td>' +
+        '<td class="col-tight-r tx-detail" style="color:' + accColor(acctTxt) + '"><b>' + FW.esc(acctTxt) + '</b></td>' +
         '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
         '<td class="remark col-loose-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣' + FW.esc(t.feeName || '支出') + ' ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
         '<td class="photo-cell">' + vcell + '</td>' +
@@ -2809,24 +2809,28 @@
     colWidths[imgCol] = Math.max(colWidths[imgCol], 160);
     // 金额列保底：装下最长金额 "-¥999,999.99"（约 100px），避免列被压窄后金额被迫折行成 4 行（与屏幕里被 cell 撑大的观感不一致）
     colWidths[amountCol] = Math.max(colWidths[amountCol], 100);
+    var accountCol = EXPORT_COL_IDS.indexOf('account');
     var outRows = rows.map(function (t) {
       var a = Number(t.amount) || 0;
       var cls = 'neutral', sign = '';
       if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) { cls = 'income'; sign = '+'; }
       else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) { cls = 'expense'; sign = '−'; }
+      var acct = accountOf(t);
       var cellById = {
         date: t.date,
         type: typeLabel(t),
         project: txProjectText(t),
         category: t.category || '',
-        account: accountOf(t),
+        account: acct,
         amount: sign + FW.fmtMoney(a),
         remark: (t.remark || '').replace(/[\r\n]+/g, ' '),
         voucher: '',
         party: t.party || '',
         reimburser: t.reimburser || ''
       };
-      return { cells: EXPORT_COL_IDS.map(function (id) { return cellById[id] != null ? cellById[id] : ''; }), amountCls: cls };
+      var cellColors = new Array(EXPORT_COL_IDS.length).fill(null);
+      if (accountCol >= 0) cellColors[accountCol] = accColor(acct);
+      return { cells: EXPORT_COL_IDS.map(function (id) { return cellById[id] != null ? cellById[id] : ''; }), amountCls: cls, cellColors: cellColors };
     });
     // 按账户收支副表（与打印视图 / Excel 导出同一套算子：buildAccMap / startBalanceMap / balMapAt）
     var accMap = buildAccMap(rows);
