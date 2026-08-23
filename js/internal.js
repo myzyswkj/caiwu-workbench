@@ -59,7 +59,7 @@
   var ACCTS = getAccounts();
 
   // 账户配色：按账户在账户列表中的固定顺序分配颜色，保证不同账户一定不同色（hash 取色易撞色）
-  var ACC_COLORS = ['#1F6FB2', '#C8102E', '#1F9D55', '#B45F06', '#7A4FB5', '#0E8C8C', '#C77F0A', '#9C27B0', '#3F7CAC', '#C2185B'];
+  var ACC_COLORS = ['#1F6FB2', '#B45F06', '#7A4FB5', '#0E8C8C', '#C77F0A', '#3F7CAC', '#5E35B1', '#00695C', '#4E342E', '#37474F'];
   var ACC_COLOR_MAP = null;  // 账户名 -> 颜色，按 getAccounts() 顺序建立，缓存
   function buildAccColorMap() {
     ACC_COLOR_MAP = {};
