@@ -282,7 +282,7 @@
       title: cfg.title || '', note: cfg.note || '', noteLines: noteLines,
       head: head, rows: rowGeom, colW: colW, nCol: nCol,
       headerH: headerH, lineH: lineH, padX: padX, padY: padY,
-      rightCols: rightCols, colCls: cfg.colCls || [], totalRow: !!cfg.totalRow,
+      rightCols: rightCols, colCls: cfg.colCls || [], rowColors: cfg.rowColors || null, totalRow: !!cfg.totalRow,
       tableW: tableW, totalH: totalH, titleH: titleH, noteH: noteH, noteLineH: 19 * fs
     };
   }
@@ -477,6 +477,8 @@
             var num = parseFloat(raw);
             if (!isNaN(num)) colColor = num < 0 ? C.expense : (num > 0 ? C.income : C.text);
           }
+          // 首列（账户名）按行指定颜色（导出账户分类用颜色区分），合计行 rowColors 为 null 则保持中性
+          if (scc === 0 && st.rowColors && st.rowColors[sr]) colColor = st.rowColors[sr];
           ctx.fillStyle = colColor;
           ctx.font = srg.isTotal ? F.FONT_BOLD : F.FONT;
           for (var sli = 0; sli < slines.length; sli++) {
