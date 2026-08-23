@@ -59,6 +59,16 @@
   var ACCTS = getAccounts();
   function refreshAccts() { ACCTS = getAccounts(); }
 
+  // 账户配色：导出/打印时按账户名渲染不同颜色，便于一眼区分（深蓝主题下挑选对比清晰、白底可读的色）
+  var ACC_COLORS = ['#1F6FB2', '#C8102E', '#1F9D55', '#B45F06', '#7A4FB5', '#0E8C8C', '#C77F0A', '#9C27B0', '#3F7CAC', '#C2185B'];
+  function accColor(name) {
+    var s = String(name || '');
+    if (!s) return '#1F2D3D';
+    var h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return ACC_COLORS[h % ACC_COLORS.length];
+  }
+
   var CATKEY_ = CATKEY;
   function cats() { return FW.db.getList(CATKEY_); }
   function ensureCats() { if (!cats().length) FW.db.saveList(CATKEY_, DEFAULT_CATS.map(function (n) { return { name: n, children: [] }; })); }
@@ -972,7 +982,11 @@
     if (balMaps) head += '<th class="num">区间期末余额</th>';
     var trs = keys.map(function (k) {
       var v = map[k];
-      var cells = '<td>' + FW.esc(k) + '</td>';
+      // 账户分类：账户名用专属颜色区分（导出/打印/统计页一致）
+      var nameCell = (fmtKey === '账户')
+        ? '<td><span style="color:' + accColor(k) + ';font-weight:600">' + FW.esc(k) + '</span></td>'
+        : '<td>' + FW.esc(k) + '</td>';
+      var cells = nameCell;
       if (balMaps) cells += '<td class="num">' + FW.fmtMoney(balMaps.start[k] || 0) + '</td>';
       cells += '<td class="num income">' + FW.fmtMoney(v.income) + '</td><td class="num expense">' + FW.fmtMoney(v.expense) + '</td>';
       if (showTransfer) {
@@ -2821,18 +2835,22 @@
       return (accMap[b].income + accMap[b].expense + Math.abs(accMap[b].transfer || 0)) - (accMap[a].income + accMap[a].expense + Math.abs(accMap[a].transfer || 0));
     });
     var accRows = [], aInc = 0, aExp = 0, aStart = 0, aEnd = 0, aXfer = 0;
+    var accRowColors = [];  // 与 accRows 逐行对齐：账户名专属颜色（合计行用 null 保持中性）
     accKeys.forEach(function (k) {
       var v = accMap[k];
       var s = startBal[k] || 0, e = endBal[k] || 0;
       accRows.push([k, FW.fmtMoney(s), FW.fmtMoney(v.income), FW.fmtMoney(v.expense), FW.fmtMoney(v.transfer || 0), FW.fmtMoney(e)]);
+      accRowColors.push(accColor(k));
       aInc += v.income; aExp += v.expense; aStart += s; aEnd += e; aXfer += (v.transfer || 0);
     });
     accRows.push(['合计（' + accKeys.length + ' 账户）', FW.fmtMoney(aStart), FW.fmtMoney(aInc), FW.fmtMoney(aExp), FW.fmtMoney(aXfer), FW.fmtMoney(aEnd)]);
+    accRowColors.push(null);
     var subtable = {
       title: '按账户（收支维度）',
       note: '注：区间期初 = 筛选开始前的账户余额；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的真实账户余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支。',
       head: ['账户', '区间期初', '收入', '支出', '互转（转入−转出）', '区间期末余额'],
       rows: accRows,
+      rowColors: accRowColors,
       colWidths: [276, 258, 232, 232, 264, 290],
       rightCols: [1, 2, 3, 4, 5],
       colCls: ['neutral', 'signed', 'income', 'expense', 'signed', 'signed'],
