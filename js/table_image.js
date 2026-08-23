@@ -219,7 +219,7 @@
       var pics = (cfg.pics && cfg.pics[r]) || [];
       var imgL = layoutImages(pics, colW[imgCol], picMaxW, picMaxH, gap, padY);
       var rowH = Math.max(textH, imgL.rowH);
-      rowGeom.push({ top: y, height: rowH, cellLines: cellLines, amountCls: row.amountCls, imgs: imgL.imgs, imgGap: imgL.gap });
+      rowGeom.push({ top: y, height: rowH, cellLines: cellLines, amountCls: row.amountCls, cellColors: row.cellColors || null, imgs: imgL.imgs, imgGap: imgL.gap });
       y += rowH;
     }
 
@@ -573,7 +573,8 @@
         } else {
           var lines = rg.cellLines[cc] || [''];
           var txtColor = C.text;
-          if (cc === geo.amountCol && rg.amountCls === 'income') txtColor = C.income;
+          if (rg.cellColors && rg.cellColors[cc]) txtColor = rg.cellColors[cc];
+          else if (cc === geo.amountCol && rg.amountCls === 'income') txtColor = C.income;
           else if (cc === geo.amountCol && rg.amountCls === 'expense') txtColor = C.expense;
           ctx.fillStyle = txtColor;
           // 字体：金额列恒加粗（与屏幕 td.num 一致）；明细加大列用大字号，其中「类型」列收入/支出再加粗
