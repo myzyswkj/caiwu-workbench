@@ -1422,6 +1422,86 @@
     var kids = c ? (c.children || []) : [];
     return '<option value="">全部二级</option>' + kids.map(function (k) { return '<option' + (k === sel ? ' selected' : '') + '>' + FW.esc(k) + '</option>'; }).join('');
   }
+  var ssDocClickBound = false;
+  function makeSearchableSelect(selId) {
+    var sel = document.getElementById(selId);
+    if (!sel) return;
+    var wrapper = null, p = sel.parentNode;
+    while (p) { if (p.classList && p.classList.contains('search-select')) { wrapper = p; break; } p = p.parentNode; }
+    if (wrapper) { wrapper.parentNode.insertBefore(sel, wrapper); wrapper.parentNode.removeChild(wrapper); }
+    wrapper = document.createElement('div');
+    wrapper.className = 'search-select';
+    sel.parentNode.insertBefore(wrapper, sel);
+    wrapper.appendChild(sel);
+    sel.style.display = 'none';
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'ss-input';
+    inp.placeholder = '搜索分类...';
+    inp.autocomplete = 'off';
+    wrapper.appendChild(inp);
+    var dd = document.createElement('div');
+    dd.className = 'ss-dropdown';
+    wrapper.appendChild(dd);
+    var options = [], active = -1;
+    function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function build(q) {
+      q = String(q || '').toLowerCase().trim();
+      options = [];
+      for (var i = 0; i < sel.options.length; i++) {
+        var o = sel.options[i];
+        if (q && o.textContent.toLowerCase().indexOf(q) < 0) continue;
+        options.push({ el: o, text: o.textContent, value: o.value });
+      }
+      if (options.length === 0) { dd.innerHTML = '<div class="ss-no">无匹配</div>'; return; }
+      dd.innerHTML = options.map(function (o, idx) {
+        var t = escHtml(o.text);
+        if (q) {
+          var pos = o.text.toLowerCase().indexOf(q);
+          if (pos >= 0) t = escHtml(o.text.slice(0, pos)) + '<mark>' + escHtml(o.text.slice(pos, pos + q.length)) + '</mark>' + escHtml(o.text.slice(pos + q.length));
+        }
+        return '<div class="ss-option" data-i="' + idx + '">' + t + '</div>';
+      }).join('');
+    }
+    function syncInp() { var o = sel.options[sel.selectedIndex]; inp.value = o ? o.textContent : ''; }
+    function open() { build(''); dd.style.display = 'block'; active = -1; }
+    function close() { dd.style.display = 'none'; active = -1; syncInp(); }
+    function pick(idx) {
+      if (idx < 0 || idx >= options.length) return;
+      sel.value = options[idx].value;
+      close();
+      var ev = document.createEvent('HTMLEvents');
+      ev.initEvent('change', true, false);
+      sel.dispatchEvent(ev);
+    }
+    function updateActive() {
+      var list = dd.querySelectorAll('.ss-option');
+      for (var i = 0; i < list.length; i++) list[i].classList.toggle('active', i === active);
+      var a = dd.querySelector('.ss-option.active');
+      if (a) a.scrollIntoView({ block: 'nearest' });
+    }
+    inp.onfocus = open;
+    inp.oninput = function () { build(this.value); dd.style.display = 'block'; active = -1; };
+    inp.onkeydown = function (e) {
+      if (!dd.style.display || dd.style.display === 'none') open();
+      if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, options.length - 1); updateActive(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, -1); updateActive(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (active >= 0) pick(active); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); inp.blur(); }
+    };
+    dd.onclick = function (e) {
+      var n = e.target;
+      while (n && n !== dd && !n.classList.contains('ss-option')) n = n.parentNode;
+      if (!n) return;
+      var i = +n.getAttribute('data-i');
+      if (!isNaN(i)) pick(i);
+    };
+    if (!ssDocClickBound) {
+      document.addEventListener('click', function (e) { if (!wrapper.contains(e.target)) close(); }, true);
+      ssDocClickBound = true;
+    }
+    syncInp(); build(''); close();
+  }
   function renderDyn(type, v) {
     var el = document.getElementById('dynArea');
     if (type === 'transfer') {
@@ -1463,9 +1543,11 @@
         '</div>' +
         allocBoxHtml();
       var c1sel = document.getElementById('f_cat1');
-      if (c1sel) c1sel.onchange = function () { catAutoTouched = true; document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); clearCatHint(); };
+      if (c1sel) c1sel.onchange = function () { catAutoTouched = true; document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); clearCatHint(); makeSearchableSelect('f_cat2'); };
       var c2sel = document.getElementById('f_cat2');
       if (c2sel) c2sel.onchange = function () { catAutoTouched = true; clearCatHint(); };
+      makeSearchableSelect('f_cat1');
+      makeSearchableSelect('f_cat2');
       var mg = document.getElementById('mgCats');
       if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
       var mgr = document.getElementById('mgRules');
