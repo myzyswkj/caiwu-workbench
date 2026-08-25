@@ -59,7 +59,7 @@
   var ACCTS = getAccounts();
 
   // 账户配色：按账户在账户列表中的固定顺序分配颜色，保证不同账户一定不同色（hash 取色易撞色）
-  var ACC_COLORS = ['#1F6FB2', '#C8102E', '#1F9D55', '#B45F06', '#7A4FB5', '#0E8C8C', '#C77F0A', '#9C27B0', '#3F7CAC', '#C2185B'];
+  var ACC_COLORS = ['#1F6FB2', '#B45F06', '#7A4FB5', '#0E8C8C', '#C77F0A', '#3F7CAC', '#5E35B1', '#00695C', '#4E342E', '#37474F'];
   var ACC_COLOR_MAP = null;  // 账户名 -> 颜色，按 getAccounts() 顺序建立，缓存
   function buildAccColorMap() {
     ACC_COLOR_MAP = {};
@@ -160,7 +160,14 @@
         var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
         var hasAlloc = !!(t.allocations && t.allocations.length);
         var hasProject = !!(t.project && String(t.project).trim());
-        if (!allocatable || hasAlloc || hasProject) return false; // 只保留「连单项目都没挂、又没做分摊」的收支/退款
+        if (!allocatable || hasAlloc || hasProject || t.skipAlloc) return false; // 只保留「连单项目都没挂、又没做分摊、且未标记不参与」的收支/退款
+      }
+      if (f.allocStatus) {
+        var _alloc = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
+        var _has = !!(t.allocations && t.allocations.length) || !!(t.project && String(t.project).trim());
+        if (f.allocStatus === 'done' && !_has) return false;
+        if (f.allocStatus === 'skip' && !t.skipAlloc) return false;
+        if (f.allocStatus === 'wait' && (_has || t.skipAlloc || !_alloc)) return false;
       }
       return true;
     });
@@ -191,6 +198,9 @@
       } else if (t.type === 'equity') {
         var s = t.equityDir === 'out' ? -1 : 1;
         if (t.account) move[t.account] = (move[t.account] || 0) + s * a;
+      }
+      else if (t.type === 'dividend') {
+        if (t.account) move[t.account] = (move[t.account] || 0) - a;
       }
     });
     // 按完整账户名聚合期初/收支/往来
@@ -248,6 +258,13 @@
     return all().reduce(function (s, t) {
       if (t.type !== 'equity' || !inRange(t, from, to)) return s;
       return s + (Number(t.amount) || 0) * (t.equityDir === 'out' ? -1 : 1);
+    }, 0);
+  }
+  // 区间分红净变动（分红减少资金，返回负数）
+  function dividendNet(from, to) {
+    return all().reduce(function (s, t) {
+      if (t.type !== 'dividend' || !inRange(t, from, to)) return s;
+      return s - (Number(t.amount) || 0);
     }, 0);
   }
 
@@ -334,6 +351,7 @@
       if (t.type === 'refund') return '退款收入';
       if (t.type === 'transfer') return '账户互转';
       if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
+      if (t.type === 'dividend') return '股东分红';
       return t.type || '';
     }
     var rows = '';
@@ -374,7 +392,8 @@
     var openTotal = openingsTotal();
     var profit = netProfit('', '');
     var eqNet = equityNet('', '');
-    var balanced = Math.abs(cashTotal - (openTotal + profit + eqNet)) < 0.005;
+    var divNet = dividendNet('', '');
+    var balanced = Math.abs(cashTotal - (openTotal + profit + eqNet + divNet)) < 0.005;
     var ACCENTS = ['#C8102E', '#C9A227', '#D99A2B', '#A4151B', '#E0B252', '#8B1E1E'];
     var maxAbs = Math.max.apply(null, bd.map(function (x) { return Math.abs(x.bal); }).concat([1]));
     var bars = bd.length ? bd.map(function (x, i) {
@@ -394,10 +413,11 @@
         kpiCell('累计结余（收入−支出）', profit, true, false) +
         kpiCell('期初余额', openTotal, false, false) +
         kpiCell('股本净变动', eqNet, true, false) +
+        kpiCell('累计分红', divNet, true, false) +
         kpiCell('账户互转净额', 0, false, true) +
       '</div>' +
       '<div class="ov-accs"><div class="ov-accs-title">各账户余额（横向条形越长代表余额越多）</div>' + bars +
-        '<div class="ov-hint">说明：账户互转只改变资金在各账户的归属，不改变「资金总计」与「结余」；股本注入 / 抽回影响资金但不影响经营利润。</div>' +
+        '<div class="ov-hint">说明：账户互转只改变资金在各账户的归属，不改变「资金总计」与「结余」；股本注入 / 抽回影响资金但不影响经营利润；股东分红减少资金且不影响经营利润。</div>' +
       '</div>' +
     '</div>';
   }
@@ -443,7 +463,8 @@
           '<div class="field"><select id="fCat">' + catOpts + '</select></div>' +
           '<div class="field"><select id="fCat2">' + cat2OptsF + '</select></div>' +
           '<div class="field"><select id="fAcc">' + accOpts + '</select></div>' +
-          '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="transfer">账户互转</option><option value="equity">股本资金</option></select></div>' +
+          '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="transfer">账户互转</option><option value="equity">股本资金</option><option value="dividend">股东分红</option></select></div>' +
+          '<div class="field"><select id="fAllocStatus"><option value="">分摊状态：全部</option><option value="done">已分摊</option><option value="wait">待分摊</option><option value="skip">不参与</option></select></div>' +
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
           '<button class="btn ghost sm" id="fReset">重置</button>' +
@@ -459,6 +480,7 @@
     document.getElementById('fCat2').value = f.category2;
     document.getElementById('fAcc').value = f.account;
     document.getElementById('fType').value = f.type || '';
+    document.getElementById('fAllocStatus').value = f.allocStatus || '';
     document.getElementById('fFrom').value = f.from;
     document.getElementById('fTo').value = f.to;
     bindFilter();
@@ -482,9 +504,10 @@
     g('fCat2').onchange = function () { state.filter.category2 = this.value; drawTable(); };
     g('fAcc').onchange = function () { state.filter.account = this.value; drawTable(); };
     g('fType').onchange = function () { state.filter.type = this.value; drawTable(); };
+    g('fAllocStatus').onchange = function () { state.filter.allocStatus = this.value; drawTable(); };
     g('fFrom').onchange = function () { state.filter.from = this.value; drawTable(); };
     g('fTo').onchange = function () { state.filter.to = this.value; drawTable(); };
-    g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '', noAlloc: false }; drawList(); };
+    g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '', noAlloc: false, allocStatus: '' }; drawList(); };
     g('fNoAlloc').onchange = function () { state.filter.noAlloc = this.checked; drawTable(); };
     g('fVoucher').onchange = function () { state.showVoucher = this.checked; drawTable(); };
     g('fResetColW').onclick = resetColWidths;
@@ -499,7 +522,7 @@
     var unalloc = all().filter(function (t) {
       var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
       var hasAlloc = !!(t.allocations && t.allocations.length);
-      return allocatable && !hasAlloc;
+      return allocatable && !hasAlloc && !t.skipAlloc;
     }).length;
     document.getElementById('txStats').innerHTML =
       '<div class="stat"><div class="label">筛选后收入</div><div class="value income">' + FW.fmtMoney(income) + '</div></div>' +
@@ -527,6 +550,7 @@
     if (t.type === 'refund') return { tag: '退款收入', cls: 'refund' };
     if (t.type === 'transfer') return { tag: '账户互转', cls: 'transfer' };
     if (t.type === 'equity') return { tag: (t.equityDir === 'out' ? '股本抽回' : '股本注入'), cls: 'equity' };
+    if (t.type === 'dividend') return { tag: '股东分红', cls: 'neutral' };
     return { tag: t.type || '—', cls: '' };
   }
 
@@ -836,11 +860,13 @@
     var openTotal = openingsTotal();
     var profitCum = netProfit('', to);                    // 累计结余（截至区间末）
     var eqNetCum = equityNet('', to);                     // 累计股本净（截至区间末）
-    var balanced = Math.abs(cashTotal - (openTotal + profitCum + eqNetCum)) < 0.005;
+    var divNetCum = dividendNet('', to);                  // 累计分红净（截至区间末，分红为负）
+    var balanced = Math.abs(cashTotal - (openTotal + profitCum + eqNetCum + divNetCum)) < 0.005;
 
     // 「区间」口径（用户所选窗口），仅用于上方 KPI 展示，不影响对账
     var profit = netProfit(from, to);
     var eqNet = equityNet(from, to);
+    var divNet = dividendNet(from, to);
 
     // 月度柱状图
     var months = Object.keys(byMonth).sort();
@@ -882,6 +908,7 @@
         '<div class="stat"><div class="label">资金总计（各账户余额和）</div><div class="value">' + FW.fmtMoney(cashTotal) + '</div></div>' +
         '<div class="stat"><div class="label">期初余额</div><div class="value">' + FW.fmtMoney(openTotal) + '</div></div>' +
         '<div class="stat"><div class="label">区间股本净变动</div><div class="value ' + (eqNet >= 0 ? 'income' : 'expense') + '">' + FW.fmtMoney(eqNet) + '</div></div>' +
+        '<div class="stat"><div class="label">区间分红净变动</div><div class="value ' + (divNet >= 0 ? 'income' : 'expense') + '">' + FW.fmtMoney(divNet) + '</div></div>' +
         '<div class="stat"><div class="label">区间互转净额</div><div class="value muted">0.00</div></div>' +
       '</div>' +
 
@@ -889,9 +916,9 @@
       '<div class="card" style="margin-bottom:18px;' + (balanced ? 'border-color:#bfe6cd' : 'border-color:#f4d79a') + '">' +
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
           '<span class="badge ' + (balanced ? 'done' : 'warn') + '">' + (balanced ? '✅ 对账平衡' : '⚠️ 对账不平') + '</span>' +
-          '<span class="muted" style="font-size:13px">资金总计 ' + FW.fmtMoney(cashTotal) + ' ＝ 期初 ' + FW.fmtMoney(openTotal) + ' ＋ 累计结余 ' + FW.fmtMoney(profitCum) + ' ＋ 股本净 ' + FW.fmtMoney(eqNetCum) + '</span>' +
+          '<span class="muted" style="font-size:13px">资金总计 ' + FW.fmtMoney(cashTotal) + ' ＝ 期初 ' + FW.fmtMoney(openTotal) + ' ＋ 累计结余 ' + FW.fmtMoney(profitCum) + ' ＋ 股本净 ' + FW.fmtMoney(eqNetCum) + ' ＋ 分红净 ' + FW.fmtMoney(divNetCum) + '</span>' +
         '</div>' +
-        '<div class="muted" style="font-size:12px;margin-top:8px">说明：账户互转只改变资金在各账户间的归属，不改变「资金总计」与「结余」；股本注入/抽回影响资金但不影响经营利润。</div>' +
+        '<div class="muted" style="font-size:12px;margin-top:8px">说明：账户互转只改变资金在各账户间的归属，不改变「资金总计」与「结余」；股本注入/抽回、股东分红影响资金但不影响经营利润。</div>' +
       '</div>' +
 
       '<div class="chart-wrap">' +
@@ -914,7 +941,7 @@
     html +=
       '<div class="card" style="margin-top:18px"><h3>各账户余额 <span class="sub">期初＋收支＋往来' + ((from || to) ? '（截至所选区间末）' : '（累计全部）') + '</span></h3>' +
         (breakdown.length ? '<table><thead><tr><th>账户</th><th class="num">期初</th><th class="num">本期收支</th><th class="num">本期往来</th><th class="num">余额</th></tr></thead><tbody>' + balRows +
-          '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(openTotal) + '</td><td class="num">' + FW.fmtMoney(profitCum) + '</td><td class="num">' + FW.fmtMoney(eqNetCum) + '</td><td class="num">' + FW.fmtMoney(cashTotal) + '</td></tr>' +
+          '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(openTotal) + '</td><td class="num">' + FW.fmtMoney(profitCum) + '</td><td class="num">' + FW.fmtMoney(eqNetCum + divNetCum) + '</td><td class="num">' + FW.fmtMoney(cashTotal) + '</td></tr>' +
           '</tbody></table>' : '<div class="empty">暂无账户余额数据，去「流水明细」登记收入/支出/互转/股本，或在「设置期初」录入开户金额。</div>') +
       '</div>' +
 
@@ -945,8 +972,10 @@
   }
 
   // 按账户汇总（与统计 tab 一致：收入/支出/退款；refund 抵减支出；并单列账户互转净）
+  // 先预置全部账户（含筛选期间无发生额的账户），保证筛选后仍能列出所有账户；发生额按流水叠加。
   function buildAccMap(rows) {
     var map = {};
+    getAccounts().forEach(function (a) { map[a] = { income: 0, expense: 0, transfer: 0 }; });
     function ensure(k) { if (!map[k]) map[k] = { income: 0, expense: 0, transfer: 0 }; return map[k]; }
     rows.forEach(function (t) {
       var a = Number(t.amount) || 0;
@@ -1029,7 +1058,7 @@
   //       区间期末余额 = balMapAt(f.to || 今天)[账户]（筛选期末的真实账户余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动）。
   // 输出：HTML 字符串；无账户或无数据时返回 ''。
   function accSummaryHtml(rows, f) {
-    if (!rows || !rows.length) return '';
+    if (!getAccounts().length) return '';
     var accMap = buildAccMap(rows);
     var keys = Object.keys(accMap);
     if (!keys.length) return '';
@@ -1422,6 +1451,174 @@
     var kids = c ? (c.children || []) : [];
     return '<option value="">全部二级</option>' + kids.map(function (k) { return '<option' + (k === sel ? ' selected' : '') + '>' + FW.esc(k) + '</option>'; }).join('');
   }
+  var ssDocClickBound = false;
+  function makeSearchableSelect(selId) {
+    var sel = document.getElementById(selId);
+    if (!sel) return;
+    var wrapper = null, p = sel.parentNode;
+    while (p) { if (p.classList && p.classList.contains('search-select')) { wrapper = p; break; } p = p.parentNode; }
+    if (wrapper) { wrapper.parentNode.insertBefore(sel, wrapper); wrapper.parentNode.removeChild(wrapper); }
+    wrapper = document.createElement('div');
+    wrapper.className = 'search-select';
+    sel.parentNode.insertBefore(wrapper, sel);
+    wrapper.appendChild(sel);
+    sel.style.display = 'none';
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'ss-input';
+    inp.placeholder = '搜索分类...';
+    inp.autocomplete = 'off';
+    wrapper.appendChild(inp);
+    var dd = document.createElement('div');
+    dd.className = 'ss-dropdown';
+    wrapper.appendChild(dd);
+    var options = [], active = -1;
+    function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function build(q) {
+      q = String(q || '').toLowerCase().trim();
+      options = [];
+      for (var i = 0; i < sel.options.length; i++) {
+        var o = sel.options[i];
+        if (q && o.textContent.toLowerCase().indexOf(q) < 0) continue;
+        options.push({ el: o, text: o.textContent, value: o.value });
+      }
+      if (options.length === 0) { dd.innerHTML = '<div class="ss-no">无匹配</div>'; return; }
+      dd.innerHTML = options.map(function (o, idx) {
+        var t = escHtml(o.text);
+        if (q) {
+          var pos = o.text.toLowerCase().indexOf(q);
+          if (pos >= 0) t = escHtml(o.text.slice(0, pos)) + '<mark>' + escHtml(o.text.slice(pos, pos + q.length)) + '</mark>' + escHtml(o.text.slice(pos + q.length));
+        }
+        return '<div class="ss-option" data-i="' + idx + '">' + t + '</div>';
+      }).join('');
+    }
+    function syncInp() { var o = sel.options[sel.selectedIndex]; inp.value = o ? o.textContent : ''; }
+    function open() { build(''); dd.style.display = 'block'; active = -1; }
+    function close() { dd.style.display = 'none'; active = -1; syncInp(); }
+    function pick(idx) {
+      if (idx < 0 || idx >= options.length) return;
+      sel.value = options[idx].value;
+      close();
+      var ev = document.createEvent('HTMLEvents');
+      ev.initEvent('change', true, false);
+      sel.dispatchEvent(ev);
+    }
+    function updateActive() {
+      var list = dd.querySelectorAll('.ss-option');
+      for (var i = 0; i < list.length; i++) list[i].classList.toggle('active', i === active);
+      var a = dd.querySelector('.ss-option.active');
+      if (a) a.scrollIntoView({ block: 'nearest' });
+    }
+    inp.onfocus = open;
+    inp.oninput = function () { build(this.value); dd.style.display = 'block'; active = -1; };
+    inp.onkeydown = function (e) {
+      if (!dd.style.display || dd.style.display === 'none') open();
+      if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, options.length - 1); updateActive(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, -1); updateActive(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (active >= 0) pick(active); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); inp.blur(); }
+    };
+    dd.onclick = function (e) {
+      var n = e.target;
+      while (n && n !== dd && !n.classList.contains('ss-option')) n = n.parentNode;
+      if (!n) return;
+      var i = +n.getAttribute('data-i');
+      if (!isNaN(i)) pick(i);
+    };
+    if (!ssDocClickBound) {
+      document.addEventListener('click', function (e) { if (!wrapper.contains(e.target)) close(); }, true);
+      ssDocClickBound = true;
+    }
+    syncInp(); build(''); close();
+  }
+  // 一级分类搜索：支持按「一级或二级关键字」检索。命中二级时自动展开其父级（一级）节点并高亮，保持层级上下文。
+  // 点击一级节点 -> 仅选一级；点击二级节点 -> 同时选中一/二级。
+  function makeCat1Search(selId, cat2Id) {
+    var sel = document.getElementById(selId);
+    if (!sel) return;
+    var sel2 = document.getElementById(cat2Id);
+    var wrapper = null, p = sel.parentNode;
+    while (p) { if (p.classList && p.classList.contains('search-select')) { wrapper = p; break; } p = p.parentNode; }
+    if (wrapper) { wrapper.parentNode.insertBefore(sel, wrapper); wrapper.parentNode.removeChild(wrapper); }
+    wrapper = document.createElement('div');
+    wrapper.className = 'search-select';
+    sel.parentNode.insertBefore(wrapper, sel);
+    wrapper.appendChild(sel);
+    sel.style.display = 'none';
+    var inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'ss-input'; inp.placeholder = '搜索分类（支持二级）...'; inp.autocomplete = 'off';
+    wrapper.appendChild(inp);
+    var dd = document.createElement('div'); dd.className = 'ss-dropdown'; wrapper.appendChild(dd);
+    var options = [], active = -1;
+    function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function mark(text, q) {
+      if (!q) return escHtml(text);
+      var t = String(text).toLowerCase(), pos = t.indexOf(q);
+      if (pos < 0) return escHtml(text);
+      return escHtml(text.slice(0, pos)) + '<mark>' + escHtml(text.slice(pos, pos + q.length)) + '</mark>' + escHtml(text.slice(pos + q.length));
+    }
+    function build(q) {
+      q = String(q || '').toLowerCase().trim();
+      options = [];
+      var html = '', any = false;
+      cats().forEach(function (c) {
+        var name = c.name || '', kids = c.children || [];
+        var nameHit = q && name.toLowerCase().indexOf(q) >= 0;
+        var hitKids = q ? kids.filter(function (k) { return (k || '').toLowerCase().indexOf(q) >= 0; }) : [];
+        if (q && !nameHit && !hitKids.length) return;
+        any = true;
+        options.push({ kind: 'cat', name: name });
+        var idx = options.length - 1;
+        var cls = q ? 'ss-opt-cat hl' : 'ss-opt-cat';
+        html += '<div class="' + cls + '" data-i="' + idx + '">' + mark(name, (q && nameHit) ? q : '') + (q ? '' : (kids.length ? ' <span class="ss-count">' + kids.length + '</span>' : '')) + '</div>';
+        var showKids = (q && hitKids.length) ? hitKids : [];
+        showKids.forEach(function (k) {
+          options.push({ kind: 'child', name: name, child: k });
+          var ci = options.length - 1;
+          html += '<div class="ss-opt-child" data-i="' + ci + '"><span class="ss-arrow">↳</span>' + mark(k, q) + '</div>';
+        });
+      });
+      if (!any) { dd.innerHTML = '<div class="ss-no">无匹配</div>'; return; }
+      dd.innerHTML = html;
+    }
+    function syncInp() { var o = sel.options[sel.selectedIndex]; inp.value = o ? o.textContent : ''; }
+    function open() { build(''); dd.style.display = 'block'; active = -1; }
+    function close() { dd.style.display = 'none'; active = -1; syncInp(); }
+    function pick(i) {
+      if (i < 0 || i >= options.length) return;
+      var o = options[i];
+      catAutoTouched = true; clearCatHint();
+      if (o.kind === 'child') {
+        sel.value = o.name;
+        if (sel2) { sel2.innerHTML = cat2Opts(o.name, o.child); sel2.value = o.child; var w = sel2.parentNode; var ci = w ? w.querySelector('.ss-input') : null; if (ci) ci.value = o.child; }
+      } else {
+        sel.value = o.name;
+        var ev = document.createEvent('HTMLEvents'); ev.initEvent('change', true, false); sel.dispatchEvent(ev);
+      }
+      close();
+    }
+    function updateActive() {
+      var list = dd.querySelectorAll('.ss-opt-cat, .ss-opt-child');
+      for (var i = 0; i < list.length; i++) list[i].classList.toggle('active', i === active);
+      var a = dd.querySelector('.active'); if (a) a.scrollIntoView({ block: 'nearest' });
+    }
+    inp.onfocus = open;
+    inp.oninput = function () { build(this.value); dd.style.display = 'block'; active = -1; };
+    inp.onkeydown = function (e) {
+      if (!dd.style.display || dd.style.display === 'none') open();
+      if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, options.length - 1); updateActive(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, -1); updateActive(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (active >= 0) pick(active); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); inp.blur(); }
+    };
+    dd.onclick = function (e) {
+      var n = e.target; while (n && n !== dd && !n.hasAttribute('data-i')) n = n.parentNode;
+      if (!n || !n.hasAttribute('data-i')) return;
+      pick(+n.getAttribute('data-i'));
+    };
+    if (!ssDocClickBound) { document.addEventListener('click', function (e) { if (!wrapper.contains(e.target)) close(); }, true); ssDocClickBound = true; }
+    syncInp(); build(''); close();
+  }
   function renderDyn(type, v) {
     var el = document.getElementById('dynArea');
     if (type === 'transfer') {
@@ -1437,6 +1634,13 @@
         '<div class="form-grid">' +
           '<div class="field"><label>方向</label><select id="f_edir"><option value="in" ' + (v.equityDir !== 'out' ? 'selected' : '') + '>股本注入（增加）</option><option value="out" ' + (v.equityDir === 'out' ? 'selected' : '') + '>股本抽回（减少）</option></select></div>' +
           '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
+        '</div>';
+    } else if (type === 'dividend') {
+      el.innerHTML =
+        '<div class="tx-title">股东分红</div>' +
+        '<div class="muted" style="font-size:12px;margin-bottom:8px">股东分红属于利润分配，<b>不计入经营收支</b>，仅减少账户余额（资金流出）。</div>' +
+        '<div class="form-grid">' +
+          '<div class="field"><label>转出账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
         '</div>';
     } else {
       var c1 = v.cat1 || '', c2 = v.cat2 || '';
@@ -1461,11 +1665,13 @@
           '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
           deductField +
         '</div>' +
-        allocBoxHtml();
+        allocBoxHtml() + '<div class="skip-alloc"><label class="chk-inline"><input type="checkbox" id="f_skipAlloc"' + (v.skipAlloc ? ' checked' : '') + '> 不纳入分摊</label><div class="muted" style="font-size:12px;margin-top:3px">勾选后本笔从「仅看未分摊」隐藏，并标记为「不参与」，无需再人工判断是否要分摊。</div></div>';
       var c1sel = document.getElementById('f_cat1');
-      if (c1sel) c1sel.onchange = function () { catAutoTouched = true; document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); clearCatHint(); };
+      if (c1sel) c1sel.onchange = function () { catAutoTouched = true; document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); clearCatHint(); makeSearchableSelect('f_cat2'); };
       var c2sel = document.getElementById('f_cat2');
       if (c2sel) c2sel.onchange = function () { catAutoTouched = true; clearCatHint(); };
+      makeCat1Search('f_cat1', 'f_cat2');
+      makeSearchableSelect('f_cat2');
       var mg = document.getElementById('mgCats');
       if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
       var mgr = document.getElementById('mgRules');
@@ -2180,13 +2386,22 @@
 
   // 流水列表 / 打印中的「项目」列：分摊交易显示 ⊞ 标记 + 各项目名（悬停看金额）
   function txProjectLabel(t) {
-    var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
-    if (!items.length) return FW.esc(t.project || '—');
-    var names = items.map(function (a) { return (a.project || '').trim(); });
-    var shown = names.slice(0, 2).join('/');
-    if (names.length > 2) shown += '…(' + names.length + ')';
-    var tip = '已分摊：' + items.map(function (a) { return (a.project || '') + ' ' + FW.fmtMoney(Number(a.amount) || 0); }).join('；');
-    return '<span class="alloc-tag" title="' + FW.esc(tip) + '">⊞ ' + FW.esc(shown) + '</span>';
+    var isAlloc = !!(t.allocations && t.allocations.length);
+    var proj = (t.project && String(t.project).trim()) ? t.project : '';
+    var badge = '';
+    if (t.skipAlloc) badge = '<span class="badge-alloc skip" title="不参与分摊">不参与</span> ';
+    else if (isAlloc) badge = '<span class="badge-alloc done" title="已分摊到项目">已分摊 ⊞</span> ';
+    else if (proj) badge = '';
+    else if (t.type === 'income' || t.type === 'expense' || t.type === 'refund') badge = '<span class="badge-alloc wait" title="待分摊">待分摊</span> ';
+    if (isAlloc) {
+      var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
+      var names = items.map(function (a) { return (a.project || '').trim(); });
+      var shown = names.slice(0, 2).join('/');
+      if (names.length > 2) shown += '…(' + names.length + ')';
+      var tip = '已分摊：' + items.map(function (a) { return (a.project || '') + ' ' + FW.fmtMoney(Number(a.amount) || 0); }).join('；');
+      return badge + '<span class="alloc-tag" title="' + FW.esc(tip) + '">' + FW.esc(shown) + '</span>';
+    }
+    return badge + FW.esc(proj || '—');
   }
   function txProjectText(t) {
     var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
@@ -2245,6 +2460,7 @@
               '<option value="refund" ' + (v.type === 'refund' ? 'selected' : '') + '>退款收入（冲减支出）</option>' +
               '<option value="transfer" ' + (v.type === 'transfer' ? 'selected' : '') + '>账户互转（不影响收支）</option>' +
               '<option value="equity" ' + (v.type === 'equity' ? 'selected' : '') + '>股本资金（不影响收支）</option>' +
+              '<option value="dividend" ' + (v.type === 'dividend' ? 'selected' : '') + '>股东分红（不影响收支）</option>' +
             '</select></div>' +
           '</div>' +
         '</div>' +
@@ -2328,6 +2544,9 @@
           rec.equityDir = document.getElementById('f_edir').value;
           rec.account = document.getElementById('f_account').value;
         }
+        else if (type === 'dividend') {
+          rec.account = document.getElementById('f_account').value;
+        }
         // ===== 项目分摊：收入 / 支出 / 退款可拆分到多个项目 =====
         if (type === 'income' || type === 'expense' || type === 'refund') {
           var valid = allocDraft.filter(function (a) { return (a.project || '').trim() && (parseFloat(a.amount) || 0) > 0; });
@@ -2338,6 +2557,7 @@
             rec.allocations = valid.map(function (a) { return { project: (a.project || '').trim(), amount: parseFloat(a.amount) }; });
           }
         }
+        rec.skipAlloc = !!(document.getElementById('f_skipAlloc') && document.getElementById('f_skipAlloc').checked);
         unbind();
         FW.db.upsert(KEY, rec);
         FW.closeModal(); render(); FW.toast('已保存');
@@ -2661,7 +2881,7 @@
       return '<div class="field"><label>账户</label><select id="bulkAccount">' + accOptsHtml('') + '</select></div>';
     }
     if (field === 'type') {
-      return '<div class="field"><label>类型</label><select id="bulkType"><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option></select></div>';
+      return '<div class="field"><label>类型</label><select id="bulkType"><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="dividend">股东分红</option></select></div>';
     }
     var idMap = { project: 'bulkProject', party: 'bulkParty', reimburser: 'bulkReimburser' };
     var phMap = { project: '如：XX项目', party: '如：XX公司 / 张三', reimburser: '如：李四' };
@@ -2769,6 +2989,7 @@
     if (t.type === 'refund') return '退款收入';
     if (t.type === 'transfer') return '账户互转';
     if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
+    if (t.type === 'dividend') return '股东分红';
     return t.type || '';
   }
   function exportTable() {
@@ -2800,7 +3021,7 @@
     var scope = [];
     if (f.account) scope.push('账户：' + f.account);
     if (f.project) scope.push('项目：' + f.project);
-    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本' }[f.type] || f.type));
+    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本', dividend: '股东分红' }[f.type] || f.type));
     if (f.kw) scope.push('关键词：' + f.kw);
     var inc = 0, exp = 0, n = rows.length;
     rows.forEach(function (t) {
@@ -3308,7 +3529,7 @@
     var scope = [];
     if (f.account) scope.push('账户：' + f.account);
     if (f.project) scope.push('项目：' + f.project);
-    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本' }[f.type] || f.type));
+    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本', dividend: '股东分红' }[f.type] || f.type));
     if (f.kw) scope.push('关键词：' + f.kw);
     var inc = 0, exp = 0;
     rows.forEach(function (t) {
