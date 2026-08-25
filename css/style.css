@@ -1397,3 +1397,10 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .ss-opt-child .ss-arrow { color: var(--muted, #6B7A70); margin-right: 6px; }
 .ss-opt-cat .ss-count { font-size: 12px; color: var(--muted, #6B7A70); font-weight: 400; }
 .ss-opt-cat mark, .ss-opt-child mark { background: transparent; color: var(--primary, #1F6FB2); font-weight: 700; padding: 0; }
+
+.badge-alloc{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:500;margin-right:4px;white-space:nowrap;}
+.badge-alloc.done{background:#E1F5EE;color:#0F6E56;}
+.badge-alloc.wait{background:#FAEEDA;color:#854F0B;}
+.badge-alloc.skip{background:#F1EFE8;color:#5F5E5A;}
+.skip-alloc{border:1.5px solid #9CC3E8;background:rgba(31,111,178,0.06);border-radius:8px;padding:10px 12px;margin-top:10px;}
+.skip-alloc .chk-inline{font-size:13px;}
