@@ -950,8 +950,10 @@
   }
 
   // 按账户汇总（与统计 tab 一致：收入/支出/退款；refund 抵减支出；并单列账户互转净）
+  // 先预置全部账户（含筛选期间无发生额的账户），保证筛选后仍能列出所有账户；发生额按流水叠加。
   function buildAccMap(rows) {
     var map = {};
+    getAccounts().forEach(function (a) { map[a] = { income: 0, expense: 0, transfer: 0 }; });
     function ensure(k) { if (!map[k]) map[k] = { income: 0, expense: 0, transfer: 0 }; return map[k]; }
     rows.forEach(function (t) {
       var a = Number(t.amount) || 0;
@@ -1034,7 +1036,7 @@
   //       区间期末余额 = balMapAt(f.to || 今天)[账户]（筛选期末的真实账户余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动）。
   // 输出：HTML 字符串；无账户或无数据时返回 ''。
   function accSummaryHtml(rows, f) {
-    if (!rows || !rows.length) return '';
+    if (!getAccounts().length) return '';
     var accMap = buildAccMap(rows);
     var keys = Object.keys(accMap);
     if (!keys.length) return '';
