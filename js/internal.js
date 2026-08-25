@@ -2840,6 +2840,8 @@
       '<span class="bulk-info">已选 <b id="bulkCount">0</b> 条</span>' +
       '<button class="btn sm" id="bulkSetBtn">批量设置字段值</button>' +
       '<button class="btn sm" id="bulkDateBtn">批量调整日期</button>' +
+      '<button class="btn sm" id="bulkSkipBtn">标记不参与分摊</button>' +
+      '<button class="btn ghost sm" id="bulkUnskipBtn">恢复待分摊</button>' +
       '<button class="btn danger sm" id="bulkDelBtn">批量删除</button>' +
       '<button class="btn ghost sm" id="bulkExitBtn">退出批量</button>' +
     '</div>';
@@ -2852,6 +2854,8 @@
     var set = document.getElementById('bulkSetBtn'); if (set) set.onclick = openBulkSet;
     var dt = document.getElementById('bulkDateBtn'); if (dt) dt.onclick = openBulkDate;
     var del = document.getElementById('bulkDelBtn'); if (del) del.onclick = openBulkDelete;
+    var skip = document.getElementById('bulkSkipBtn'); if (skip) skip.onclick = function () { bulkSetAllocFlag(true); };
+    var unskip = document.getElementById('bulkUnskipBtn'); if (unskip) unskip.onclick = function () { bulkSetAllocFlag(false); };
     var ex = document.getElementById('bulkExitBtn'); if (ex) ex.onclick = function () { state.selMode = false; state.selIds = {}; render(); };
     updateBulkCount();
   }
@@ -2914,6 +2918,18 @@
     });
     FW.db.saveList(KEY, list);
     FW.toast('已批量更新 ' + n + ' 条流水的「' + BULK_FIELDS[field] + '」');
+  }
+  // 批量标记 / 取消标记「不参与分摊」
+  function bulkSetAllocFlag(flag) {
+    var ids = Object.keys(state.selIds);
+    if (!ids.length) { FW.toast('请先勾选要操作的流水'); return; }
+    var list = all(); var n = 0;
+    list.forEach(function (t) {
+      if (state.selIds[t.id]) { t.skipAlloc = flag ? true : false; n++; }
+    });
+    FW.db.saveList(KEY, list);
+    FW.toast((flag ? '已标记 ' : '已恢复 ') + n + ' 条流水为' + (flag ? '不参与分摊' : '待分摊'));
+    render();
   }
   function openBulkSet() {
     var ids = Object.keys(state.selIds);
