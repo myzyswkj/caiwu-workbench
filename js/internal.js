@@ -192,6 +192,9 @@
         var s = t.equityDir === 'out' ? -1 : 1;
         if (t.account) move[t.account] = (move[t.account] || 0) + s * a;
       }
+      else if (t.type === 'dividend') {
+        if (t.account) move[t.account] = (move[t.account] || 0) - a;
+      }
     });
     // 按完整账户名聚合期初/收支/往来
     var byFull = {};
@@ -334,6 +337,7 @@
       if (t.type === 'refund') return '退款收入';
       if (t.type === 'transfer') return '账户互转';
       if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
+      if (t.type === 'dividend') return '股东分红';
       return t.type || '';
     }
     var rows = '';
@@ -443,7 +447,7 @@
           '<div class="field"><select id="fCat">' + catOpts + '</select></div>' +
           '<div class="field"><select id="fCat2">' + cat2OptsF + '</select></div>' +
           '<div class="field"><select id="fAcc">' + accOpts + '</select></div>' +
-          '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="transfer">账户互转</option><option value="equity">股本资金</option></select></div>' +
+          '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="transfer">账户互转</option><option value="equity">股本资金</option><option value="dividend">股东分红</option></select></div>' +
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
           '<button class="btn ghost sm" id="fReset">重置</button>' +
@@ -527,6 +531,7 @@
     if (t.type === 'refund') return { tag: '退款收入', cls: 'refund' };
     if (t.type === 'transfer') return { tag: '账户互转', cls: 'transfer' };
     if (t.type === 'equity') return { tag: (t.equityDir === 'out' ? '股本抽回' : '股本注入'), cls: 'equity' };
+    if (t.type === 'dividend') return { tag: '股东分红', cls: 'neutral' };
     return { tag: t.type || '—', cls: '' };
   }
 
@@ -1518,6 +1523,13 @@
           '<div class="field"><label>方向</label><select id="f_edir"><option value="in" ' + (v.equityDir !== 'out' ? 'selected' : '') + '>股本注入（增加）</option><option value="out" ' + (v.equityDir === 'out' ? 'selected' : '') + '>股本抽回（减少）</option></select></div>' +
           '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
         '</div>';
+    } else if (type === 'dividend') {
+      el.innerHTML =
+        '<div class="tx-title">股东分红</div>' +
+        '<div class="muted" style="font-size:12px;margin-bottom:8px">股东分红属于利润分配，<b>不计入经营收支</b>，仅减少账户余额（资金流出）。</div>' +
+        '<div class="form-grid">' +
+          '<div class="field"><label>转出账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
+        '</div>';
     } else {
       var c1 = v.cat1 || '', c2 = v.cat2 || '';
       var deductField = '';
@@ -2327,6 +2339,7 @@
               '<option value="refund" ' + (v.type === 'refund' ? 'selected' : '') + '>退款收入（冲减支出）</option>' +
               '<option value="transfer" ' + (v.type === 'transfer' ? 'selected' : '') + '>账户互转（不影响收支）</option>' +
               '<option value="equity" ' + (v.type === 'equity' ? 'selected' : '') + '>股本资金（不影响收支）</option>' +
+              '<option value="dividend" ' + (v.type === 'dividend' ? 'selected' : '') + '>股东分红（不影响收支）</option>' +
             '</select></div>' +
           '</div>' +
         '</div>' +
@@ -2408,6 +2421,9 @@
           rec.account = rec.fromAccount + ' → ' + rec.toAccount;
         } else if (type === 'equity') {
           rec.equityDir = document.getElementById('f_edir').value;
+          rec.account = document.getElementById('f_account').value;
+        }
+        else if (type === 'dividend') {
           rec.account = document.getElementById('f_account').value;
         }
         // ===== 项目分摊：收入 / 支出 / 退款可拆分到多个项目 =====
@@ -2743,7 +2759,7 @@
       return '<div class="field"><label>账户</label><select id="bulkAccount">' + accOptsHtml('') + '</select></div>';
     }
     if (field === 'type') {
-      return '<div class="field"><label>类型</label><select id="bulkType"><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option></select></div>';
+      return '<div class="field"><label>类型</label><select id="bulkType"><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="dividend">股东分红</option></select></div>';
     }
     var idMap = { project: 'bulkProject', party: 'bulkParty', reimburser: 'bulkReimburser' };
     var phMap = { project: '如：XX项目', party: '如：XX公司 / 张三', reimburser: '如：李四' };
@@ -2851,6 +2867,7 @@
     if (t.type === 'refund') return '退款收入';
     if (t.type === 'transfer') return '账户互转';
     if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
+    if (t.type === 'dividend') return '股东分红';
     return t.type || '';
   }
   function exportTable() {
@@ -2882,7 +2899,7 @@
     var scope = [];
     if (f.account) scope.push('账户：' + f.account);
     if (f.project) scope.push('项目：' + f.project);
-    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本' }[f.type] || f.type));
+    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本', dividend: '股东分红' }[f.type] || f.type));
     if (f.kw) scope.push('关键词：' + f.kw);
     var inc = 0, exp = 0, n = rows.length;
     rows.forEach(function (t) {
@@ -3390,7 +3407,7 @@
     var scope = [];
     if (f.account) scope.push('账户：' + f.account);
     if (f.project) scope.push('项目：' + f.project);
-    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本' }[f.type] || f.type));
+    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本', dividend: '股东分红' }[f.type] || f.type));
     if (f.kw) scope.push('关键词：' + f.kw);
     var inc = 0, exp = 0;
     rows.forEach(function (t) {
