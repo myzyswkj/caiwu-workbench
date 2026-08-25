@@ -253,6 +253,13 @@
       return s + (Number(t.amount) || 0) * (t.equityDir === 'out' ? -1 : 1);
     }, 0);
   }
+  // 区间分红净变动（分红减少资金，返回负数）
+  function dividendNet(from, to) {
+    return all().reduce(function (s, t) {
+      if (t.type !== 'dividend' || !inRange(t, from, to)) return s;
+      return s - (Number(t.amount) || 0);
+    }, 0);
+  }
 
   /* ---------- 渲染主框架 ---------- */
   function render() {
@@ -378,7 +385,8 @@
     var openTotal = openingsTotal();
     var profit = netProfit('', '');
     var eqNet = equityNet('', '');
-    var balanced = Math.abs(cashTotal - (openTotal + profit + eqNet)) < 0.005;
+    var divNet = dividendNet('', '');
+    var balanced = Math.abs(cashTotal - (openTotal + profit + eqNet + divNet)) < 0.005;
     var ACCENTS = ['#C8102E', '#C9A227', '#D99A2B', '#A4151B', '#E0B252', '#8B1E1E'];
     var maxAbs = Math.max.apply(null, bd.map(function (x) { return Math.abs(x.bal); }).concat([1]));
     var bars = bd.length ? bd.map(function (x, i) {
@@ -398,10 +406,11 @@
         kpiCell('累计结余（收入−支出）', profit, true, false) +
         kpiCell('期初余额', openTotal, false, false) +
         kpiCell('股本净变动', eqNet, true, false) +
+        kpiCell('累计分红', divNet, true, false) +
         kpiCell('账户互转净额', 0, false, true) +
       '</div>' +
       '<div class="ov-accs"><div class="ov-accs-title">各账户余额（横向条形越长代表余额越多）</div>' + bars +
-        '<div class="ov-hint">说明：账户互转只改变资金在各账户的归属，不改变「资金总计」与「结余」；股本注入 / 抽回影响资金但不影响经营利润。</div>' +
+        '<div class="ov-hint">说明：账户互转只改变资金在各账户的归属，不改变「资金总计」与「结余」；股本注入 / 抽回影响资金但不影响经营利润；股东分红减少资金且不影响经营利润。</div>' +
       '</div>' +
     '</div>';
   }
@@ -841,11 +850,13 @@
     var openTotal = openingsTotal();
     var profitCum = netProfit('', to);                    // 累计结余（截至区间末）
     var eqNetCum = equityNet('', to);                     // 累计股本净（截至区间末）
-    var balanced = Math.abs(cashTotal - (openTotal + profitCum + eqNetCum)) < 0.005;
+    var divNetCum = dividendNet('', to);                  // 累计分红净（截至区间末，分红为负）
+    var balanced = Math.abs(cashTotal - (openTotal + profitCum + eqNetCum + divNetCum)) < 0.005;
 
     // 「区间」口径（用户所选窗口），仅用于上方 KPI 展示，不影响对账
     var profit = netProfit(from, to);
     var eqNet = equityNet(from, to);
+    var divNet = dividendNet(from, to);
 
     // 月度柱状图
     var months = Object.keys(byMonth).sort();
@@ -887,6 +898,7 @@
         '<div class="stat"><div class="label">资金总计（各账户余额和）</div><div class="value">' + FW.fmtMoney(cashTotal) + '</div></div>' +
         '<div class="stat"><div class="label">期初余额</div><div class="value">' + FW.fmtMoney(openTotal) + '</div></div>' +
         '<div class="stat"><div class="label">区间股本净变动</div><div class="value ' + (eqNet >= 0 ? 'income' : 'expense') + '">' + FW.fmtMoney(eqNet) + '</div></div>' +
+        '<div class="stat"><div class="label">区间分红净变动</div><div class="value ' + (divNet >= 0 ? 'income' : 'expense') + '">' + FW.fmtMoney(divNet) + '</div></div>' +
         '<div class="stat"><div class="label">区间互转净额</div><div class="value muted">0.00</div></div>' +
       '</div>' +
 
@@ -894,9 +906,9 @@
       '<div class="card" style="margin-bottom:18px;' + (balanced ? 'border-color:#bfe6cd' : 'border-color:#f4d79a') + '">' +
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
           '<span class="badge ' + (balanced ? 'done' : 'warn') + '">' + (balanced ? '✅ 对账平衡' : '⚠️ 对账不平') + '</span>' +
-          '<span class="muted" style="font-size:13px">资金总计 ' + FW.fmtMoney(cashTotal) + ' ＝ 期初 ' + FW.fmtMoney(openTotal) + ' ＋ 累计结余 ' + FW.fmtMoney(profitCum) + ' ＋ 股本净 ' + FW.fmtMoney(eqNetCum) + '</span>' +
+          '<span class="muted" style="font-size:13px">资金总计 ' + FW.fmtMoney(cashTotal) + ' ＝ 期初 ' + FW.fmtMoney(openTotal) + ' ＋ 累计结余 ' + FW.fmtMoney(profitCum) + ' ＋ 股本净 ' + FW.fmtMoney(eqNetCum) + ' ＋ 分红净 ' + FW.fmtMoney(divNetCum) + '</span>' +
         '</div>' +
-        '<div class="muted" style="font-size:12px;margin-top:8px">说明：账户互转只改变资金在各账户间的归属，不改变「资金总计」与「结余」；股本注入/抽回影响资金但不影响经营利润。</div>' +
+        '<div class="muted" style="font-size:12px;margin-top:8px">说明：账户互转只改变资金在各账户间的归属，不改变「资金总计」与「结余」；股本注入/抽回、股东分红影响资金但不影响经营利润。</div>' +
       '</div>' +
 
       '<div class="chart-wrap">' +
@@ -919,7 +931,7 @@
     html +=
       '<div class="card" style="margin-top:18px"><h3>各账户余额 <span class="sub">期初＋收支＋往来' + ((from || to) ? '（截至所选区间末）' : '（累计全部）') + '</span></h3>' +
         (breakdown.length ? '<table><thead><tr><th>账户</th><th class="num">期初</th><th class="num">本期收支</th><th class="num">本期往来</th><th class="num">余额</th></tr></thead><tbody>' + balRows +
-          '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(openTotal) + '</td><td class="num">' + FW.fmtMoney(profitCum) + '</td><td class="num">' + FW.fmtMoney(eqNetCum) + '</td><td class="num">' + FW.fmtMoney(cashTotal) + '</td></tr>' +
+          '<tr class="bold"><td>资金总计</td><td class="num">' + FW.fmtMoney(openTotal) + '</td><td class="num">' + FW.fmtMoney(profitCum) + '</td><td class="num">' + FW.fmtMoney(eqNetCum + divNetCum) + '</td><td class="num">' + FW.fmtMoney(cashTotal) + '</td></tr>' +
           '</tbody></table>' : '<div class="empty">暂无账户余额数据，去「流水明细」登记收入/支出/互转/股本，或在「设置期初」录入开户金额。</div>') +
       '</div>' +
 
