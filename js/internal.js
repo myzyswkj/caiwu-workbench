@@ -1509,6 +1509,94 @@
     }
     syncInp(); build(''); close();
   }
+  // 一级分类搜索：支持按「一级或二级关键字」检索。命中二级时自动展开其父级（一级）节点并高亮，保持层级上下文。
+  // 点击一级节点 -> 仅选一级；点击二级节点 -> 同时选中一/二级。
+  function makeCat1Search(selId, cat2Id) {
+    var sel = document.getElementById(selId);
+    if (!sel) return;
+    var sel2 = document.getElementById(cat2Id);
+    var wrapper = null, p = sel.parentNode;
+    while (p) { if (p.classList && p.classList.contains('search-select')) { wrapper = p; break; } p = p.parentNode; }
+    if (wrapper) { wrapper.parentNode.insertBefore(sel, wrapper); wrapper.parentNode.removeChild(wrapper); }
+    wrapper = document.createElement('div');
+    wrapper.className = 'search-select';
+    sel.parentNode.insertBefore(wrapper, sel);
+    wrapper.appendChild(sel);
+    sel.style.display = 'none';
+    var inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'ss-input'; inp.placeholder = '搜索分类（支持二级）...'; inp.autocomplete = 'off';
+    wrapper.appendChild(inp);
+    var dd = document.createElement('div'); dd.className = 'ss-dropdown'; wrapper.appendChild(dd);
+    var options = [], active = -1;
+    function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function mark(text, q) {
+      if (!q) return escHtml(text);
+      var t = String(text).toLowerCase(), pos = t.indexOf(q);
+      if (pos < 0) return escHtml(text);
+      return escHtml(text.slice(0, pos)) + '<mark>' + escHtml(text.slice(pos, pos + q.length)) + '</mark>' + escHtml(text.slice(pos + q.length));
+    }
+    function build(q) {
+      q = String(q || '').toLowerCase().trim();
+      options = [];
+      var html = '', any = false;
+      cats().forEach(function (c) {
+        var name = c.name || '', kids = c.children || [];
+        var nameHit = q && name.toLowerCase().indexOf(q) >= 0;
+        var hitKids = q ? kids.filter(function (k) { return (k || '').toLowerCase().indexOf(q) >= 0; }) : [];
+        if (q && !nameHit && !hitKids.length) return;
+        any = true;
+        options.push({ kind: 'cat', name: name });
+        var idx = options.length - 1;
+        var cls = q ? 'ss-opt-cat hl' : 'ss-opt-cat';
+        html += '<div class="' + cls + '" data-i="' + idx + '">' + mark(name, (q && nameHit) ? q : '') + (q ? '' : (kids.length ? ' <span class="ss-count">' + kids.length + '</span>' : '')) + '</div>';
+        var showKids = (q && hitKids.length) ? hitKids : [];
+        showKids.forEach(function (k) {
+          options.push({ kind: 'child', name: name, child: k });
+          var ci = options.length - 1;
+          html += '<div class="ss-opt-child" data-i="' + ci + '"><span class="ss-arrow">↳</span>' + mark(k, q) + '</div>';
+        });
+      });
+      if (!any) { dd.innerHTML = '<div class="ss-no">无匹配</div>'; return; }
+      dd.innerHTML = html;
+    }
+    function syncInp() { var o = sel.options[sel.selectedIndex]; inp.value = o ? o.textContent : ''; }
+    function open() { build(''); dd.style.display = 'block'; active = -1; }
+    function close() { dd.style.display = 'none'; active = -1; syncInp(); }
+    function pick(i) {
+      if (i < 0 || i >= options.length) return;
+      var o = options[i];
+      catAutoTouched = true; clearCatHint();
+      if (o.kind === 'child') {
+        sel.value = o.name;
+        if (sel2) { sel2.innerHTML = cat2Opts(o.name, o.child); sel2.value = o.child; var w = sel2.parentNode; var ci = w ? w.querySelector('.ss-input') : null; if (ci) ci.value = o.child; }
+      } else {
+        sel.value = o.name;
+        var ev = document.createEvent('HTMLEvents'); ev.initEvent('change', true, false); sel.dispatchEvent(ev);
+      }
+      close();
+    }
+    function updateActive() {
+      var list = dd.querySelectorAll('.ss-opt-cat, .ss-opt-child');
+      for (var i = 0; i < list.length; i++) list[i].classList.toggle('active', i === active);
+      var a = dd.querySelector('.active'); if (a) a.scrollIntoView({ block: 'nearest' });
+    }
+    inp.onfocus = open;
+    inp.oninput = function () { build(this.value); dd.style.display = 'block'; active = -1; };
+    inp.onkeydown = function (e) {
+      if (!dd.style.display || dd.style.display === 'none') open();
+      if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, options.length - 1); updateActive(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, -1); updateActive(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (active >= 0) pick(active); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); inp.blur(); }
+    };
+    dd.onclick = function (e) {
+      var n = e.target; while (n && n !== dd && !n.hasAttribute('data-i')) n = n.parentNode;
+      if (!n || !n.hasAttribute('data-i')) return;
+      pick(+n.getAttribute('data-i'));
+    };
+    if (!ssDocClickBound) { document.addEventListener('click', function (e) { if (!wrapper.contains(e.target)) close(); }, true); ssDocClickBound = true; }
+    syncInp(); build(''); close();
+  }
   function renderDyn(type, v) {
     var el = document.getElementById('dynArea');
     if (type === 'transfer') {
@@ -1560,7 +1648,7 @@
       if (c1sel) c1sel.onchange = function () { catAutoTouched = true; document.getElementById('f_cat2').innerHTML = cat2Opts(this.value, ''); clearCatHint(); makeSearchableSelect('f_cat2'); };
       var c2sel = document.getElementById('f_cat2');
       if (c2sel) c2sel.onchange = function () { catAutoTouched = true; clearCatHint(); };
-      makeSearchableSelect('f_cat1');
+      makeCat1Search('f_cat1', 'f_cat2');
       makeSearchableSelect('f_cat2');
       var mg = document.getElementById('mgCats');
       if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
