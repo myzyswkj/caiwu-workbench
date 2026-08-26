@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>财务工作台</title>
-  <link rel="stylesheet" href="css/style.css?v=37" />
+  <link rel="stylesheet" href="css/style.css?v=39" />
   <!-- PWA：可添加到手机/桌面主屏，像 App 一样使用 -->
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
@@ -52,6 +52,8 @@
         <button class="nav-item" data-module="salary"><span class="nav-ico">💰</span>工资登记</button>
         <button class="nav-item" data-module="projectCost"><span class="nav-ico">📈</span>项目核算</button>
         <button class="nav-item" data-module="version"><span class="nav-ico">🗂</span>版本与备份</button>
+        <button class="nav-item" data-module="baobiao"><span class="nav-ico">📊</span>老板月报</button>
+        <button class="nav-item" data-module="diagnose"><span class="nav-ico">🩺</span>数据诊断</button>
       </nav>
 
       <!-- 常用网站 -->
@@ -142,6 +144,8 @@
   <script src="js/config.js"></script>
   <script src="js/sync.js"></script>
   <script src="js/lock.js"></script>
+  <script src="js/baobiao.js?v=39"></script>
+  <script src="js/diagnose.js?v=39"></script>
   <script src="js/main.js"></script>
 
   <!-- PWA：注册 Service Worker，支持离线打开 / 添加到主屏 -->
