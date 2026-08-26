@@ -155,12 +155,16 @@
     var openingsTotal = (FW.internalCalc && FW.internalCalc.getOpeningsTotal) ? FW.internalCalc.getOpeningsTotal() : 0;
     var liabEq = paidIn + retained + openingsTotal; // 负债+权益（含期初余额）
     var balanced = Math.abs(cashTotal - liabEq) < 0.005;
+    var balanceBanner = balanced
+      ? '<div class="rep-balance ok">✅ 报表平衡：资产 ' + money(cashTotal) + ' = 负债及所有者权益 ' + money(liabEq) + '</div>'
+      : '<div class="rep-balance bad">⚠️ 报表不平衡！资产 ' + money(cashTotal) + ' 与 负债及权益 ' + money(liabEq) + ' 相差 ' + money(Math.abs(cashTotal - liabEq)) + '。常见原因：分红/股本未正确入账、存在未识别的流水类型、期初余额缺失。请检查「登记内账」。</div>';
 
     var acctRows = accts.length ? accts.map(function (x) {
       return '<tr><td>' + FW.esc(x.name) + '</td><td class="num">' + money(x.bal) + '</td></tr>';
     }).join('') : '<tr><td class="muted">（暂无资金变动记录）</td><td class="num">0.00</td></tr>';
 
     var html =
+      balanceBanner +
       '<table class="rep-table"><tbody>' +
       '<tr class="sec"><td>资产</td><td class="num"></td></tr>' +
       '<tr class="sec"><td>　货币资金</td><td class="num"></td></tr>' +
@@ -174,10 +178,7 @@
       '<tr><td>　未分配利润</td><td class="num">' + money(retained) + '</td></tr>' +
       boldRow('　负债及所有者权益合计', liabEq) +
       '</tbody></table>' +
-      '<div class="muted" style="font-size:12px;margin-top:8px">' +
-      '资产 = 负债 + 所有者权益：' + (balanced ? '✅ 已平衡' : '⚠️ 不平衡（请检查数据）') +
-      '。内账为单式流水，未单独核算应收应付等负债，故「负债」项为 0。' +
-      '</div>';
+      '<div class="muted" style="font-size:12px;margin-top:8px">内账为单式流水，未单独核算应收应付等负债，故「负债」项为 0。</div>';
     return html;
   }
 
