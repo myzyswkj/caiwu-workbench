@@ -519,10 +519,11 @@
     var expense = rows.filter(function (t) { return t.type === 'expense'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var refund = rows.filter(function (t) { return t.type === 'refund'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var netExpense = expense - refund;
-    var unalloc = all().filter(function (t) {
+    var unalloc = rows.filter(function (t) {
       var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
       var hasAlloc = !!(t.allocations && t.allocations.length);
-      return allocatable && !hasAlloc && !t.skipAlloc;
+      var hasProject = !!(t.project && String(t.project).trim());
+      return allocatable && !hasAlloc && !hasProject && !t.skipAlloc;
     }).length;
     document.getElementById('txStats').innerHTML =
       '<div class="stat"><div class="label">筛选后收入</div><div class="value income">' + FW.fmtMoney(income) + '</div></div>' +
