@@ -72,6 +72,9 @@
     var data = FW.projectCostCalc.compute('all');
     var rows = (data.rows || []).slice().sort(function (a, b) { return b.profit - a.profit; });
     if (!rows.length) return '';
+    // 企业累计未分配利润（已扣分红）—— 与「报表中心」资金状况表口径一致
+    var retained = null;
+    if (FW.reportsCalc && FW.reportsCalc.agg) { var ra = FW.reportsCalc.agg('', ''); retained = ra.netProfit - ra.dividend; }
     var top = rows.slice(0, 8);
     var trs = top.map(function (r) {
       var pcls = r.profit >= 0 ? 'pnl-income' : 'pnl-expense';
@@ -84,8 +87,11 @@
         '<td>' + badge + '</td></tr>';
     }).join('');
     var more = rows.length > top.length ? '<div class="dash-more">共 ' + rows.length + ' 个项目，点击查看全部 →</div>' : '';
-    return '<div class="card" data-mod="projectCost"><h3>各项目盈亏 <span class="sub">按利润排序 · 点击查看项目核算</span></h3>' +
-      '<table class="dash-pnl-table"><thead><tr><th>项目</th><th class="num">收入</th><th class="num">利润</th><th class="num">利润率</th><th>状态</th></tr></thead><tbody>' + trs + '</tbody></table>' + more + '</div>';
+    var retainedHtml = retained != null
+      ? '<div class="dash-retained">企业累计未分配利润（已扣分红）：<b>' + FW.fmtMoney(retained) + '</b> <span class="muted">· 与「报表中心」口径一致</span></div>'
+      : '';
+    return '<div class="card" data-mod="projectCost"><h3>各项目盈亏 <span class="sub">按利润排序 · 经营口径（不含分红）· 点击查看项目核算</span></h3>' +
+      '<table class="dash-pnl-table"><thead><tr><th>项目</th><th class="num">收入</th><th class="num">利润</th><th class="num">利润率</th><th>状态</th></tr></thead><tbody>' + trs + '</tbody></table>' + more + retainedHtml + '</div>';
   }
 
   function render() {
