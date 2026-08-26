@@ -288,13 +288,15 @@
 
     var tb = document.getElementById('inToolbar');
     if (tb) {
-      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn ghost" id="catMatchBtn">🤖 智能归类</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="xlsxpic">🖼 Excel（含凭证图）</button><button class="em-img" data-fmt="img">🖼 导出图片（PNG）</button><button class="em-pdf" data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
+      tb.innerHTML = '<button class="btn ghost" id="openBtn">⚙ 设置期初</button><button class="btn ghost" id="accMgrBtn">🏦 账户管理</button><button class="btn ghost" id="budgetBtn">⚙ 设置预算</button><button class="btn ghost" id="catBtn">🏷 分类管理</button><button class="btn ghost" id="impBtn">📥 批量导入</button><button class="btn ghost" id="catMatchBtn">🤖 智能归类</button><button class="btn ghost" id="vpoolBtn">📎 批量挂凭证</button><button class="btn ghost" id="closeBtn">📅 月结</button><span class="exp-menu-wrap"><button class="btn ghost" id="expTxBtn">⬇ 导出 ▾</button><div class="exp-menu no-print" id="expTxMenu" style="display:none"><div class="em-hint">给老板看 / 分享</div><button data-fmt="xlsx">📊 Excel（.xlsx）</button><button data-fmt="xlsxpic">🖼 Excel（含凭证图）</button><button class="em-img" data-fmt="img">🖼 导出图片（PNG）</button><button class="em-pdf" data-fmt="print">🖨 打印 / 转 PDF</button><button data-fmt="csv">📄 CSV（兼容）</button></div></span><button class="btn ghost" id="dedupeBtn">🔧 合并重复</button><button class="btn ghost" id="bulkBtn">' + (state.selMode ? '✕ 退出批量' : '☑ 批量修改') + '</button><button class="btn ghost danger" id="clearBtn">🗑 清空内账</button>';
       document.getElementById('openBtn').onclick = openOpenings;
       document.getElementById('accMgrBtn').onclick = openAccManager;
       document.getElementById('budgetBtn').onclick = openBudgetForm;
       document.getElementById('catBtn').onclick = openCatManager;
       document.getElementById('impBtn').onclick = openImport;
       var cmBtn = document.getElementById('catMatchBtn'); if (cmBtn) cmBtn.onclick = bulkAutoCategorize;
+      var vpoolB = document.getElementById('vpoolBtn'); if (vpoolB) vpoolB.onclick = function () { if (FW.convenience) FW.convenience.openVoucherPool(); };
+      var closeB = document.getElementById('closeBtn'); if (closeB) closeB.onclick = function () { if (FW.convenience) FW.convenience.openMonthClose(); };
       var expBtn = document.getElementById('expTxBtn');
       var expMenu = document.getElementById('expTxMenu');
       if (expBtn && expMenu) {
@@ -2436,6 +2438,10 @@
   function openForm(id) {
     catAutoTouched = false;
     var edit = id ? FW.db.getById(KEY, id) : null;
+    if (edit && FW.convenience && FW.convenience.isClosedMonth(edit.date)) {
+      FW.toast('该笔流水所在月份（' + String(edit.date).slice(0, 7) + '）已结账锁定，无法编辑。如需修改请先到工具栏「📅 月结」撤销该月结账。');
+      return;
+    }
     allocDraft = (edit && edit.allocations && edit.allocations.length) ? edit.allocations.map(function (a) { return { project: (a.project || '').trim(), amount: (a.amount == null ? '' : a.amount) }; }) : [];
     var projList = projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
     var v = { date: FW.today(), type: 'expense', cat1: DEFAULT_CATS[0], cat2: '', account: ACCTS[0], amount: '', remark: '', project: '', party: '', reimburser: '', photos: [],
@@ -2465,6 +2471,13 @@
             '</select></div>' +
           '</div>' +
         '</div>' +
+        // —— 常用模板 ——
+        '<div class="tx-section">' +
+          '<div class="tx-title">常用模板</div>' +
+          '<div class="form-grid">' +
+            '<div class="field full"><select id="f_tpl"><option value="">— 套用模板 —</option></select><button class="btn sm" id="f_saveTpl" type="button">★ 存为模板</button><span id="tplHint" class="muted" style="font-size:12px;margin-left:6px"></span></div>' +
+          '</div>' +
+        '</div>' +
         // —— 往来与归属 ——
         '<div class="tx-section">' +
           '<div class="tx-title">往来与归属</div>' +
@@ -2480,7 +2493,7 @@
         '<div class="tx-section">' +
           '<div class="tx-title">金额与备注</div>' +
           '<div class="form-grid">' +
-            '<div class="field full"><label>金额（元）</label><input id="f_amount" type="number" step="0.01" min="0" value="' + FW.esc(v.amount) + '"></div>' +
+            '<div class="field full"><label>金额（元，支持 =公式 如 =1200+350）</label><input id="f_amount" type="text" inputmode="decimal" value="' + FW.esc(v.amount) + '"></div>' +
             '<div class="field full"><label>备注</label><textarea id="f_remark" rows="2" placeholder="用途说明">' + FW.esc(v.remark) + '</textarea></div>' +
           '</div>' +
         '</div>' +
@@ -2500,6 +2513,7 @@
       if (amtEl) amtEl.oninput = updateAllocTotal;
       updateAllocTotal();
       renderPhotoGrid(photos);
+      if (FW.convenience && FW.convenience.initTplBar) FW.convenience.initTplBar();
       var remEl = document.getElementById('f_remark');
       if (remEl) remEl.oninput = function () { autoMatchCat(this.value); };
       var unbind = bindPaste(photos);
@@ -2830,6 +2844,10 @@
   function delTx(id) {
     var rec = FW.db.getById(KEY, id);
     if (!rec) return;
+    if (FW.convenience && FW.convenience.isClosedMonth(rec.date)) {
+      FW.toast('该笔流水所在月份（' + String(rec.date).slice(0, 7) + '）已结账锁定，无法删除。如需修改请先到工具栏「📅 月结」撤销该月结账。');
+      return;
+    }
     if (!confirm('确定删除该笔流水？' + (rec.photos && rec.photos.length ? '（将同时删除 ' + rec.photos.length + ' 张凭证照片）' : ''))) return;
     FW.db.remove(KEY, id);
     if (rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
@@ -2992,12 +3010,15 @@
     if (!ids.length) { FW.toast('请先勾选要删除的流水'); return; }
     if (!confirm('确定删除选中的 ' + ids.length + ' 条流水吗？\n（将同时删除它们的凭证照片，不可恢复！）')) return;
     var list = all();
-    list.forEach(function (t) { if (state.selIds[t.id] && t.photos && t.photos.length) { try { FW.db.deletePhotos(t.photos); } catch (e) {} } });
-    var kept = list.filter(function (t) { return !state.selIds[t.id]; });
+    var locked = 0;
+    var selIds = state.selIds;
+    list.forEach(function (t) { if (selIds[t.id] && FW.convenience && FW.convenience.isClosedMonth(t.date)) { locked++; delete selIds[t.id]; } });
+    list.forEach(function (t) { if (selIds[t.id] && t.photos && t.photos.length) { try { FW.db.deletePhotos(t.photos); } catch (e) {} } });
+    var kept = list.filter(function (t) { return !selIds[t.id]; });
     FW.db.saveList(KEY, kept);
     state.selIds = {};
     render();
-    FW.toast('已删除 ' + ids.length + ' 条流水');
+    FW.toast('已删除 ' + (ids.length - locked) + ' 条流水' + (locked ? ('，跳过 ' + locked + ' 条已结账锁定') : ''));
   }
 
   function typeLabel(t) {
