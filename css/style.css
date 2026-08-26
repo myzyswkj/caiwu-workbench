@@ -1486,3 +1486,9 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 
 /* 首页累计未分配利润（已扣分红）提示 */
 .dash-retained { margin-top:10px; padding:8px 12px; background:#f7f4ec; border:1px solid #E6DCC4; border-radius:8px; font-size:13px; }
+
+/* ===== 便利增强 v42：常用流水模板 / 批量挂凭证 / 月结锁定 ===== */
+#tplHint { color: var(--gold); font-weight: 600; }
+.vp-tx { transition: background .12s; cursor: pointer; }
+.vp-tx:hover { background: var(--bg); }
+.vp-amt:focus { outline: 2px solid var(--gold); }
