@@ -1,7 +1,7 @@
 /* ============================================================
  * 报表中心（基于「登记内账」流水自动汇总）
  *   - 利润表：营业收入 − 营业成本 − 税金及附加 − 费用 − 固定资产购置 = 净利润
- *   - 资金状况表（简化资产负债表）：货币资金 + 实收资本 + 未分配利润，自动平衡
+ *   - 资金状况表（简化资产负债表）：货币资金 + 实收资本 + 未分配利润（已扣减股东分红），自动平衡
  *   - 现金流量表：经营 / 投资 / 筹资 活动现金流量
  * 说明：内账为单式流水账，报表为面向老板的实务口径（收减支），
  *       非严格会计准则；所得税依实际申报填列，本表不自动计提。
@@ -42,9 +42,11 @@
       else if (t.type === 'transfer') {
         m[t.fromAccount] = (m[t.fromAccount] || 0) - a;
         m[t.toAccount] = (m[t.toAccount] || 0) + a;
-      } else if (t.type === 'equity') {
+      }       else if (t.type === 'equity') {
         if (t.equityDir === 'out') m[t.account] = (m[t.account] || 0) - a;
         else m[t.account] = (m[t.account] || 0) + a;
+      } else if (t.type === 'dividend') {
+        m[t.account] = (m[t.account] || 0) - a;
       }
     });
     var seen = {}, ordered = [];
@@ -57,7 +59,7 @@
   function agg(from, to) {
     var income = {}, cost = {}, tax = {}, fee = {}, invest = {};
     var incomeTotal = 0, costTotal = 0, taxTotal = 0, feeTotal = 0, investTotal = 0;
-    var equityIn = 0, equityOut = 0;
+    var equityIn = 0, equityOut = 0, dividend = 0;
     rowsAll().forEach(function (t) {
       if (!inRange(t, from, to)) return;
       var a = num(t.amount), cat = t.category || '未分类';
@@ -88,6 +90,8 @@
         else { fee[cat] = (fee[cat] || 0) - a; feeTotal -= a; }
       } else if (t.type === 'equity') {
         if (t.equityDir === 'out') equityOut += a; else equityIn += a;
+      } else if (t.type === 'dividend') {
+        dividend += a;
       }
     });
     return {
@@ -97,6 +101,7 @@
       fee: fee, feeTotal: feeTotal,
       invest: invest, investTotal: investTotal,
       equityNet: equityIn - equityOut, equityIn: equityIn, equityOut: equityOut,
+      dividend: dividend,
       netProfit: incomeTotal - costTotal - taxTotal - feeTotal - investTotal
     };
   }
@@ -145,10 +150,10 @@
     var d = agg('', to); // 累计到期末
     var accts = accountBalances(to);
     var cashTotal = accts.reduce(function (s, x) { return s + x.bal; }, 0);
-    var paidIn = d.equityNet;            // 实收资本 = 股本净注入（累计）
-    var retained = d.netProfit;          // 未分配利润 = 累计净利润（累计到期末）
+    var paidIn = d.equityNet;                       // 实收资本 = 股本净注入（累计）
+    var retained = d.netProfit - d.dividend;        // 未分配利润 = 累计净利润 − 已分红（累计到期末）
     var openingsTotal = (FW.internalCalc && FW.internalCalc.getOpeningsTotal) ? FW.internalCalc.getOpeningsTotal() : 0;
-    var liabEq = paidIn + retained + openingsTotal;   // 负债+权益（含期初余额）
+    var liabEq = paidIn + retained + openingsTotal; // 负债+权益（含期初余额）
     var balanced = Math.abs(cashTotal - liabEq) < 0.005;
 
     var acctRows = accts.length ? accts.map(function (x) {
@@ -164,7 +169,9 @@
       '<tr class="sec"><td>负债及所有者权益</td><td class="num"></td></tr>' +
       '<tr><td>　期初余额（资金）</td><td class="num">' + money(openingsTotal) + '</td></tr>' +
       '<tr><td>　实收资本（股本净注入）</td><td class="num">' + money(paidIn) + '</td></tr>' +
-      '<tr><td>　未分配利润（累计净利润）</td><td class="num">' + money(retained) + '</td></tr>' +
+      '<tr><td>　累计净利润</td><td class="num">' + money(d.netProfit) + '</td></tr>' +
+      '<tr><td>　减：股东分红</td><td class="num expense">-' + money(d.dividend) + '</td></tr>' +
+      '<tr><td>　未分配利润</td><td class="num">' + money(retained) + '</td></tr>' +
       boldRow('　负债及所有者权益合计', liabEq) +
       '</tbody></table>' +
       '<div class="muted" style="font-size:12px;margin-top:8px">' +
@@ -180,7 +187,7 @@
     var opIn = d.incomeTotal;
     var opOut = d.costTotal + d.taxTotal + d.feeTotal;
     var invOut = d.investTotal;
-    var finNet = d.equityNet; // 筹资净流量（注入-抽回）
+    var finNet = d.equityNet - d.dividend; // 筹资净流量（注入-抽回-分红）
     var netInc = opIn - opOut - invOut + finNet;
     var html =
       '<table class="rep-table"><tbody>' +
@@ -196,6 +203,7 @@
       '<tr class="sec"><td>三、筹资活动产生的现金流量</td><td class="num"></td></tr>' +
       '<tr><td>　吸收投资（股本注入）</td><td class="num income">' + money(d.equityIn) + '</td></tr>' +
       '<tr><td>　偿还投资（股本抽回）</td><td class="num expense">-' + money(d.equityOut) + '</td></tr>' +
+      '<tr><td>　支付股东分红</td><td class="num expense">-' + money(d.dividend) + '</td></tr>' +
       boldRow('　筹资活动现金净流量', finNet, finNet >= 0 ? 'income' : 'expense') +
       boldRow('四、现金及现金等价物净增加额', netInc, netInc >= 0 ? 'income' : 'expense') +
       '</tbody></table>' +
@@ -309,8 +317,10 @@
       rows.push(['负债及所有者权益', '']);
       rows.push(['期初余额（资金）', openT]);
       rows.push(['实收资本（股本净注入）', df.equityNet]);
-      rows.push(['未分配利润（累计净利润）', df.netProfit]);
-      rows.push(['负债及所有者权益合计', df.equityNet + df.netProfit + openT]);
+      rows.push(['累计净利润', df.netProfit]);
+      rows.push(['减：股东分红', -df.dividend]);
+      rows.push(['未分配利润', df.netProfit - df.dividend]);
+      rows.push(['负债及所有者权益合计', df.equityNet + df.netProfit - df.dividend + openT]);
     } else {
       var dc = agg(state.from, state.to);
       rows.push(['项目', '金额']);
@@ -326,8 +336,9 @@
       rows.push(['三、筹资活动', '']);
       rows.push(['吸收投资（股本注入）', dc.equityIn]);
       rows.push(['偿还投资（股本抽回）', -dc.equityOut]);
-      rows.push(['筹资活动现金净流量', dc.equityNet]);
-      rows.push(['四、现金净增加额', dc.incomeTotal - dc.costTotal - dc.taxTotal - dc.feeTotal - dc.investTotal + dc.equityNet]);
+      rows.push(['支付股东分红', -dc.dividend]);
+      rows.push(['筹资活动现金净流量', dc.equityNet - dc.dividend]);
+      rows.push(['四、现金净增加额', dc.incomeTotal - dc.costTotal - dc.taxTotal - dc.feeTotal - dc.investTotal + dc.equityNet - dc.dividend]);
     }
     var csv = '﻿' + [['报表：' + title + ' ' + rngTxt]].concat(rows).map(function (r) {
       return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(',');
