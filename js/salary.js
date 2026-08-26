@@ -84,7 +84,6 @@
   var MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
   function render() {
-    if (state.tab === 'calc') { renderCalc(); return; }
     var emps = getEmps();
     var recs = getRecs();
     var rows = computeYear(emps, recs, state.year);
@@ -133,7 +132,6 @@
       '<button class="tab ' + (state.tab === 'table' ? 'active' : '') + '" data-tab="table">工资表</button>' +
       '<button class="tab ' + (state.tab === 'records' ? 'active' : '') + '" data-tab="records">记录管理</button>' +
       '<button class="tab ' + (state.tab === 'mind' ? 'active' : '') + '" data-tab="mind">项目工资图</button>' +
-      '<button class="tab ' + (state.tab === 'calc' ? 'active' : '') + '" data-tab="calc">工资核算</button>' +
       '</div>';
 
     if (emps.length === 0) {
@@ -142,11 +140,9 @@
         '<div class="empty-title">还没有员工</div>' +
         '<div class="empty-sub">点「📥 导入工资」选一份含 姓名/底薪/奖金/提成 的 Excel 或 CSV，系统会自动识别并新建员工；也可点「👥 员工管理」手动添加。</div>' +
         '<button class="btn primary" id="salImportBtn2">📥 导入工资</button>' +
-        '<button class="btn" id="salCalcBtn2">🧮 去工资核算</button>' +
         '</div></div>';
       var c0 = document.getElementById('content'); if (c0) c0.innerHTML = html;
       var b0 = document.getElementById('salImportBtn2'); if (b0) b0.onclick = openImport;
-      var b1 = document.getElementById('salCalcBtn2'); if (b1) b1.onclick = function () { state.tab = 'calc'; render(); };
       bindTabs();
       return;
     }
@@ -979,236 +975,6 @@
     FW.toast('已导出 CSV');
   }
 
-  // ===== 工资核算：上传考勤 → 按可配置规则自动核算实发工资 =====
-  // 规则只需设置一次（自动存 salary_calc_rules），之后每次上传同类考勤表即可一键核算。
-  var CALC_ROLES = [
-    { key: 'name', label: '姓名', req: true, words: ['姓名', '名字', '员工', '职员', '名称', 'name'] },
-    { key: 'base', label: '基本工资（可选）', req: false, words: ['基本工资', '底薪', '基础工资', '固定工资', '工资', 'base'] },
-    { key: 'attend', label: '出勤天数', req: false, words: ['出勤', '考勤', '实际出勤'] },
-    { key: 'std', label: '应出勤天数（满勤标准）', req: false, words: ['应出勤', '满勤', '标准出勤', '应到'] },
-    { key: 'ot', label: '加班小时', req: false, words: ['加班', '加班时长', '加班小时', 'ot'] },
-    { key: 'lateCnt', label: '迟到次数', req: false, words: ['迟到次数', '迟到次'] },
-    { key: 'lateMin', label: '迟到分钟', req: false, words: ['迟到分钟', '迟到时长'] },
-    { key: 'leave', label: '请假天数', req: false, words: ['请假', '缺勤', '事假', '病假'] },
-    { key: 'subsidy', label: '补助天数', req: false, words: ['补助', '补贴', '天数'] }
-  ];
-  var calcState = { headers: [], rows: [], mapping: {}, result: [] };
-
-  function loadCalcRules() {
-    var def = { baseFixed: 5000, stdAttend: 26, fullBonus: 300, otRate: 20, latePerTime: 50, latePerMin: 2, leavePerDay: 100, subsidyPerDay: 50, prorateBase: false, mapping: {} };
-    try {
-      var list = FW.db.getList('salary_calc_rules') || [];
-      if (list.length) { var s = list[0]; for (var k in def) if (!(k in s)) s[k] = def[k]; return s; }
-    } catch (e) {}
-    return def;
-  }
-  function saveCalcRules(r) { FW.db.saveList('salary_calc_rules', [r]); }
-
-  function guessCalcMap(headers) {
-    var used = {}; var g = {};
-    CALC_ROLES.forEach(function (role) {
-      if (!role.words) return;
-      for (var i = 0; i < headers.length; i++) {
-        if (used[i]) continue;
-        var hh = (headers[i] == null ? '' : String(headers[i])).toLowerCase().replace(/\s+/g, '');
-        for (var w = 0; w < role.words.length; w++) {
-          if (hh.indexOf(role.words[w].toLowerCase()) > -1) { used[i] = true; g[role.key] = (headers[i] == null ? '' : String(headers[i]).trim()); break; }
-        }
-        if (g[role.key]) break;
-      }
-    });
-    return g;
-  }
-
-  function calcMapSelect(role, headers, sel) {
-    var html = '<select class="calc-sel" data-role="' + role.key + '"><option value="">（不使用）</option>';
-    headers.forEach(function (h) {
-      var hh = (h == null ? '' : String(h)).trim();
-      if (hh === '') return;
-      html += '<option' + (hh === sel ? ' selected' : '') + '>' + FW.esc(hh) + '</option>';
-    });
-    html += '</select>';
-    return html;
-  }
-
-  function renderCalcMap() {
-    var el = document.getElementById('calcMapArea'); if (!el) return;
-    var headers = calcState.headers || [];
-    if (!headers.length) { el.innerHTML = '<div class="muted">请先上传考勤文件，系统会自动识别表头并生成映射。</div>'; return; }
-    var mapping = calcState.mapping || {};
-    var html = '<table class="tbl calc-map"><thead><tr><th>字段角色</th><th>对应表格列</th></tr></thead><tbody>';
-    CALC_ROLES.forEach(function (role) {
-      html += '<tr><td>' + role.label + (role.req ? ' <span class="req">*</span>' : '') + '</td><td>' + calcMapSelect(role, headers, mapping[role.key] || '') + '</td></tr>';
-    });
-    html += '</tbody></table>';
-    el.innerHTML = html;
-    Array.prototype.forEach.call(el.querySelectorAll('.calc-sel'), function (s) {
-      s.onchange = function () { calcState.mapping = calcState.mapping || {}; calcState.mapping[s.getAttribute('data-role')] = s.value; };
-    });
-  }
-
-  function openCalcFile(file) {
-    if (!file) return;
-    readFileRows(file, '', function (rows) {
-      if (!rows || !rows.length) { FW.toast('文件为空或解析失败'); return; }
-      var headers = (rows[0] || []).map(function (h) { return (h == null ? '' : String(h)).trim(); });
-      var dataRows = (rows.slice(1) || []).map(function (r) {
-        var o = {}; headers.forEach(function (h, i) { o[h] = r[i]; }); return o;
-      }).filter(function (o) { return Object.keys(o).length; });
-      calcState.headers = headers;
-      calcState.rows = dataRows;
-      var rules = loadCalcRules();
-      var auto = {};
-      if (rules.mapping) {
-        CALC_ROLES.forEach(function (role) { if (rules.mapping[role.key] && headers.indexOf(rules.mapping[role.key]) > -1) auto[role.key] = rules.mapping[role.key]; });
-      }
-      if (Object.keys(auto).length === 0) auto = guessCalcMap(headers);
-      calcState.mapping = auto;
-      var info = document.getElementById('calcFileInfo');
-      if (info) info.innerHTML = '✅ 已读取 <b>' + dataRows.length + '</b> 行，识别到 <b>' + headers.length + '</b> 列表头。请确认下方映射是否正确。';
-      renderCalcMap();
-      if (auto.name) doCalc(true);
-    });
-  }
-
-  function readCalcCoef() {
-    function v(id, def) { var e = document.getElementById(id); return e ? num(e.value) : def; }
-    function c(id) { var e = document.getElementById(id); return e ? e.checked : false; }
-    var rules = loadCalcRules();
-    return {
-      baseFixed: v('co_base', rules.baseFixed), stdAttend: v('co_std', rules.stdAttend),
-      fullBonus: v('co_full', rules.fullBonus), otRate: v('co_ot', rules.otRate),
-      latePerTime: v('co_lateT', rules.latePerTime), latePerMin: v('co_lateM', rules.latePerMin),
-      leavePerDay: v('co_leave', rules.leavePerDay), subsidyPerDay: v('co_subsidy', rules.subsidyPerDay),
-      prorateBase: c('co_prorate') ? true : (rules.prorateBase || false)
-    };
-  }
-
-  function calcCoefHtml(r) {
-    function f(id, label, val, hint) {
-      return '<div class="form-row"><label>' + label + '</label><input id="' + id + '" type="number" step="0.01" value="' + (r[id] != null ? r[id] : '') + '"><span class="hint">' + hint + '</span></div>';
-    }
-    return '<div class="calc-grid">' +
-      f('co_base', '固定基本工资(元/月)', r.baseFixed, '考勤表含基本工资列时优先用列值，否则用此固定额') +
-      f('co_std', '默认应出勤天数', r.stdAttend, '未提供应出勤列时用于判定满勤') +
-      f('co_full', '满勤奖(元)', r.fullBonus, '当月满勤（无迟到/请假且出勤≥应出勤）才发放') +
-      f('co_ot', '加班费(元/小时)', r.otRate, '加班小时 × 此费率') +
-      f('co_lateT', '迟到扣款(元/次)', r.latePerTime, '迟到次数列 × 此值') +
-      f('co_lateM', '迟到扣款(元/分钟)', r.latePerMin, '迟到分钟列 × 此值') +
-      f('co_leave', '请假扣款(元/天)', r.leavePerDay, '请假天数列 × 此值') +
-      f('co_subsidy', '补助(元/天)', r.subsidyPerDay, '补助天数列 × 此值（根据补助天数计算）') +
-      '<label class="calc-chk"><input type="checkbox" id="co_prorate"' + (r.prorateBase ? ' checked' : '') + '> 固定工资随出勤天数折算（不勾＝固定工资不扣全勤）</label>' +
-      '</div>';
-  }
-
-  function doCalc(silent) {
-    var rules = readCalcCoef();
-    var m = calcState.mapping || {};
-    if (!m.name) { FW.toast('请先在映射中选择「姓名」列'); return; }
-    var rows = (calcState.rows || []).filter(function (r) { return r[m.name] != null && String(r[m.name]).trim() !== ''; });
-    if (!rows.length) { FW.toast('没有可核算的数据行'); return; }
-    var out = rows.map(function (r) {
-      var has = function (k) { return m[k] != null && m[k] !== ''; };
-      var base = has('base') ? num(r[m.base]) : 0; base = base > 0 ? base : num(rules.baseFixed);
-      var attend = has('attend') ? num(r[m.attend]) : 0;
-      var std = has('std') ? num(r[m.std]) : (attend || num(rules.stdAttend) || 0);
-      var ot = has('ot') ? num(r[m.ot]) : 0;
-      var lateCnt = has('lateCnt') ? num(r[m.lateCnt]) : 0;
-      var lateMin = has('lateMin') ? num(r[m.lateMin]) : 0;
-      var leave = has('leave') ? num(r[m.leave]) : 0;
-      var subsidy = has('subsidy') ? num(r[m.subsidy]) : 0;
-      var full = (lateCnt === 0 && lateMin === 0 && leave === 0 && attend > 0 && (std > 0 ? attend >= std : true));
-      var baseEff = (rules.prorateBase && std > 0) ? base * Math.min(attend / std, 1) : base;
-      var otPay = ot * num(rules.otRate);
-      var fullBonus = full ? num(rules.fullBonus) : 0;
-      var lateDed = lateCnt * num(rules.latePerTime) + lateMin * num(rules.latePerMin);
-      var leaveDed = leave * num(rules.leavePerDay);
-      var subsidyPay = subsidy * num(rules.subsidyPerDay);
-      var yingfa = baseEff + otPay + fullBonus + subsidyPay;
-      var koukuan = lateDed + leaveDed;
-      return { name: String(r[m.name]).trim(), base: baseEff, attend: attend, std: std, full: full, otPay: otPay, fullBonus: fullBonus, lateDed: lateDed, leaveDed: leaveDed, subsidyPay: subsidyPay, yingfa: yingfa, shifa: yingfa - koukuan };
-    });
-    calcState.result = out;
-    renderCalcResult(out);
-    var saved = loadCalcRules(); saved.mapping = calcState.mapping; saveCalcRules(saved);
-    if (!silent) FW.toast('已核算 ' + out.length + ' 人，实发合计 ' + FW.fmtMoney(out.reduce(function (s, r) { return s + r.shifa; }, 0)));
-  }
-
-  function renderCalcResult(out) {
-    var el = document.getElementById('calcResult'); if (!el) return;
-    if (!out || !out.length) { el.innerHTML = '<div class="muted">暂无核算结果，上传考勤并点「核算实发工资」。</div>'; return; }
-    var total = out.reduce(function (s, r) { return s + r.shifa; }, 0);
-    var head = '<tr><th>姓名</th><th class="num">基本工资</th><th class="num">出勤</th><th class="num">应出勤</th><th>满勤</th><th class="num">加班费</th><th class="num">满勤奖</th><th class="num">迟到扣</th><th class="num">请假扣</th><th class="num">补助</th><th class="num">应发</th><th class="num">实发</th></tr>';
-    var trs = out.map(function (r) {
-      return '<tr><td>' + FW.esc(r.name) + '</td>' +
-        '<td class="num">' + FW.fmtMoney(r.base) + '</td>' +
-        '<td class="num">' + (r.attend || 0) + '</td>' +
-        '<td class="num">' + (r.std || 0) + '</td>' +
-        '<td class="center">' + (r.full ? '<span class="full-yes">✓</span>' : '<span class="full-no">✗</span>') + '</td>' +
-        '<td class="num">' + FW.fmtMoney(r.otPay) + '</td>' +
-        '<td class="num">' + FW.fmtMoney(r.fullBonus) + '</td>' +
-        '<td class="num">' + (r.lateDed ? '-' + FW.fmtMoney(r.lateDed) : '0.00') + '</td>' +
-        '<td class="num">' + (r.leaveDed ? '-' + FW.fmtMoney(r.leaveDed) : '0.00') + '</td>' +
-        '<td class="num">' + FW.fmtMoney(r.subsidyPay) + '</td>' +
-        '<td class="num">' + FW.fmtMoney(r.yingfa) + '</td>' +
-        '<td class="num strong">' + FW.fmtMoney(r.shifa) + '</td></tr>';
-    }).join('');
-    el.innerHTML = '<table class="tbl calc-tbl"><thead>' + head + '</thead><tbody>' + trs + '</tbody><tfoot><tr><td>合计（' + out.length + ' 人）</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td class="num">' + FW.fmtMoney(total) + '</td><td class="num strong">' + FW.fmtMoney(total) + '</td></tr></tfoot></table>';
-  }
-
-  function exportCalcCSV(out) {
-    if (!out || !out.length) { FW.toast('没有可导出的核算结果'); return; }
-    var header = ['姓名', '基本工资', '出勤天数', '应出勤天数', '满勤', '加班费', '满勤奖', '迟到扣款', '请假扣款', '补助', '应发', '实发'];
-    var lines = [header.join(',')];
-    out.forEach(function (r) {
-      lines.push([r.name, r.base, r.attend, r.std, r.full ? '是' : '否', r.otPay, r.fullBonus, r.lateDed, r.leaveDed, r.subsidyPay, r.yingfa, r.shifa].join(','));
-    });
-    var csv = '﻿' + lines.join('\r\n');
-    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a'); a.href = url; a.download = '工资核算_' + (new Date().toISOString().slice(0, 10)) + '.csv';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-    FW.toast('已导出 CSV');
-  }
-
-  function renderCalc() {
-    var top = document.getElementById('topActions');
-    if (top) {
-      top.innerHTML = '<button class="btn" id="calcBack">‹ 返回工资登记</button>';
-      var bk = document.getElementById('calcBack'); if (bk) bk.onclick = function () { state.tab = 'table'; render(); };
-    }
-    var rules = loadCalcRules();
-    var html = '<div class="salary-wrap">';
-    html += '<div class="tabs sal-tabs">' +
-      '<button class="tab" data-tab="table">工资表</button>' +
-      '<button class="tab" data-tab="records">记录管理</button>' +
-      '<button class="tab" data-tab="mind">项目工资图</button>' +
-      '<button class="tab active" data-tab="calc">工资核算</button>' +
-      '</div>';
-    html += '<p class="sal-tip">📋 上传考勤表（.xls/.xlsx/.csv），系统按下方「列映射」与「计算规则」自动核算每人<strong>实发工资</strong>。规则设置一次后会自动保存，之后每次上传同类表格即可一键核算。实发 ＝ 基本工资＋加班费＋满勤奖＋补助 − 迟到扣款 − 请假扣款。</p>';
-    html += '<div class="card calc-card"><h3>① 上传考勤并核对列映射</h3>' +
-      '<div class="calc-upload"><button class="btn primary" id="calcUploadBtn">📁 选择考勤文件</button><input type="file" id="calcFile" accept=".csv,.xlsx,.xls,text/csv" style="display:none"><span id="calcFileInfo" class="muted"></span></div>' +
-      '<div id="calcMapArea"></div></div>';
-    html += '<div class="card calc-card"><h3>② 计算规则（按需调整，自动保存）</h3>' + calcCoefHtml(rules) + '<button class="btn" id="calcSaveRules">💾 保存规则</button></div>';
-    html += '<div class="card calc-card"><div class="calc-toolbar">' +
-      '<button class="btn primary" id="calcRun">⚙ 核算实发工资</button>' +
-      '<button class="btn" id="calcExport">⬇ 导出CSV</button>' +
-      '<span id="calcMsg" class="muted"></span></div>' +
-      '<div id="calcResult"></div></div>';
-    html += '</div>';
-    var c = document.getElementById('content'); if (c) c.innerHTML = html;
-    bindTabs();
-    var up = document.getElementById('calcUploadBtn'); if (up) up.onclick = function () { var f = document.getElementById('calcFile'); if (f) f.click(); };
-    var fi = document.getElementById('calcFile'); if (fi) fi.onchange = function () { if (fi.files && fi.files[0]) openCalcFile(fi.files[0]); fi.value = ''; };
-    var sr = document.getElementById('calcSaveRules'); if (sr) sr.onclick = function () {
-      var coef = readCalcCoef(); coef.mapping = calcState.mapping || loadCalcRules().mapping || {}; saveCalcRules(coef); FW.toast('规则已保存');
-    };
-    var run = document.getElementById('calcRun'); if (run) run.onclick = function () { doCalc(false); };
-    var ex = document.getElementById('calcExport'); if (ex) ex.onclick = function () { exportCalcCSV(calcState.result); };
-    renderCalcMap();
-    if (calcState.result && calcState.result.length) renderCalcResult(calcState.result);
-  }
 
   FW.modules = FW.modules || {};
   FW.modules.salary = {
