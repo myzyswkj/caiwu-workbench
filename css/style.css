@@ -1404,3 +1404,22 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .badge-alloc.skip{background:#F1EFE8;color:#5F5E5A;}
 .skip-alloc{border:1.5px solid #9CC3E8;background:rgba(31,111,178,0.06);border-radius:8px;padding:10px 12px;margin-top:10px;}
 .skip-alloc .chk-inline{font-size:13px;}
+/* ===== 工资核算 ===== */
+.calc-card { margin-bottom: 16px; }
+.calc-card h3 { margin: 0 0 12px; font-size: 15px; }
+.calc-upload { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.calc-grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 10px 22px; margin-bottom: 12px; }
+.calc-grid .form-row { display: flex; align-items: center; gap: 10px; margin: 0; }
+.calc-grid .form-row label { width: 140px; flex: none; font-size: 13px; color: var(--text, #2c2c2c); }
+.calc-grid .form-row input { width: 110px; }
+.calc-grid .form-row .hint { font-size: 12px; color: var(--muted, #6B7A70); flex: 1; }
+.calc-chk { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text, #2c2c2c); margin-top: 2px; }
+.calc-map { margin-top: 6px; }
+.calc-map .req { color: #C8102E; }
+.calc-sel { min-width: 160px; padding: 5px 8px; border: 1px solid var(--border, #ddd); border-radius: 6px; }
+.calc-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.calc-tbl .strong { font-weight: 700; color: var(--primary, #1F6FB2); }
+.calc-tbl .center { text-align: center; }
+.full-yes { color: #1F9D55; font-weight: 700; }
+.full-no { color: #B45F06; font-weight: 700; }
+@media (max-width: 760px) { .calc-grid { grid-template-columns: 1fr; } }
