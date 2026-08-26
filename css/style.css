@@ -1423,3 +1423,57 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .full-yes { color: #1F9D55; font-weight: 700; }
 .full-no { color: #B45F06; font-weight: 700; }
 @media (max-width: 760px) { .calc-grid { grid-template-columns: 1fr; } }
+
+/* ===== 老板月报 / 季报 ===== */
+.bb-tool { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.bb-tool-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.bb-tool-row label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.bb-tool-row select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 14px; }
+.bb-tool-note { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.bb-kpis { display: flex; gap: 16px; flex-wrap: wrap; margin: 14px 0 18px; }
+.bb-kpi { flex: 1 1 140px; min-width: 130px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.bb-kpi-label { font-size: 12px; color: var(--muted); }
+.bb-kpi-value { font-size: 20px; font-weight: 700; margin-top: 4px; }
+.bb-kpi-value.income { color: var(--income); }
+.bb-kpi-value.expense { color: var(--expense); }
+.bb-kpi-value.neutral { color: var(--text); }
+.bb-h2 { font-size: 16px; margin: 18px 0 10px; padding-left: 8px; border-left: 3px solid var(--gold); }
+.bb-charts { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 12px; }
+.bb-charts > div:first-child { grid-column: 1 / -1; }
+.bb-tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 6px; }
+.bb-tbl th, .bb-tbl td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; }
+.bb-tbl thead th { background: var(--bg); color: var(--text); font-weight: 600; }
+.bb-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.bb-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.bb-photo { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.bb-photo img { width: 100%; height: 110px; object-fit: cover; display: block; }
+.bb-photo-cap { font-size: 11px; color: var(--muted); padding: 4px 6px; text-align: center; }
+.bb-cover { text-align: center; padding: 22px 0 18px; border-bottom: 2px solid var(--gold); margin-bottom: 8px; }
+.bb-cover-brand { font-size: 13px; letter-spacing: 2px; color: var(--gold); }
+.bb-cover-title { font-size: 26px; margin: 8px 0 6px; color: var(--text); }
+.bb-cover-period { font-size: 16px; color: var(--muted); }
+.bb-cover-date { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* ===== 数据诊断 ===== */
+.dg-wrap { max-width: 860px; margin: 0 auto; }
+.dg-title { font-size: 20px; margin: 0 0 16px; }
+.dg-body { display: grid; gap: 14px; }
+.dg-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; box-shadow: var(--shadow); }
+.dg-card-h { font-size: 14px; font-weight: 600; color: var(--primary); margin-bottom: 8px; }
+.dg-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 14px; }
+.dg-row:last-child { border-bottom: none; }
+.dg-name { color: var(--text); }
+.dg-val { color: var(--muted); display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.dg-badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+.dg-badge.ok { background: #E1F5EE; color: #0F6E56; }
+.dg-badge.warn { background: #FAEEDA; color: #854F0B; }
+.dg-badge.bad { background: #FBE3E1; color: #C8102E; }
+.dg-actions { margin-top: 16px; }
+
+/* 月报打印优化：仅打印 .print-area，隐藏工具栏 */
+@media print {
+  .bb-tool { display: none !important; }
+  .bb-cover { border-bottom-color: #C9A227; }
+  .bb-kpi-value.income { color: #C8102E !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .bb-kpi-value.expense { color: #1F9D55 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
