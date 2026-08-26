@@ -107,8 +107,10 @@
         kpiCard('期间支出', fmt(s.exp), 'expense') +
         kpiCard('收支结余', fmt(s.net), s.net >= 0 ? 'income' : 'expense') +
         kpiCard('股东分红', fmt(s.div), 'neutral') +
+        kpiCard('可分配利润', fmt(s.net - s.div), (s.net - s.div) >= 0 ? 'income' : 'expense') +
         (cumRate != null ? kpiCard('累计利润率', cumRate.toFixed(1) + '%', cumRate >= 0 ? 'income' : 'expense') : '') +
-      '</div>';
+      '</div>' +
+      '<div class="muted" style="font-size:12px;margin:6px 2px 0">可分配利润 = 本期收支结余 − 本期股东分红（与「报表中心」未分配利润口径一致）。</div>';
 
     var pnlRows = pnl.map(function (r) {
       var rate = r.rate != null && isFinite(r.rate) ? r.rate.toFixed(1) + '%' : '—';
