@@ -1476,4 +1476,13 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
   .bb-cover { border-bottom-color: #C9A227; }
   .bb-kpi-value.income { color: #C8102E !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .bb-kpi-value.expense { color: #1F9D55 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .rep-balance, .dash-retained { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* 报表勾稽自检横幅（报表中心 · 资金状况表） */
+.rep-balance { padding:10px 14px; border-radius:8px; font-weight:600; margin-bottom:12px; font-size:14px; }
+.rep-balance.ok { background:#E8F5EE; color:#1F7A4D; border:1px solid #BFE3CE; }
+.rep-balance.bad { background:#FDECEA; color:#C0392B; border:1px solid #F5C6C0; }
+
+/* 首页累计未分配利润（已扣分红）提示 */
+.dash-retained { margin-top:10px; padding:8px 12px; background:#f7f4ec; border:1px solid #E6DCC4; border-radius:8px; font-size:13px; }
