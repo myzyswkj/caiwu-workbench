@@ -517,6 +517,64 @@
     g('fResetColW').onclick = resetColWidths;
   }
 
+  /* ---------- 重复 / 异常 质检（#1） ---------- */
+  // 返回 id -> {dup:bool, outlier:bool, reason:string}
+  function computeQualityFlags(rows) {
+    var out = {};
+    var allRows = all();
+    // 精确重复分组（跨整本账）：日期|金额|对方
+    var groups = {};
+    allRows.forEach(function (t) {
+      var amt = Number(t.amount) || 0; if (!amt) return;
+      var key = (t.date || '') + '|' + amt.toFixed(2) + '|' + String(t.party || '').trim();
+      (groups[key] = groups[key] || []).push(t);
+    });
+    // 近似重复：同日期+同对方、金额差 < 1%
+    var near = {};
+    allRows.forEach(function (t) {
+      var amt = Number(t.amount) || 0; if (!amt) return;
+      var k2 = (t.date || '') + '|' + String(t.party || '').trim();
+      (near[k2] = near[k2] || []).push(t);
+    });
+    // 离群基线：同项目(或同对方)同类型的金额中位数
+    var byProj = {};
+    allRows.forEach(function (t) {
+      if (t.type !== 'income' && t.type !== 'expense') return;
+      var amt = Number(t.amount) || 0; if (!amt) return;
+      var k = (t.project || '').trim() || ('_p_' + (t.party || '').trim());
+      (byProj[k] = byProj[k] || []).push(amt);
+    });
+    var medians = {};
+    Object.keys(byProj).forEach(function (k) {
+      var arr = byProj[k].slice().sort(function (a, b) { return a - b; });
+      var mid = Math.floor(arr.length / 2);
+      medians[k] = arr.length % 2 ? arr[mid] : ((arr[mid - 1] + arr[mid]) / 2);
+    });
+    rows.forEach(function (t) {
+      var amt = Number(t.amount) || 0; if (!amt) return;
+      var key = (t.date || '') + '|' + amt.toFixed(2) + '|' + String(t.party || '').trim();
+      var dup = (groups[key] || []).length > 1;
+      if (!dup) {
+        var k2 = (t.date || '') + '|' + String(t.party || '').trim();
+        (near[k2] || []).forEach(function (o) {
+          if (o.id !== t.id) { var a2 = Number(o.amount) || 0; if (a2 && Math.abs(a2 - amt) / Math.max(a2, amt) < 0.01) dup = true; }
+        });
+      }
+      var fl = {};
+      if (dup) fl.dup = true;
+      if (t.type === 'income' || t.type === 'expense') {
+        var pk = (t.project || '').trim() || ('_p_' + (t.party || '').trim());
+        var med = medians[pk];
+        if (med && med > 0 && amt > med * 3 && amt > 100) {
+          fl.outlier = true;
+          fl.reason = '金额 ' + FW.fmtMoney(amt) + ' 高于该' + (t.project ? '项目' : '对方') + '历史中位数 ' + FW.fmtMoney(med) + ' 的 3 倍，请核对是否录错';
+        }
+      }
+      if (fl.dup || fl.outlier) out[t.id] = fl;
+    });
+    return out;
+  }
+
   function drawTable() {
     var rows = filteredRows();
     var income = rows.filter(function (t) { return t.type === 'income'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
@@ -536,7 +594,7 @@
       '<div class="stat"><div class="label">筛选后结余</div><div class="value">' + FW.fmtMoney(income - netExpense) + '</div></div>' +
       '<div class="stat"><div class="label">笔数</div><div class="value">' + rows.length + '</div></div>' +
       '<div class="stat"><div class="label">未分摊笔数</div><div class="value' + (unalloc ? ' expense' : '') + '" title="应收项目分摊、但还没填分摊的收支/退款笔数；点上方「仅看未分摊」可列出">' + unalloc + '</div></div>';
-    document.getElementById('txWrap').innerHTML = rows.length ? tableHtml(rows) : '<div class="empty">没有符合条件的流水，点右上角「新增流水」开始登记。</div>';
+    document.getElementById('txWrap').innerHTML = rows.length ? tableHtml(rows, computeQualityFlags(rows)) : '<div class="empty">没有符合条件的流水，点右上角「新增流水」开始登记。</div>';
     // 「按账户（收支维度）」小表：随筛选实时重算（与流水表共用 filteredRows 口径）
     var accEl = document.getElementById('accSummary');
     if (accEl) accEl.innerHTML = accSummaryHtml(rows, state.filter);
@@ -567,9 +625,11 @@
   var TX_DEF_W = { 0: 92, 1: 84, 2: 116, 3: 96, 4: 88, 5: 108, 6: 148, 7: 96, 8: 112, 9: 84, 10: 108 };
   var COLW_KEY = 'fw_tx_colwidths';
 
-  function tableHtml(rows) {
+  function tableHtml(rows, flags) {
     var trs = rows.map(function (t) {
       var m = typeMeta(t);
+      var fl = (flags && flags[t.id]) || null;
+      var qm = fl ? ((fl.dup ? '<span class="tx-flag" title="疑似重复流水：存在同日期/同金额/同对方的记录，建议核对">◆</span>' : '') + (fl.outlier ? '<span class="tx-flag warn" title="' + FW.esc(fl.reason || '金额异常，请核对') + '">⚠️</span>' : '')) : '';
       var affects = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
       var amtCls = affects ? m.cls : 'neutral';
       var acctTxt = accountOf(t);
@@ -588,7 +648,7 @@
         '<td class="tx-detail">' + txProjectLabel(t) + '</td>' +
         '<td class="tx-detail">' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td class="col-tight-r tx-detail" style="color:' + accColor(acctTxt) + '"><b>' + FW.esc(acctTxt) + '</b></td>' +
-        '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + '</td>' +
+        '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + qm + '</td>' +
         '<td class="remark col-loose-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣' + FW.esc(t.feeName || '支出') + ' ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
         '<td class="photo-cell">' + vcell + '</td>' +
         '<td>' + FW.esc(t.party || '—') + '</td>' +
@@ -1885,21 +1945,32 @@
     impPreviewState = { rows: rows, chosen: rows.map(function () { return true; }) };
     var s = impPreviewState;
     function renderPreview() {
+      var existKeys = {};
+      (all() || []).forEach(function (t) { if (Number(t.amount)) existKeys[(t.date || '') + '|' + (Number(t.amount)).toFixed(2) + '|' + String(t.party || '').trim()] = 1; });
+      var previewSeen = {};
+      var dupFlags = s.rows.map(function (r) {
+        if (!Number(r.amount)) return false;
+        var k = (r.date || '') + '|' + (Number(r.amount)).toFixed(2) + '|' + String(r.party || '').trim();
+        var d = !!existKeys[k] || !!previewSeen[k];
+        previewSeen[k] = 1;
+        return d;
+      });
+      var dupCount = dupFlags.filter(Boolean).length;
       var trs = s.rows.map(function (r, i) {
         var cls = r.type === 'income' ? 'income' : (r.type === 'refund' ? 'refund' : 'expense');
-        return '<tr>' +
+        return '<tr' + (dupFlags[i] ? ' class="dup-row"' : '') + '>' +
           '<td><input type="checkbox" class="pc" data-i="' + i + '" ' + (s.chosen[i] ? 'checked' : '') + '></td>' +
           '<td>' + FW.esc(r.date) + '</td>' +
           '<td class="' + cls + '">' + (r.type === 'income' ? '收入' : r.type === 'refund' ? '退款收入' : '支出') + '</td>' +
           '<td class="num ' + cls + '">' + FW.fmtMoney(r.amount) + '</td>' +
-          '<td>' + FW.esc(r.party || '—') + '</td>' +
+          '<td>' + FW.esc(r.party || '—') + (dupFlags[i] ? ' <span class="tx-flag" title="疑似重复：与已导入或本批内同日期/同金额/同对方记录重复">◆</span>' : '') + '</td>' +
           '<td>' + FW.esc(r.remark || '—') + '</td>' +
           '<td>' + FW.esc(r.account || '—') + '</td>' +
         '</tr>';
       }).join('');
       var cnt = s.chosen.filter(Boolean).length;
       var body =
-        '<div class="muted" style="font-size:12px;margin-bottom:8px">共解析 <b>' + s.rows.length + '</b> 笔' + (skipped ? '，跳过 ' + skipped + ' 笔（退款 / 不计收支 / 无法识别）' : '') + '。勾选要导入的，取消的将被忽略。</div>' +
+        '<div class="muted" style="font-size:12px;margin-bottom:8px">共解析 <b>' + s.rows.length + '</b> 笔' + (skipped ? '，跳过 ' + skipped + ' 笔（退款 / 不计收支 / 无法识别）' : '') + (dupCount ? '；<b style="color:#C9A227">⚠️ ' + dupCount + ' 笔疑似重复</b>' : '') + '。勾选要导入的，取消的将被忽略。</div>' +
         '<div style="max-height:46vh;overflow:auto"><table id="impPrevTable"><thead><tr><th><input type="checkbox" id="impAll" checked></th><th>日期</th><th>类型</th><th class="num">金额</th><th>对方单位/个人</th><th>备注</th><th>账户</th></tr></thead><tbody>' + trs + '</tbody></table></div>' +
         '<div class="form-actions"><button class="btn ghost" id="impPrevCancel">取消</button><button class="btn" id="impDo">确认导入 <span id="impCnt">' + cnt + '</span> 笔</button></div>';
       FW.openModal('确认导入', body, function () {
