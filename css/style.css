@@ -1492,3 +1492,13 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .vp-tx { transition: background .12s; cursor: pointer; }
 .vp-tx:hover { background: var(--bg); }
 .vp-amt:focus { outline: 2px solid var(--gold); }
+
+/* ===== 录入增强 v43：自动联想 / 草稿 / 别名 / OCR ===== */
+.ac-box { padding: 4px 0; }
+.ac-item { padding: 6px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+.ac-item:last-child { border-bottom: none; }
+.ac-item:hover { background: #f5f8fc; }
+.vp-ocr { background: #fff; border: 1px solid #dbe4ee; border-radius: 6px; cursor: pointer; }
+.vp-ocr:hover { background: #f0f6ff; }
+.seg-btn { cursor: pointer; }
+#impPaste { width: 100%; font-family: monospace; font-size: 12px; line-height: 1.5; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
