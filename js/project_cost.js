@@ -805,34 +805,80 @@
   }
 
   // ---------- 单项目逐笔明细（④：成本/收入“钱去哪了”透明） ----------
-  function openProjectDetail(project) {
-    var rows = (FW.db.getList('internal') || []).filter(function (t) {
-      return (t.project || '').trim() === project;
-    }).sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
-    if (!rows.length) { FW.toast('该项目无流水'); return; }
-    var sumBy = function (type) { return rows.filter(function (t) { return t.type === type; }).reduce(function (s, t) { return s + (Number(t.amount) || 0); }, 0); };
-    var inc = sumBy('income'), exp = sumBy('expense'), rf = sumBy('refund'), dv = sumBy('dividend');
-    var rowsHtml = rows.map(function (t) {
-      var tcls = (t.type === 'income') ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : (t.type === 'dividend' ? 'amt-gold' : 'amt-expense'));
-      var tlabel = t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : (t.type === 'dividend' ? '分红' : '支出'));
+  // 下钻：列出某项目（或全部项目）的逐笔流水；filter: all/income/cost/labor/recover
+  function openProjectDetail(project, filter) {
+    filter = filter || 'all';
+    var txRows = [], inc = 0, exp = 0, rf = 0, dv = 0;
+    function pushInternal(t) {
+      var cls = (t.type === 'income') ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : (t.type === 'dividend' ? 'amt-gold' : 'amt-expense'));
+      var tl = t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : (t.type === 'dividend' ? '分红' : '支出'));
+      txRows.push({ date: t.date || '', type: tl, category: (t.category || t.cat1 || '—'), party: (t.party || '—'), amount: Number(t.amount), remark: (t.remark || '—'), cls: cls });
+      if (t.type === 'income') inc += Number(t.amount);
+      else if (t.type === 'expense') exp += Number(t.amount);
+      else if (t.type === 'refund') rf += Number(t.amount);
+      else if (t.type === 'dividend') dv += Number(t.amount);
+    }
+    if (filter === 'labor') {
+      var emps = FW.db.getList('salary_employees') || [];
+      getSalaryRecs().forEach(function (r) {
+        salaryComps(r).forEach(function (c) {
+          if (project && c.project !== project) return;
+          if (!project && c.project === '未分类') return;
+          var emp = emps.find(function (e) { return e.id === r.empId; }) || {};
+          var tl = c.type === 'base' ? '工资·底薪' : (c.type === 'bonus' ? '工资·奖金' : '工资·提成');
+          var period = (r.year || '') + '-' + (r.month ? ('0' + r.month).slice(-2) : '');
+          txRows.push({ date: period, type: tl, category: '工资成本', party: (emp.name || r.empId || '—'), amount: c.amount, remark: (r.remark || '—'), cls: 'amt-expense' });
+        });
+      });
+      txRows.sort(function (a, b) { return (b.date || '').localeCompare(a.date || '') || (b.amount - a.amount); });
+    } else if (filter === 'recover') {
+      (FW.db.getList('contacts') || []).filter(function (r) { return r.kind === '预付'; }).forEach(function (r) {
+        if (project && (r.project || '').trim() !== project) return;
+        var b = num(r.amount) - num(r.settled);
+        if (b <= 0) return;
+        txRows.push({ date: r.date || '', type: '预付款', category: '应收回款项', party: (r.party || '—'), amount: b, remark: '未用完余额（预付−已核销）', cls: 'amt-recover' });
+      });
+      txRows.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    } else {
+      (FW.db.getList('internal') || []).forEach(function (t) {
+        if (project && (t.project || '').trim() !== project) return;
+        if (filter === 'income' && t.type !== 'income') return;
+        if (filter === 'cost' && t.type !== 'expense' && t.type !== 'refund') return;
+        if (filter !== 'all' && filter !== 'income' && filter !== 'cost') return;
+        pushInternal(t);
+      });
+      txRows.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    }
+    if (!txRows.length) { FW.toast('该项目无相关流水'); return; }
+    var fTitle = { all: '逐笔明细', income: '收入流水', cost: '流水成本', labor: '工资成本', recover: '应收回款项' }[filter] || '逐笔明细';
+    var scope = project ? ('「' + project + '」') : '全部项目';
+    var totalAmt = txRows.reduce(function (s, x) { return s + x.amount; }, 0);
+    var kpiHtml;
+    if (filter === 'all') {
+      kpiHtml = '<div class="pc-pd-kpis">' +
+        '<span>收入 <b class="amt-income">' + FW.fmtMoney(inc) + '</b></span>' +
+        '<span>支出 <b class="amt-expense">' + FW.fmtMoney(exp) + '</b></span>' +
+        '<span>退款 <b class="amt-recover">' + FW.fmtMoney(rf) + '</b></span>' +
+        '<span>分红 <b class="amt-gold">' + FW.fmtMoney(dv) + '</b></span>' +
+        '<span>净额 <b class="' + (inc - exp + rf - dv >= 0 ? 'amt-income' : 'amt-expense') + '">' + FW.fmtMoney(inc - exp + rf - dv) + '</b></span>' +
+        '</div>';
+    } else {
+      var kcls = filter === 'recover' ? 'amt-recover' : (filter === 'income' ? 'amt-income' : 'amt-expense');
+      kpiHtml = '<div class="pc-pd-kpis"><span>' + fTitle + '合计 <b class="' + kcls + '">' + FW.fmtMoney(totalAmt) + '</b></span><span>共 <b>' + txRows.length + '</b> 笔</span></div>';
+    }
+    var rowsHtml = txRows.map(function (t) {
       return '<tr>' +
-        '<td>' + FW.esc(t.date || '') + '</td>' +
-        '<td>' + tlabel + '</td>' +
-        '<td>' + FW.esc(t.category || t.cat1 || '—') + '</td>' +
-        '<td>' + FW.esc(t.party || '—') + '</td>' +
-        '<td class="num ' + tcls + '">' + FW.fmtMoney(Number(t.amount)) + '</td>' +
-        '<td>' + FW.esc(t.remark || '—') + '</td>' +
+        '<td>' + FW.esc(t.date) + '</td>' +
+        '<td>' + t.type + '</td>' +
+        '<td>' + FW.esc(t.category) + '</td>' +
+        '<td>' + FW.esc(t.party) + '</td>' +
+        '<td class="num ' + t.cls + '">' + FW.fmtMoney(t.amount) + '</td>' +
+        '<td>' + FW.esc(t.remark) + '</td>' +
         '</tr>';
     }).join('');
-    var body = '<div class="pc-pd-kpis">' +
-      '<span>收入 <b class="amt-income">' + FW.fmtMoney(inc) + '</b></span>' +
-      '<span>支出 <b class="amt-expense">' + FW.fmtMoney(exp) + '</b></span>' +
-      '<span>退款 <b class="amt-recover">' + FW.fmtMoney(rf) + '</b></span>' +
-      '<span>分红 <b class="amt-gold">' + FW.fmtMoney(dv) + '</b></span>' +
-      '<span>净额 <b class="' + (inc - exp + rf - dv >= 0 ? 'amt-income' : 'amt-expense') + '">' + FW.fmtMoney(inc - exp + rf - dv) + '</b></span>' +
-      '</div>' +
+    var body = kpiHtml +
       '<div style="max-height:54vh;overflow:auto"><table class="pc-unclass-table"><thead><tr><th>日期</th><th>类型</th><th>分类</th><th>对方</th><th class="num">金额</th><th>摘要</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
-    FW.openModal('「' + FW.esc(project) + '」逐笔明细（' + rows.length + ' 笔）', body);
+    FW.openModal(scope + fTitle + '（' + txRows.length + ' 笔）', body);
   }
 
   // ---------- 导出图片（③：与老板月报一致，复用 FWTableImg） ----------
@@ -1119,6 +1165,20 @@
           var incTr = incomeCell.closest ? incomeCell.closest('tr[data-p]') : null;
           if (incTr) { openIncomeDetail(incTr.getAttribute('data-p')); return; }
         }
+        // 【新增】点击瀑布图下钻数字（收入/流水成本/应收回款项/工资成本）
+        var pfChip = e.target.closest ? e.target.closest('.pc-pf') : null;
+        if (pfChip) {
+          var pfMap = { income: 'income', flowCost: 'cost', recover: 'recover', labor: 'labor' };
+          openProjectDetail(pfChip.getAttribute('data-p'), pfMap[pfChip.getAttribute('data-pf')] || 'all'); return;
+        }
+        // 【新增】点击主表流水成本/工资成本数字 → 按该项目（或合计行=全部项目）下钻
+        var amtCell = e.target.closest ? e.target.closest('td.clickable-amt[data-t]') : null;
+        if (amtCell) {
+          var amtTr = amtCell.closest ? amtCell.closest('tr') : null;
+          var amtProj = (amtTr && amtTr.classList.contains('proj-sum-total')) ? null : (amtTr && amtTr.getAttribute('data-p'));
+          var amtType = amtCell.getAttribute('data-t');
+          openProjectDetail(amtProj, amtType === 'labor' ? 'labor' : 'cost'); return;
+        }
         // 【新增】点击计算结果单元格 → 弹出计算过程
         var calcCell = e.target.closest ? e.target.closest('td.calc-detail, td.calc-detail-total') : null;
         if (calcCell) {
@@ -1309,7 +1369,7 @@
     ];
     var title = (state.year === 'all' ? '逐月 收入/成本/利润趋势（全部年度）' : '逐月 收入/成本/利润趋势（' + state.year + ' 年）');
     return '<div class="pc-section-title">逐月趋势</div>' + FW.lineChart(title, series, {}) +
-      '<div class="muted" style="font-size:12px;margin:-6px 0 8px">点项目行可展开查看该项目的成本分类、工资构成与应收回款项明细。<b>点击收入金额可查看收入流水明细。</b>注：本趋势为当月实际收支（不含预付款余额），表格「总成本 / 利润」为已扣除应收回款项（预付未用完）的口径。</div>';
+      '<div class="muted" style="font-size:12px;margin:-6px 0 8px">点项目行可展开查看该项目的成本分类、工资构成与应收回款项明细。<b>点击收入金额、流水成本、工资成本等数字均可下钻查看逐笔流水。</b>注：本趋势为当月实际收支（不含预付款余额），表格「总成本 / 利润」为已扣除应收回款项（预付未用完）的口径。</div>';
   }
 
   // 按一二级分类渲染明细表（用于收入构成 / 流水成本构成）
@@ -1352,12 +1412,19 @@
   function detailHtml(r) {
     var h = '<tr class="pc-detail-row"><td colspan="15"><div class="pc-detail">';
     h += '<div class="pc-detail-block"><h5>利润形成（瀑布图）</h5>' + profitWaterfall(r);
+    // 瀑布图下方：可点击下钻的数字（点数字看钱花在哪）
+    h += '<div class="pc-pf-chips no-print">' +
+      '<span class="pc-pf" data-pf="income" data-p="' + FW.esc(r.project) + '" title="点击查看收入流水">收入 ' + FW.fmtMoney(r.revenue) + '</span>' +
+      '<span class="pc-pf" data-pf="flowCost" data-p="' + FW.esc(r.project) + '" title="点击查看流水成本逐笔">流水成本 ' + FW.fmtMoney(r.flowCost) + '</span>' +
+      '<span class="pc-pf" data-pf="recover" data-p="' + FW.esc(r.project) + '" title="点击查看应收回款项">应收回款项 ' + FW.fmtMoney(r.recoverable || 0) + '</span>' +
+      '<span class="pc-pf" data-pf="labor" data-p="' + FW.esc(r.project) + '" title="点击查看工资成本逐笔">工资成本 ' + FW.fmtMoney(r.laborCost) + '</span>' +
+      '</div>';
     // 瀑布图下方：收入构成按分类明细
     var revCatTable = cat2DetailTable(r.revByCat2, function () { return 'amt-income'; });
     if (revCatTable) {
       h += '<div style="margin-top:12px"><h5 style="margin:0 0 8px;font-size:13px;color:var(--text)">收入构成（按分类）</h5>' + revCatTable + '</div>';
     }
-    h += '<div class="muted" style="font-size:11px;margin-top:8px">收入 − 流水成本 + 应收回款项 − 工资成本 = 利润（应收回款项为预付未用完、从成本中扣除的可收回项）</div></div>';
+    h += '<div class="muted" style="font-size:11px;margin-top:8px">收入 − 流水成本 + 应收回款项 − 工资成本 = 利润（应收回款项为预付未用完、从成本中扣除的可收回项）。<b>点上方任一数字可下钻查看该项目的逐笔流水。</b></div></div>';
     var cats = Object.keys(r.byCat).map(function (c) { return { label: c, value: r.byCat[c] }; }).sort(function (a, b) { return b.value - a.value; });
     h += '<div class="pc-detail-block"><h5>流水成本构成（按分类）</h5>';
     h += cats.length ? FW.barChart('', cats, { height: 180 }) : '<div class="muted">无</div>';
@@ -1416,9 +1483,9 @@
       case 'qty': return '<td class="num pc-qty-cell"><input class="pc-qty-in" type="number" min="0" step="1" value="' + qtyVal + '" placeholder="填单量" title="签收单量（手动录入，用于核算收入单产与净利润单产）"></td>';
       case 'revenue': return '<td class="num amt-income clickable-amt" title="点击查看收入明细">' + FW.fmtMoney(r.revenue) + '</td>';
       case 'revUnit': return '<td class="num" data-unit="rev">' + (r.revUnit == null ? '—' : FW.fmtMoney(r.revUnit)) + '</td>';
-      case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(r.flowCost) + '</td>';
+      case 'flowCost': return '<td class="num amt-expense clickable-amt" data-t="flowCost" title="点击查看流水成本逐笔">' + FW.fmtMoney(r.flowCost) + '</td>';
       case 'recoverable': return '<td class="num amt-recover">' + FW.fmtMoney(r.recoverable || 0) + '</td>';
-      case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(r.laborCost) + '</td>';
+      case 'laborCost': return '<td class="num amt-expense clickable-amt" data-t="labor" title="点击查看工资成本逐笔">' + FW.fmtMoney(r.laborCost) + '</td>';
       case 'totalCost': return '<td class="num calc-detail" data-col="totalCost" title="点击查看计算过程">' + FW.fmtMoney(r.vTotalCost) + '</td>';
       case 'profit': return '<td class="num ' + profitCls + ' calc-detail" data-col="profit" title="点击查看计算过程"><b>' + FW.fmtMoney(r.vProfit) + '</b></td>';
       case 'profitUnit': return '<td class="num calc-detail" data-col="profitUnit" data-unit="profit" title="点击查看计算过程">' + (r.profitUnit == null ? '—' : FW.fmtMoney(r.profitUnit)) + '</td>';
@@ -1436,9 +1503,9 @@
       case 'qty': return '<td class="num">' + totalQty + '</td>';
       case 'revenue': return '<td class="num amt-income">' + FW.fmtMoney(data.vTot.revenue) + '</td>';
       case 'revUnit': return '<td class="num">—</td>';
-      case 'flowCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.vTot.flowCost) + '</td>';
+      case 'flowCost': return '<td class="num amt-expense clickable-amt" data-t="flowCost" title="点击查看全部项目流水成本逐笔">' + FW.fmtMoney(data.vTot.flowCost) + '</td>';
       case 'recoverable': return '<td class="num amt-recover"><b>' + FW.fmtMoney(data.vTot.recoverable) + '</b></td>';
-      case 'laborCost': return '<td class="num amt-expense">' + FW.fmtMoney(data.vTot.laborCost) + '</td>';
+      case 'laborCost': return '<td class="num amt-expense clickable-amt" data-t="labor" title="点击查看全部项目工资成本逐笔">' + FW.fmtMoney(data.vTot.laborCost) + '</td>';
       case 'totalCost': return '<td class="num calc-detail-total" data-col="totalCost" title="点击查看计算过程">' + FW.fmtMoney(data.vTot.totalCost) + '</td>';
       case 'profit': return '<td class="num calc-detail-total" data-col="profit" title="点击查看计算过程"><b>' + FW.fmtMoney(data.vTot.profit) + '</b></td>';
       case 'profitUnit': return '<td class="num">—</td>';
