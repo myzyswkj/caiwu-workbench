@@ -1869,7 +1869,7 @@
     var rowsArr = lines.map(function (l) { return csvSplit(l); });
     return parseRowsCore(rowsArr, map);
   }
-  function doImportRows(rows, fee) {
+  function doImportRows(rows) {
     var n = 0;
     rows.forEach(function (r) {
       var rec = {
@@ -1877,10 +1877,6 @@
         amount: Number(r.amount), remark: r.remark || '', photos: [],
         category: '', account: r.account || '微信', fromAccount: '', toAccount: '', equityDir: 'in'
       };
-      if (fee && r.type === 'income') {
-        rec.feePermille = 6; rec.feeName = '微信支付服务费';
-        var rr = 6 / 1000; rec.deduct = +((Number(r.amount) * rr / (1 - rr))).toFixed(2);
-      }
       FW.db.upsert(KEY, rec); n++;
     });
     return n;
@@ -1904,7 +1900,6 @@
       var cnt = s.chosen.filter(Boolean).length;
       var body =
         '<div class="muted" style="font-size:12px;margin-bottom:8px">共解析 <b>' + s.rows.length + '</b> 笔' + (skipped ? '，跳过 ' + skipped + ' 笔（退款 / 不计收支 / 无法识别）' : '') + '。勾选要导入的，取消的将被忽略。</div>' +
-        '<label style="display:block;margin:4px 0 10px;font-size:13px"><input type="checkbox" id="impFee" checked> 自动计提 6‰ 微信支付服务费（按收入占比分摊到各项目成本）</label>' +
         '<div style="max-height:46vh;overflow:auto"><table id="impPrevTable"><thead><tr><th><input type="checkbox" id="impAll" checked></th><th>日期</th><th>类型</th><th class="num">金额</th><th>对方单位/个人</th><th>备注</th><th>账户</th></tr></thead><tbody>' + trs + '</tbody></table></div>' +
         '<div class="form-actions"><button class="btn ghost" id="impPrevCancel">取消</button><button class="btn" id="impDo">确认导入 <span id="impCnt">' + cnt + '</span> 笔</button></div>';
       FW.openModal('确认导入', body, function () {
@@ -1916,7 +1911,7 @@
         document.getElementById('impDo').onclick = function () {
           var sel = s.rows.filter(function (r, i) { return s.chosen[i]; });
           if (!sel.length) { FW.toast('请至少选择一笔'); return; }
-          var n = doImportRows(sel, document.getElementById('impFee') ? document.getElementById('impFee').checked : false);
+          var n = doImportRows(sel);
           FW.closeModal(); render(); FW.toast('已导入 ' + n + ' 笔流水');
         };
       });
