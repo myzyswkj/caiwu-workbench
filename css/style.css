@@ -1551,3 +1551,14 @@ button.pc-detail-tx { cursor:pointer }
   .salary-wrap { box-shadow:none }
   body { background:#fff }
 }
+/* v49：下钻增强（老板月报逐笔入口 / 工资成本分组 / 分摊来源可追溯） */
+.pc-src { color:#C8102E; cursor:pointer; font-size:12px; }
+.pc-src:hover { text-decoration:underline; }
+.pc-gr-hd { cursor:pointer; background:#F7F9FC; font-weight:600; }
+.pc-gr-hd:hover { background:#EEF3FA; }
+.pc-gr-cnt { color:#8a94a6; font-weight:400; font-size:12px; margin-left:4px; }
+.pc-gr-tg { color:#8a94a6; }
+.pc-gr-row { }
+.bb-pcard-drill { margin-top:8px; width:100%; cursor:pointer; font-size:12px; padding:6px 0; border:1px solid var(--line,#e3e3e3); border-radius:8px; background:#fff7f8; color:#C8102E; }
+.bb-pcard-drill:hover { background:#fff0f2; border-color:#C8102E; }
+}
