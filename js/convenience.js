@@ -136,7 +136,10 @@
         amt.className = 'vp-amt'; amt.dataset.id = item.id;
         amt.style.cssText = 'position:absolute;bottom:2px;left:2px;width:64px;font-size:11px';
         amt.oninput = function () { item.amt = amt.value.trim(); savePool(); };
-        wrap.appendChild(img); wrap.appendChild(chk); wrap.appendChild(amt); grid.appendChild(wrap);
+        var ocrBtn = document.createElement('button'); ocrBtn.type = 'button'; ocrBtn.textContent = '识别'; ocrBtn.className = 'vp-ocr';
+        ocrBtn.style.cssText = 'position:absolute;top:2px;right:2px;font-size:10px;padding:1px 4px';
+        ocrBtn.onclick = function () { runOcr(item.id, function (a) { item.amt = String(a); amt.value = String(a); savePool(); }); };
+        wrap.appendChild(img); wrap.appendChild(chk); wrap.appendChild(amt); wrap.appendChild(ocrBtn); grid.appendChild(wrap);
       });
       var cnt = document.getElementById('vpCount'); if (cnt) cnt.textContent = pool.length;
     }
@@ -226,7 +229,8 @@
         return;
       }
       if (el.id === 'f_party') {
-        var party = el.value.trim(); if (!party) return;
+        var rawParty = el.value.trim(); if (!rawParty) return;
+        var party = normalizeParty(rawParty); if (party !== rawParty) { el.value = party; }
         var last = (FW.db.getList(KEY) || []).filter(function (t) { return (t.party || '') === party; })
           .sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')); })[0];
         if (!last) return;
@@ -246,12 +250,186 @@
     });
   }
 
+  /* ===================== v43 新增：录入增强 ===================== */
+  var DRAFT_KEY = 'internal_draft';
+  var ALIAS_KEY = 'internal_alias';
+  var OCR_KEY = 'internal_ocr';
+
+  /* ---- 同名商户别名合并 ---- */
+  function aliasMap() { return FW.db.getList(ALIAS_KEY) || []; }
+  function normalizeParty(name) {
+    if (!name) return name;
+    var m = aliasMap();
+    for (var i = 0; i < m.length; i++) { if (m[i].alias === name) return m[i].std; }
+    return name;
+  }
+  function openAliasManager() {
+    function renderBody() {
+      var m = aliasMap();
+      var rows = m.length ? m.map(function (a, i) {
+        return '<tr><td>' + FW.esc(a.alias) + '</td><td style="text-align:center">→</td><td>' + FW.esc(a.std) + '</td><td><a href="#" data-del="' + i + '" style="color:#c0392b">删除</a></td></tr>';
+      }).join('') : '<tr><td colspan="4" class="muted">暂无别名。例：微信账单「腾讯科技」与「腾讯科技有限公司」实为一家，映射后统计不分散。</td></tr>';
+      var body = '<div class="tx-form">' +
+        '<div class="tx-section"><div class="tx-title">新增别名映射</div>' +
+        '<div class="form-grid"><div class="field"><input id="alAlias" placeholder="别名（如：XX科技）"></div>' +
+        '<div class="field"><input id="alStd" placeholder="标准名（如：XX科技有限公司）"></div>' +
+        '<button class="btn sm" id="alAdd" type="button">＋ 添加</button></div>' +
+        '<div class="muted" style="font-size:12px">录入时填写「别名」会自动归一为标准名，归类与统计不再分散。</div></div>' +
+        '<div class="tx-section"><div class="tx-title">现有映射</div>' +
+        '<table id="alTable"><thead><tr><th>别名</th><th></th><th>标准名</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+      FW.openModal('商户别名合并', body, function () {
+        var add = document.getElementById('alAdd');
+        if (add) add.onclick = function () {
+          var a = document.getElementById('alAlias').value.trim();
+          var s = document.getElementById('alStd').value.trim();
+          if (!a || !s) { FW.toast('请填别名和标准名'); return; }
+          var mm = aliasMap(); mm.push({ alias: a, std: s }); FW.db.saveList(ALIAS_KEY, mm);
+          FW.toast('已添加：' + a + ' → ' + s); renderBody();
+        };
+        Array.prototype.forEach.call(document.querySelectorAll('#alTable a[data-del]'), function (x) {
+          x.onclick = function (e) { e.preventDefault(); var mm = aliasMap(); mm.splice(+x.dataset.del, 1); FW.db.saveList(ALIAS_KEY, mm); renderBody(); };
+        });
+      });
+    }
+    renderBody();
+  }
+
+  /* ---- 自动联想（对方单位 / 摘要） ---- */
+  var AC_KEYS = ['f_party', 'f_remark'];
+  function acCandidates(field) {
+    var list = FW.db.getList(KEY) || [];
+    var seen = {}, out = [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      var v = field === 'f_party' ? (list[i].party || '') : (list[i].remark || '');
+      if (v && !seen[v]) { seen[v] = 1; out.push(v); }
+    }
+    return out;
+  }
+  if (!global.__cwAcBound) {
+    global.__cwAcBound = true;
+    document.addEventListener('input', function (e) {
+      var el = e.target; if (!el || AC_KEYS.indexOf(el.id) < 0) return;
+      var val = (el.value || '').trim();
+      var box = document.getElementById('acBox');
+      if (!val) { if (box) box.style.display = 'none'; return; }
+      var cands = acCandidates(el.id).filter(function (c) { return c.indexOf(val) >= 0 && c !== val; }).slice(0, 8);
+      if (!cands.length) { if (box) box.style.display = 'none'; return; }
+      if (!box) { box = document.createElement('div'); box.id = 'acBox'; box.className = 'ac-box no-print'; document.body.appendChild(box); }
+      var rect = el.getBoundingClientRect();
+      box.style.cssText = 'position:fixed;left:' + rect.left + 'px;top:' + (rect.bottom + 2) + 'px;z-index:99999;background:#fff;border:1px solid #dbe4ee;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.12);max-height:210px;overflow:auto;min-width:' + Math.max(rect.width, 160) + 'px';
+      box.innerHTML = cands.map(function (c) { return '<div class="ac-item" data-v="' + FW.esc(c) + '">' + FW.esc(c) + '</div>'; }).join('');
+      box.style.display = 'block';
+      Array.prototype.forEach.call(box.querySelectorAll('.ac-item'), function (it) {
+        it.onmousedown = function (ev) { ev.preventDefault(); el.value = it.getAttribute('data-v'); box.style.display = 'none'; if (el.oninput) el.oninput(); var ev2 = document.createEvent('Event'); ev2.initEvent('change', true, true); el.dispatchEvent(ev2); };
+      });
+    });
+    document.addEventListener('click', function (e) {
+      var box = document.getElementById('acBox');
+      if (box && !box.contains(e.target) && e.target.id !== 'f_party' && e.target.id !== 'f_remark') box.style.display = 'none';
+    });
+  }
+
+  /* ---- 流水草稿箱 ---- */
+  var FORM_IDS = ['f_date', 'f_type', 'f_project', 'f_party', 'f_reimburser', 'f_amount', 'f_remark', 'f_cat1', 'f_cat2', 'f_account', 'f_from', 'f_to', 'f_edir', 'f_fee_permille', 'f_fee_name'];
+  function collectForm() {
+    var o = {}; FORM_IDS.forEach(function (id) { var el = document.getElementById(id); if (el) o[id] = el.value; }); return o;
+  }
+  function formHasContent(d) {
+    return d && ((d.f_amount && d.f_amount.trim()) || (d.f_party && d.f_party.trim()) || (d.f_remark && d.f_remark.trim()) || (d.f_cat1 && d.f_cat1.trim()));
+  }
+  function saveDraftFromForm() { var d = collectForm(); if (!formHasContent(d)) { FW.db.saveList(DRAFT_KEY, []); return; } d._ts = Date.now(); FW.db.saveList(DRAFT_KEY, [d]); }
+  function getDraft() { var d = FW.db.getList(DRAFT_KEY) || []; return d.length ? d[0] : null; }
+  function clearDraft() { FW.db.saveList(DRAFT_KEY, []); }
+  function applyDraftToForm(d) {
+    if (!d) return;
+    FORM_IDS.forEach(function (id) { var el = document.getElementById(id); if (el && d[id] != null && d[id] !== '') el.value = d[id]; });
+  }
+  function maybeRestoreDraft() {
+    var d = getDraft(); if (!d) return;
+    FW.closeModal();
+    clearDraft();
+    if (FW.modules.internal && FW.modules.internal.openForm) FW.modules.internal.openForm(null, d);
+  }
+
+  /* ---- 复制上一笔 ---- */
+  function dupLast() {
+    var list = (FW.db.getList(KEY) || []).slice().sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')); });
+    if (!list.length) { FW.toast('还没有流水可复制'); return; }
+    var rec = list[0];
+    var prefill = {
+      date: FW.today(), type: rec.type || 'expense', cat1: '', cat2: '',
+      account: rec.account || '', amount: '', remark: rec.remark || '', project: rec.project || '',
+      party: rec.party || '', reimburser: rec.reimburser || '', photos: [],
+      fromAccount: rec.fromAccount || '', toAccount: rec.toAccount || '', equityDir: rec.equityDir || 'in'
+    };
+    if (rec.category) { var p = rec.category.split(' / '); prefill.cat1 = p[0]; prefill.cat2 = p[1] || ''; }
+    if (FW.modules.internal && FW.modules.internal.openForm) FW.modules.internal.openForm(null, prefill);
+  }
+
+  /* ---- 凭证 OCR（可配置） ---- */
+  function getOcrCfg() { try { return JSON.parse(FW.db.getList(OCR_KEY)[0] || '{}'); } catch (e) { return {}; } }
+  function openOcrSettings() {
+    var cfg = getOcrCfg();
+    var body = '<div class="tx-form"><div class="tx-section"><div class="tx-title">OCR 识别设置</div>' +
+      '<div class="muted" style="font-size:12px;margin-bottom:8px">凭证拍照后自动识别金额需接入识别服务（如腾讯云 / 百度 OCR）。填入接口地址与令牌；图片以 base64 POST 上传，返回 JSON 中含金额字段即回填。</div>' +
+      '<div class="form-grid"><div class="field full"><label>接口地址（URL）</label><input id="ocrUrl" value="' + FW.esc(cfg.url || '') + '" placeholder="https://your-ocr-api/recognize"></div>' +
+      '<div class="field full"><label>令牌 / Token</label><input id="ocrToken" value="' + FW.esc(cfg.token || '') + '" placeholder="Bearer xxxx（留空则不带）"></div>' +
+      '<div class="field full"><label>金额字段名</label><input id="ocrField" value="' + FW.esc(cfg.field || 'amount') + '" placeholder="返回 JSON 中的金额键名"></div></div>' +
+      '<div class="form-actions"><button class="btn ghost" id="ocrCancel" type="button">取消</button><button class="btn" id="ocrSave" type="button">保存</button></div></div>';
+    FW.openModal('OCR 设置', body, function () {
+      document.getElementById('ocrCancel').onclick = FW.closeModal;
+      document.getElementById('ocrSave').onclick = function () {
+        var c = { url: document.getElementById('ocrUrl').value.trim(), token: document.getElementById('ocrToken').value.trim(), field: document.getElementById('ocrField').value.trim() || 'amount' };
+        FW.db.saveList(OCR_KEY, [JSON.stringify(c)]); FW.closeModal(); FW.toast(c.url ? 'OCR 已配置' : '已清除 OCR 配置');
+      };
+    });
+  }
+  function runOcr(photoId, onAmt) {
+    var cfg = getOcrCfg();
+    if (!cfg.url) { FW.toast('未配置 OCR，请到工具栏「🔍 OCR设置」'); return; }
+    FW.db.getPhoto(photoId).then(function (dataUrl) {
+      if (!dataUrl) { FW.toast('凭证图读取失败'); return; }
+      FW.toast('识别中…');
+      var h = { 'Content-Type': 'application/json' }; if (cfg.token) h['Authorization'] = cfg.token;
+      fetch(cfg.url, { method: 'POST', headers: h, body: JSON.stringify({ image: dataUrl }) }).then(function (r) { return r.json(); }).then(function (j) {
+        var amt = j && (j[cfg.field] != null ? j[cfg.field] : j.amount);
+        amt = parseFloat(String(amt).replace(/[￥¥,\s]/g, ''));
+        if (!(amt > 0)) { FW.toast('OCR 未返回有效金额'); return; }
+        onAmt(amt); FW.toast('OCR 识别金额：' + FW.fmtMoney(amt));
+      }).catch(function () { FW.toast('OCR 请求失败，检查接口 / 网络'); });
+    }).catch(function () { FW.toast('凭证图读取失败'); });
+  }
+
+  /* ---- 全局快捷键 ---- */
+  if (!global.__cwKeyBound) {
+    global.__cwKeyBound = true;
+    document.addEventListener('keydown', function (e) {
+      var t = e.target; var tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+      var typing = tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable);
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      var k = e.key;
+      if (k === 'n' || k === 'N') { e.preventDefault(); if (FW.modules.internal && FW.modules.internal.openForm) FW.modules.internal.openForm(null); }
+      else if (k === '/') { e.preventDefault(); var s = document.getElementById('fKw'); if (s) { s.focus(); s.select(); } }
+      else if (k === 'c' || k === 'C') { e.preventDefault(); if (FW.convenience) FW.convenience.openMonthClose(); }
+    });
+  }
+
   FW.convenience = {
     isClosedMonth: isClosedMonth,
     openMonthClose: openMonthClose,
     openVoucherPool: openVoucherPool,
     initTplBar: initTplBar,
     applyTpl: applyTpl,
-    saveTplFromForm: saveTplFromForm
+    saveTplFromForm: saveTplFromForm,
+    normalizeParty: normalizeParty,
+    openAliasManager: openAliasManager,
+    saveDraftFromForm: saveDraftFromForm,
+    getDraft: getDraft,
+    clearDraft: clearDraft,
+    maybeRestoreDraft: maybeRestoreDraft,
+    applyDraftToForm: applyDraftToForm,
+    dupLast: dupLast,
+    openOcrSettings: openOcrSettings,
+    runOcr: runOcr
   };
 })(window);
