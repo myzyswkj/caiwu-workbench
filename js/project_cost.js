@@ -762,6 +762,116 @@
     FW.openModal('「' + FW.esc(v.project) + '」 — ' + FW.esc(title) + '计算过程', html);
   }
 
+  // ---------- 未归类收支提醒（②：解决“项目利润对不上”最常见原因） ----------
+  function unclassifiedList() {
+    return (FW.db.getList('internal') || []).filter(function (t) {
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return false;
+      var p = (t.project || '').trim();
+      return !p || p === '未分配' || p === '—' || p === '-';
+    });
+  }
+  function unclassifiedBanner() {
+    var arr = unclassifiedList();
+    if (!arr.length) return '';
+    return '<div class="pc-warn-banner no-print" id="pcUnclassBanner">⚠️ 有 <b>' + arr.length + '</b> 笔收支未填写「项目」，不计入任何项目核算（会使相关项目成本偏低、利润虚高）。' +
+      '<button class="btn sm" id="pcUnclassView">查看并补归类</button></div>';
+  }
+  function openUnclassified() {
+    var arr = unclassifiedList();
+    if (!arr.length) { FW.toast('没有未归类的收支'); return; }
+    var rowsHtml = arr.slice().sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); }).map(function (t) {
+      var tcls = t.type === 'income' ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : 'amt-expense');
+      var tlabel = t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : '支出');
+      return '<tr>' +
+        '<td>' + FW.esc(t.date || '') + '</td>' +
+        '<td>' + tlabel + '</td>' +
+        '<td class="num ' + tcls + '">' + FW.fmtMoney(Number(t.amount)) + '</td>' +
+        '<td>' + FW.esc(t.party || '—') + '</td>' +
+        '<td>' + FW.esc(t.remark || '—') + '</td>' +
+        '<td><button class="btn sm" data-edit="' + FW.esc(t.id) + '">去补归类</button></td>' +
+        '</tr>';
+    }).join('');
+    var body = '<div class="muted" style="font-size:12px;margin-bottom:8px">以下收支未填「项目」。点「去补归类」打开编辑，填写项目后保存即计入对应项目核算。未填项目的笔数越多，项目成本越偏低、利润越虚高。</div>' +
+      '<div style="max-height:52vh;overflow:auto"><table class="pc-unclass-table"><thead><tr><th>日期</th><th>类型</th><th class="num">金额</th><th>对方</th><th>摘要</th><th>操作</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+    FW.openModal('未归类收支（' + arr.length + ' 笔）', body, function () {
+      FW.qa('[data-edit]').forEach(function (btn) {
+        btn.onclick = function () {
+          var id = this.getAttribute('data-edit');
+          FW.closeModal();
+          if (FW.modules.internal && FW.modules.internal.openForm) FW.modules.internal.openForm(id);
+        };
+      });
+    });
+  }
+
+  // ---------- 单项目逐笔明细（④：成本/收入“钱去哪了”透明） ----------
+  function openProjectDetail(project) {
+    var rows = (FW.db.getList('internal') || []).filter(function (t) {
+      return (t.project || '').trim() === project;
+    }).sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    if (!rows.length) { FW.toast('该项目无流水'); return; }
+    var sumBy = function (type) { return rows.filter(function (t) { return t.type === type; }).reduce(function (s, t) { return s + (Number(t.amount) || 0); }, 0); };
+    var inc = sumBy('income'), exp = sumBy('expense'), rf = sumBy('refund'), dv = sumBy('dividend');
+    var rowsHtml = rows.map(function (t) {
+      var tcls = (t.type === 'income') ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : (t.type === 'dividend' ? 'amt-gold' : 'amt-expense'));
+      var tlabel = t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : (t.type === 'dividend' ? '分红' : '支出'));
+      return '<tr>' +
+        '<td>' + FW.esc(t.date || '') + '</td>' +
+        '<td>' + tlabel + '</td>' +
+        '<td>' + FW.esc(t.category || t.cat1 || '—') + '</td>' +
+        '<td>' + FW.esc(t.party || '—') + '</td>' +
+        '<td class="num ' + tcls + '">' + FW.fmtMoney(Number(t.amount)) + '</td>' +
+        '<td>' + FW.esc(t.remark || '—') + '</td>' +
+        '</tr>';
+    }).join('');
+    var body = '<div class="pc-pd-kpis">' +
+      '<span>收入 <b class="amt-income">' + FW.fmtMoney(inc) + '</b></span>' +
+      '<span>支出 <b class="amt-expense">' + FW.fmtMoney(exp) + '</b></span>' +
+      '<span>退款 <b class="amt-recover">' + FW.fmtMoney(rf) + '</b></span>' +
+      '<span>分红 <b class="amt-gold">' + FW.fmtMoney(dv) + '</b></span>' +
+      '<span>净额 <b class="' + (inc - exp + rf - dv >= 0 ? 'amt-income' : 'amt-expense') + '">' + FW.fmtMoney(inc - exp + rf - dv) + '</b></span>' +
+      '</div>' +
+      '<div style="max-height:54vh;overflow:auto"><table class="pc-unclass-table"><thead><tr><th>日期</th><th>类型</th><th>分类</th><th>对方</th><th class="num">金额</th><th>摘要</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+    FW.openModal('「' + FW.esc(project) + '」逐笔明细（' + rows.length + ' 笔）', body);
+  }
+
+  // ---------- 导出图片（③：与老板月报一致，复用 FWTableImg） ----------
+  function exportImage() {
+    var v = getView();
+    if (!v.rows || !v.rows.length) { FW.toast('没有可导出的项目'); return; }
+    if (!FWTableImg || !FWTableImg.render) { FW.toast('图片导出组件未加载'); return; }
+    var rows = v.rows.map(function (r) {
+      return {
+        cells: [
+          String(r.rank), r.project, (r.qty || 0),
+          FW.fmtMoney(r.revenue), FW.fmtMoney(r.flowCost), FW.fmtMoney(r.laborCost || 0),
+          FW.fmtMoney(r.totalCost), FW.fmtMoney(r.profit),
+          (isFinite(r.rate) ? r.rate.toFixed(1) + '%' : '—'),
+          (isFinite(r.roi) ? fmtRoi(r.roi) : '—'),
+          r.profit >= 0 ? '盈利' : '亏损'
+        ],
+        amountCls: r.profit >= 0 ? 'income' : 'expense'
+      };
+    });
+    FWTableImg.render({
+      title: '项目成本利润核算',
+      subtitle: (state.year === 'all' ? '全部年度' : state.year + ' 年') + ' · 财务工作台',
+      kpis: [
+        { label: '参与项目', value: v.rows.length + ' 个' },
+        { label: '总收入', value: FW.fmtMoney(v.data.vTot.revenue), cls: 'income' },
+        { label: '总成本', value: FW.fmtMoney(v.data.vTot.totalCost), cls: 'expense' },
+        { label: '总利润', value: FW.fmtMoney(v.data.vTot.profit), cls: v.data.vTot.profit >= 0 ? 'income' : 'expense' }
+      ],
+      head: ['排名', '项目', '单量', '收入', '流水成本', '工资成本', '总成本', '利润', '利润率', '投入产出比', '盈亏'],
+      rows: rows,
+      amountCol: 7,
+      footer: '财务工作台 · 项目核算导出'
+    }).then(function (canvas) {
+      FWTableImg.downloadPNG(canvas, '项目核算_' + (state.year === 'all' ? '全部年度' : state.year) + '.png');
+      FW.toast('已导出图片');
+    }).catch(function (e) { FW.toast('导出图片失败：' + (e && e.message ? e.message : e)); });
+  }
+
   function render() { buildTop(); buildBody(); }
 
   // 顶部操作区（仅保留导出 / 校正按钮；筛选控件下移至排名表上方）
@@ -771,10 +881,14 @@
     top.innerHTML =
       '<button class="btn" id="pcExport">⬇ 导出CSV</button>' +
       '<button class="btn ghost" id="pcExportX">⬇ 导出Excel</button>' +
+      '<button class="btn ghost" id="pcImg" title="导出当前表格为图片(PNG)">🖼 导出图片</button>' +
+      '<button class="btn ghost" id="pcPdf" title="打印为PDF（打印对话框选另存为PDF）">🖨 导出PDF</button>' +
       '<button class="btn ghost" id="pcBatchQty" title="批量粘贴 项目名,单量 录入签收单量">📝 批量录单量</button>' +
       '<button class="btn ghost" id="pcCorrect" title="把按净额记的收入，补填被扣除的支出，还原实际收入与利润率">🛠 校正净额收入</button>';
     document.getElementById('pcExport').onclick = function () { var v = getView(); exportCSV(v.rows, v.data); };
     document.getElementById('pcExportX').onclick = function () { var v = getView(); exportXLSX(v.rows, v.data); };
+    document.getElementById('pcImg').onclick = exportImage;
+    document.getElementById('pcPdf').onclick = function () { window.print(); };
     document.getElementById('pcBatchQty').onclick = function () { openBatchQty(); };
     document.getElementById('pcCorrect').onclick = function () { openDeductCorrector(); };
   }
@@ -864,6 +978,7 @@
     html += unallocHtml(data);
     // 筛选行 + 排名数据表置于图表上方
     html += filterBarHtml(data);
+    html += unclassifiedBanner();
     html += filterNote;
     html += tableHtml(rows, data);
     html += chartHtml(data, rows);
@@ -879,6 +994,8 @@
     if (searchEl) searchEl.oninput = function () { state.kw = this.value; buildBody(); };
     var pnlEl = document.getElementById('pcPnl');
     if (pnlEl) pnlEl.onchange = function () { state.pnl = this.value; buildBody(); };
+    var ub = document.getElementById('pcUnclassView');
+    if (ub) ub.onclick = openUnclassified;
 
     // 自定义排序控件
     var sortKeyEl = document.getElementById('pcSortKey');
@@ -993,6 +1110,9 @@
         if (!e.target) return;
         // 签收单量输入框不触发行展开
         if (e.target.tagName === 'INPUT' || (e.target.closest && e.target.closest('.pc-qty-cell'))) return;
+        // 【新增】点击逐笔明细按钮 → 弹出该项目逐笔流水
+        var detailBtn = e.target.closest ? e.target.closest('.pc-detail-tx') : null;
+        if (detailBtn) { openProjectDetail(detailBtn.getAttribute('data-p')); return; }
         // 【新增】点击收入金额 → 弹出收入明细
         var incomeCell = e.target.closest ? e.target.closest('td.amt-income.clickable-amt') : null;
         if (incomeCell) {
@@ -1269,6 +1389,7 @@
       h += '<div class="muted" style="font-size:12px;margin-top:6px">以上为付给各对象的预付款尚未用完（已核销后）的余款，<b>已从本项目「总成本」中扣除</b>（作为可收回项）。核销（消耗 / 收回）后余额变化，总成本与利润会同步联动调整。</div>';
       h += '</div>';
     }
+    h += '<div class="pc-detail-foot no-print"><button class="btn sm pc-detail-tx" data-p="' + FW.esc(r.project) + '">📄 查看逐笔明细</button><span class="muted" style="margin-left:8px">点此查看本项目每一笔流水（日期 / 分类 / 对方 / 金额）</span></div>';
     h += '</div></td></tr>';
     return h;
   }
