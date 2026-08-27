@@ -140,6 +140,7 @@
         '<div class="bb-pcard-row"><span>成本</span><b class="expense">' + fmt(b.exp) + '</b></div>' +
         '<div class="bb-pcard-row"><span>已分红</span><b>' + fmt(b.div) + '</b></div>' +
         '<div class="bb-pcard-row total"><span>净利润</span><b class="' + (b.net >= 0 ? 'income' : 'expense') + '">' + fmt(b.net) + '</b></div>' +
+        '<button class="bb-pcard-drill" data-p="' + esc(b.project) + '">🔍 查看逐笔</button>' +
         '</div>';
     }).join('') : '<div class="empty">还没有项目流水</div>';
     var cf = cashflowForecast();
@@ -155,6 +156,9 @@
       '<h2 class="bb-h2">现金流预测（近 6 月均值外推未来 3 月）</h2>' +
       '<div class="muted" style="font-size:12px;margin:-6px 0 8px">当前资金总额 ' + fmt(cf.cashTotal) + '；月均净额 ' + fmt(cf.avgNet) + '</div>' +
       '<table class="bb-tbl"><thead><tr><th>月份</th><th class="num">预计收入</th><th class="num">预计支出</th><th class="num">预计净额</th><th class="num">预计余额</th></tr></thead><tbody>' + histRows + cfRows + '</tbody></table>';
+    Array.prototype.forEach.call(el.querySelectorAll('.bb-pcard-drill'), function (btn) {
+      btn.onclick = function (e) { e.stopPropagation(); var p = btn.getAttribute('data-p'); if (FW.projectCostCalc && FW.projectCostCalc.openProjectDetail) FW.projectCostCalc.openProjectDetail(p); };
+    });
   }
   /* ---------- 导出图片（PNG，复用 FWTableImg，#2） ---------- */
   function exportImg() {
