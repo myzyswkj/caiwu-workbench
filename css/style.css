@@ -1535,6 +1535,17 @@ tr.dup-row:hover { background: #FDEFD0; }
 .amt-gold { color:#C9A227 }
 button.pc-detail-tx { cursor:pointer }
 /* 打印导出 PDF：仅保留项目核算表格，隐藏操作区/侧栏 */
+/* 可点击数字（收入/流水成本/工资成本）：鼠标指针 + 悬停提示 */
+.clickable-amt { cursor: pointer; }
+.clickable-amt:hover { text-decoration: underline dotted; }
+/* 瀑布图下钻数字 chips */
+.pc-pf-chips { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 2px; }
+.pc-pf {
+  cursor: pointer; font-size:12px; padding:5px 10px; border:1px solid var(--line, #e3e3e3);
+  border-radius:18px; background:#fff; color:#41506a; transition: all .15s;
+}
+.pc-pf:hover { border-color:#C8102E; color:#C8102E; background:#fff5f6; box-shadow:0 1px 4px rgba(200,16,46,.12); }
+.pc-pf::before { content:'🔍 '; font-size:11px; }
 @media print {
   .no-print, #topActions, .pc-filter-bar, .sidebar, .nav, .topbar { display:none !important }
   .salary-wrap { box-shadow:none }
