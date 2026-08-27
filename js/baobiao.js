@@ -86,7 +86,21 @@
   }
 
   /* ---------- 经营驾驶舱：项目利润实时看板 + 现金流预测（#3 #4） ---------- */
+  // 口径统一：驾驶舱直接复用「项目核算」引擎(FW.projectCostCalc.compute)，
+  // 利润 = 收入 − 流水成本 + 应收回款项 − 工资成本（与「项目核算」模块完全一致，消除同项目两个利润数字）。
   function projectBoard() {
+    if (FW.projectCostCalc && FW.projectCostCalc.compute) {
+      var d = FW.projectCostCalc.compute('all');
+      var divMap = {};
+      list().forEach(function (t) {
+        if (t.type === 'dividend') { var p = (t.project || '').trim() || '未分配'; divMap[p] = (divMap[p] || 0) + (Number(t.amount) || 0); }
+      });
+      return (d.rows || []).map(function (r) {
+        var cost = (r.flowCost || 0) + (r.laborCost || 0); // 成本 = 流水成本 + 工资成本
+        return { project: r.project, inc: r.revenue, exp: cost, div: divMap[r.project] || 0, profit: r.profit, net: r.profit - (divMap[r.project] || 0) };
+      }).sort(function (a, b) { return b.net - a.net; });
+    }
+    // 回退（组件未加载时）保持原口径
     var rows = list();
     var map = {};
     rows.forEach(function (t) {
@@ -217,6 +231,7 @@
       '<div class="bb-charts">' + trend() + catPie(rows) + projBar(rows) + '</div>' +
       '<h2 class="bb-h2">二、各项目盈亏</h2>' +
       '<table class="bb-tbl"><thead><tr><th>项目</th><th class="num">收入</th><th class="num">支出</th><th class="num">利润</th><th class="num">利润率</th></tr></thead><tbody>' + pnlRows + '</tbody></table>' +
+      '<div class="muted" style="font-size:12px;margin-top:6px">上表为「本期」收支毛利（收入−支出，未含工资成本/未分配资金）；完整项目核算（含工资成本、应收回款项、下钻明细）见顶部「经营驾驶舱」或「项目核算」模块，口径与此处驾驶舱一致。</div>' +
       '<div id="bbPhotosWrap"><h2 class="bb-h2">三、凭证留痕</h2><div class="bb-photos"><span class="muted">加载中…</span></div></div>';
 
     collectPhotos(rows, 9).then(function (imgs) {
