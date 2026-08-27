@@ -1520,3 +1520,23 @@ tr.dup-row:hover { background: #FDEFD0; }
 .bb-pcard-row b { color: #1B2733; }
 .bb-pcard-row.total { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 8px; font-size: 14px; }
 .bb-pcard-row.total b { font-size: 15px; }
+
+/* v46：项目核算清晰度增强（未归类提醒 / 逐笔明细 / 导出） */
+.pc-warn-banner { background:#FFF7E6;border:1px solid #FFE0A3;color:#8a5a00;border-radius:8px;padding:8px 12px;margin:10px 0;font-size:13px;display:flex;align-items:center;gap:10px;line-height:1.5 }
+.pc-warn-banner b { color:#c0392b }
+.pc-warn-banner .btn.sm { margin-left:auto }
+.pc-detail-foot { margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);font-size:12px }
+.pc-pd-kpis { display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:13px }
+.pc-pd-kpis b { margin-left:4px }
+.pc-unclass-table { width:100%;border-collapse:collapse }
+.pc-unclass-table th, .pc-unclass-table td { border:1px solid var(--border);padding:6px 8px;font-size:13px;text-align:left }
+.pc-unclass-table th { background:var(--sidebar-bg);color:#fff }
+.pc-unclass-table .num { text-align:right }
+.amt-gold { color:#C9A227 }
+button.pc-detail-tx { cursor:pointer }
+/* 打印导出 PDF：仅保留项目核算表格，隐藏操作区/侧栏 */
+@media print {
+  .no-print, #topActions, .pc-filter-bar, .sidebar, .nav, .topbar { display:none !important }
+  .salary-wrap { box-shadow:none }
+  body { background:#fff }
+}
