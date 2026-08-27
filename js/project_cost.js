@@ -812,7 +812,7 @@
     function pushInternal(t) {
       var cls = (t.type === 'income') ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : (t.type === 'dividend' ? 'amt-gold' : 'amt-expense'));
       var tl = t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : (t.type === 'dividend' ? '分红' : '支出'));
-      txRows.push({ date: t.date || '', type: tl, category: (t.category || t.cat1 || '—'), party: (t.party || '—'), amount: Number(t.amount), remark: (t.remark || '—'), cls: cls });
+      txRows.push({ date: t.date || '', type: tl, category: (t.category || t.cat1 || '—'), party: (t.party || '—'), amount: Number(t.amount), remark: (t.remark || '—'), cls: cls, srcId: t.id });
       if (t.type === 'income') inc += Number(t.amount);
       else if (t.type === 'expense') exp += Number(t.amount);
       else if (t.type === 'refund') rf += Number(t.amount);
@@ -847,42 +847,48 @@
           // 有 allocations 分摊：按目标项目拆分，与 compute() 口径一致
           var dvTotal = num(t.deduct);
           var splitSum = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
+          var srcId = t.id;
+          var srcBase = '分摊自 #' + (t.id || '?') + '（总额 ' + FW.fmtMoney(Number(t.amount)) + '，占 ';
           split.forEach(function (s) {
             if (s.project !== project) return;
             var a = s.amount;
+            var pct = a / splitSum * 100;
             var dShare = (t.type === 'income' && dvTotal > 0) ? dvTotal * a / splitSum : 0;
             var cf = catFull(t), party = (t.party || '—');
+            var srcNote = srcBase + pct.toFixed(1) + '%）';
             if (filter === 'income' && t.type === 'income') {
-              txRows.push({ date: t.date || '', type: '收入', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-income' });
+              txRows.push({ date: t.date || '', type: '收入', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-income' });
               inc += a;
             }
             if (filter === 'cost') {
               if (t.type === 'expense') {
-                txRows.push({ date: t.date || '', type: '支出', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-expense' });
+                txRows.push({ date: t.date || '', type: '支出', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-expense' });
                 exp += a;
               } else if (t.type === 'refund') {
-                txRows.push({ date: t.date || '', type: '退款收入', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-recover' });
+                txRows.push({ date: t.date || '', type: '退款收入', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-recover' });
                 rf += a;
               } else if (t.type === 'income' && dShare > 0) {
                 var feeName = t.feeName || '已扣支出';
-                txRows.push({ date: t.date || '', type: feeName, category: cf, party: party, amount: dShare, remark: '收入分摊的已扣支出', cls: 'amt-expense' });
+                var dNote = '已扣支出·分摊自 #' + (t.id || '?') + '（已扣总额 ' + FW.fmtMoney(dvTotal) + '，占 ' + (dShare / dvTotal * 100).toFixed(1) + '%）';
+                txRows.push({ date: t.date || '', type: feeName, category: cf, party: party, amount: dShare, remark: dNote, srcId: srcId, cls: 'amt-expense' });
                 exp += dShare;
               }
             }
             if (filter === 'all') {
               if (t.type === 'income') {
-                txRows.push({ date: t.date || '', type: '收入', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-income' });
+                txRows.push({ date: t.date || '', type: '收入', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-income' });
                 inc += a;
                 if (dShare > 0) {
                   var feeName2 = t.feeName || '已扣支出';
-                  txRows.push({ date: t.date || '', type: feeName2, category: cf, party: party, amount: dShare, remark: '收入分摊的已扣支出', cls: 'amt-expense' });
+                  var dNote2 = '已扣支出·分摊自 #' + (t.id || '?') + '（已扣总额 ' + FW.fmtMoney(dvTotal) + '，占 ' + (dShare / dvTotal * 100).toFixed(1) + '%）';
+                  txRows.push({ date: t.date || '', type: feeName2, category: cf, party: party, amount: dShare, remark: dNote2, srcId: srcId, cls: 'amt-expense' });
                   exp += dShare;
                 }
               } else if (t.type === 'expense') {
-                txRows.push({ date: t.date || '', type: '支出', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-expense' });
+                txRows.push({ date: t.date || '', type: '支出', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-expense' });
                 exp += a;
               } else if (t.type === 'refund') {
-                txRows.push({ date: t.date || '', type: '退款收入', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-recover' });
+                txRows.push({ date: t.date || '', type: '退款收入', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-recover' });
                 rf += a;
               }
             }
@@ -916,20 +922,52 @@
       kpiHtml = '<div class="pc-pd-kpis"><span>' + fTitle + '合计 <b class="' + kcls + '">' + FW.fmtMoney(totalAmt) + '</b></span><span>共 <b>' + txRows.length + '</b> 笔</span></div>';
     }
     var rowsHtml = txRows.map(function (t) {
+      var remarkCell = (t.srcId)
+        ? '<span class="pc-src" onclick="(FW.modules.internal&&FW.modules.internal.openForm)&&FW.modules.internal.openForm(\'' + String(t.srcId).replace(/'/g, "\\'") + '\')" title="点击查看来源流水">🔗 ' + FW.esc(t.remark) + '</span>'
+        : FW.esc(t.remark);
       return '<tr>' +
         '<td>' + FW.esc(t.date) + '</td>' +
         '<td>' + t.type + '</td>' +
         '<td>' + FW.esc(t.category) + '</td>' +
         '<td>' + FW.esc(t.party) + '</td>' +
         '<td class="num ' + t.cls + '">' + FW.fmtMoney(t.amount) + '</td>' +
-        '<td>' + FW.esc(t.remark) + '</td>' +
+        '<td>' + remarkCell + '</td>' +
         '</tr>';
     }).join('');
-    var body = kpiHtml +
-      '<div style="max-height:54vh;overflow:auto"><table class="pc-unclass-table"><thead><tr><th>日期</th><th>类型</th><th>分类</th><th>对方</th><th class="num">金额</th><th>摘要</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+    var tableHtml;
+    if (filter === 'labor') {
+      tableHtml = laborGroupedTable(txRows);
+    } else {
+      tableHtml = '<div style="max-height:54vh;overflow:auto"><table class="pc-unclass-table"><thead><tr><th>日期</th><th>类型</th><th>分类</th><th>对方</th><th class="num">金额</th><th>摘要</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+    }
+    var body = kpiHtml + tableHtml;
     FW.openModal(scope + fTitle + '（' + txRows.length + ' 笔）', body);
   }
 
+  // 工资成本下钻：按底薪/奖金/提成折叠分组（点击分组头可收起/展开）
+  function laborGroupedTable(rows) {
+    var groups = {};
+    rows.forEach(function (r) { (groups[r.type] = groups[r.type] || []).push(r); });
+    var order = ['工资·底薪', '工资·奖金', '工资·提成'];
+    var keys = Object.keys(groups).sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+    var tb = keys.map(function (g) {
+      var gr = groups[g];
+      var sum = gr.reduce(function (s, x) { return s + x.amount; }, 0);
+      var detail = gr.map(function (t) {
+        return '<tr class="pc-gr-row" data-g="' + FW.esc(g) + '"><td>' + FW.esc(t.date) + '</td><td>' + t.type + '</td><td>' + FW.esc(t.category) + '</td><td>' + FW.esc(t.party) + '</td><td class="num ' + t.cls + '">' + FW.fmtMoney(t.amount) + '</td><td>' + FW.esc(t.remark) + '</td></tr>';
+      }).join('');
+      return '<tbody class="pc-gr"><tr class="pc-gr-hd" data-g="' + FW.esc(g) + '" onclick="pcToggleGroup(this)"><td colspan="4">' + FW.esc(g) + ' <span class="pc-gr-cnt">' + gr.length + ' 笔</span></td><td class="num amt-expense">' + FW.fmtMoney(sum) + '</td><td><span class="pc-gr-tg">▼</span></td></tr>' + detail + '</tbody>';
+    }).join('');
+    return '<div style="max-height:54vh;overflow:auto"><table class="pc-unclass-table">' + tb + '</table></div>';
+  }
+  window.pcToggleGroup = function (tr) {
+    var tbody = tr.parentNode;
+    var rows = tbody.querySelectorAll('.pc-gr-row');
+    var collapsed = tr.getAttribute('data-collapse') === '1';
+    for (var i = 0; i < rows.length; i++) rows[i].style.display = collapsed ? '' : 'none';
+    tr.setAttribute('data-collapse', collapsed ? '0' : '1');
+    var tg = tr.querySelector('.pc-gr-tg'); if (tg) tg.textContent = collapsed ? '▼' : '▶';
+  };
   // ---------- 导出图片（③：与老板月报一致，复用 FWTableImg） ----------
   function exportImage() {
     var v = getView();
@@ -1730,7 +1768,7 @@
     });
   }
 
-  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct, splitAmounts: splitAmounts, openIncomeDetail: openIncomeDetail };
+  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct, splitAmounts: splitAmounts, openProjectDetail: openProjectDetail, openIncomeDetail: openIncomeDetail };
 
   FW.modules = FW.modules || {};
   FW.modules.projectCost = { title: '项目核算', render: render };
