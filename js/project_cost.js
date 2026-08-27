@@ -841,7 +841,56 @@
       txRows.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
     } else {
       (FW.db.getList('internal') || []).forEach(function (t) {
-        if (project && (t.project || '').trim() !== project) return;
+        var p = (t.project || '').trim();
+        var split = splitAmounts(t);
+        if (split) {
+          // 有 allocations 分摊：按目标项目拆分，与 compute() 口径一致
+          var dvTotal = num(t.deduct);
+          var splitSum = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
+          split.forEach(function (s) {
+            if (s.project !== project) return;
+            var a = s.amount;
+            var dShare = (t.type === 'income' && dvTotal > 0) ? dvTotal * a / splitSum : 0;
+            var cf = catFull(t), party = (t.party || '—');
+            if (filter === 'income' && t.type === 'income') {
+              txRows.push({ date: t.date || '', type: '收入', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-income' });
+              inc += a;
+            }
+            if (filter === 'cost') {
+              if (t.type === 'expense') {
+                txRows.push({ date: t.date || '', type: '支出', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-expense' });
+                exp += a;
+              } else if (t.type === 'refund') {
+                txRows.push({ date: t.date || '', type: '退款收入', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-recover' });
+                rf += a;
+              } else if (t.type === 'income' && dShare > 0) {
+                var feeName = t.feeName || '已扣支出';
+                txRows.push({ date: t.date || '', type: feeName, category: cf, party: party, amount: dShare, remark: '收入分摊的已扣支出', cls: 'amt-expense' });
+                exp += dShare;
+              }
+            }
+            if (filter === 'all') {
+              if (t.type === 'income') {
+                txRows.push({ date: t.date || '', type: '收入', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-income' });
+                inc += a;
+                if (dShare > 0) {
+                  var feeName2 = t.feeName || '已扣支出';
+                  txRows.push({ date: t.date || '', type: feeName2, category: cf, party: party, amount: dShare, remark: '收入分摊的已扣支出', cls: 'amt-expense' });
+                  exp += dShare;
+                }
+              } else if (t.type === 'expense') {
+                txRows.push({ date: t.date || '', type: '支出', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-expense' });
+                exp += a;
+              } else if (t.type === 'refund') {
+                txRows.push({ date: t.date || '', type: '退款收入', category: cf, party: party, amount: a, remark: '(分摊)', cls: 'amt-recover' });
+                rf += a;
+              }
+            }
+          });
+          return; // 已处理分摊，不再按单项目字段匹配
+        }
+        // 无分摊：按单项目字段匹配
+        if (project && p !== project) return;
         if (filter === 'income' && t.type !== 'income') return;
         if (filter === 'cost' && t.type !== 'expense' && t.type !== 'refund') return;
         if (filter !== 'all' && filter !== 'income' && filter !== 'cost') return;
