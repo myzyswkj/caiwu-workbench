@@ -1502,3 +1502,21 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .vp-ocr:hover { background: #f0f6ff; }
 .seg-btn { cursor: pointer; }
 #impPaste { width: 100%; font-family: monospace; font-size: 12px; line-height: 1.5; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+
+/* ===== 质检标记 v45：重复/异常 ===== */
+.tx-flag { display: inline-block; margin-left: 4px; font-size: 12px; vertical-align: middle; }
+.tx-flag.warn { color: #C0392B; cursor: help; }
+.tx-flag:not(.warn) { color: var(--gold); cursor: help; }
+tr.dup-row { background: #FFF7E6; }
+tr.dup-row:hover { background: #FDEFD0; }
+
+/* ===== 老板月报 驾驶舱（#3 #4） ===== */
+.bb-cockpit { margin-top: 22px; }
+.bb-pcards { display: flex; flex-wrap: wrap; gap: 12px; }
+.bb-pcard { width: 200px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: 0 2px 8px rgba(0,0,0,.04); }
+.bb-pcard.neg { border-color: #F5C6C0; }
+.bb-pcard-name { font-weight: 700; font-size: 14px; color: #1B2733; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bb-pcard-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; color: #5B6A7A; }
+.bb-pcard-row b { color: #1B2733; }
+.bb-pcard-row.total { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 8px; font-size: 14px; }
+.bb-pcard-row.total b { font-size: 15px; }
