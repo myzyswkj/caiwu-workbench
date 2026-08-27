@@ -85,14 +85,92 @@
     return '<div class="bb-kpi"><div class="bb-kpi-label">' + label + '</div><div class="bb-kpi-value ' + (cls || '') + '">' + value + '</div></div>';
   }
 
-  function buildPreview() {
-    var c = document.getElementById('bbPreview'); if (!c) return;
+  /* ---------- 经营驾驶舱：项目利润实时看板 + 现金流预测（#3 #4） ---------- */
+  function projectBoard() {
+    var rows = list();
+    var map = {};
+    rows.forEach(function (t) {
+      var p = (t.project || '').trim() || '未分配';
+      var a = Number(t.amount) || 0;
+      if (!map[p]) map[p] = { inc: 0, exp: 0, div: 0 };
+      if (t.type === 'income') map[p].inc += a;
+      else if (t.type === 'expense') map[p].exp += a;
+      else if (t.type === 'refund') map[p].exp -= a;
+      else if (t.type === 'dividend') map[p].div += a;
+    });
+    return Object.keys(map).map(function (p) {
+      var m = map[p], profit = m.inc - m.exp, net = m.inc - m.exp - m.div;
+      return { project: p, inc: m.inc, exp: m.exp, div: m.div, profit: profit, net: net };
+    }).sort(function (a, b) { return b.net - a.net; });
+  }
+  function cashflowForecast() {
+    var d = new Date(), months = [];
+    for (var i = 5; i >= 0; i--) { var x = new Date(d.getFullYear(), d.getMonth() - i, 1); months.push(x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2)); }
+    var hist = months.map(function (m) { var s = sum(periodRows('month', m)); return { m: m, inc: s.inc, exp: s.exp, net: s.net }; });
+    var avgInc = hist.reduce(function (a, h) { return a + h.inc; }, 0) / hist.length;
+    var avgExp = hist.reduce(function (a, h) { return a + h.exp; }, 0) / hist.length;
+    var avgNet = avgInc - avgExp;
+    var cashTotal = 0;
+    try { var bd = (FW.internalCalc && FW.internalCalc.accountBreakdown) ? FW.internalCalc.accountBreakdown() : []; cashTotal = bd.reduce(function (a, x) { return a + (x.bal || 0); }, 0); } catch (e) {}
+    var fc = [], run = cashTotal;
+    for (var k = 1; k <= 3; k++) { var x2 = new Date(d.getFullYear(), d.getMonth() + k, 1); var m2 = x2.getFullYear() + '-' + ('0' + (x2.getMonth() + 1)).slice(-2); run += avgNet; fc.push({ m: m2, inc: avgInc, exp: avgExp, net: avgNet, bal: run }); }
+    return { hist: hist, fc: fc, cashTotal: cashTotal, avgNet: avgNet };
+  }
+  function renderCockpit() {
+    var el = document.getElementById('bbCockpit'); if (!el) return;
+    var board = projectBoard();
+    var cards = board.length ? board.map(function (b) {
+      return '<div class="bb-pcard' + (b.net < 0 ? ' neg' : '') + '">' +
+        '<div class="bb-pcard-name">' + esc(b.project) + '</div>' +
+        '<div class="bb-pcard-row"><span>收入</span><b class="income">' + fmt(b.inc) + '</b></div>' +
+        '<div class="bb-pcard-row"><span>成本</span><b class="expense">' + fmt(b.exp) + '</b></div>' +
+        '<div class="bb-pcard-row"><span>已分红</span><b>' + fmt(b.div) + '</b></div>' +
+        '<div class="bb-pcard-row total"><span>净利润</span><b class="' + (b.net >= 0 ? 'income' : 'expense') + '">' + fmt(b.net) + '</b></div>' +
+        '</div>';
+    }).join('') : '<div class="empty">还没有项目流水</div>';
+    var cf = cashflowForecast();
+    var cfRows = cf.fc.map(function (f) {
+      return '<tr><td>' + f.m + '</td><td class="num income">' + fmt(f.inc) + '</td><td class="num expense">' + fmt(f.exp) + '</td><td class="num ' + (f.net >= 0 ? 'income' : 'expense') + '">' + fmt(f.net) + '</td><td class="num ' + (f.bal >= 0 ? 'income' : 'expense') + '">' + fmt(f.bal) + '</td></tr>';
+    }).join('');
+    var histRows = cf.hist.map(function (h) {
+      return '<tr><td>' + h.m + '</td><td class="num income">' + fmt(h.inc) + '</td><td class="num expense">' + fmt(h.exp) + '</td><td class="num ' + (h.net >= 0 ? 'income' : 'expense') + '">' + fmt(h.net) + '</td><td class="muted">—</td></tr>';
+    }).join('');
+    el.innerHTML =
+      '<h2 class="bb-h2">经营驾驶舱（实时 · 全部项目）</h2>' +
+      '<div class="bb-pcards">' + cards + '</div>' +
+      '<h2 class="bb-h2">现金流预测（近 6 月均值外推未来 3 月）</h2>' +
+      '<div class="muted" style="font-size:12px;margin:-6px 0 8px">当前资金总额 ' + fmt(cf.cashTotal) + '；月均净额 ' + fmt(cf.avgNet) + '</div>' +
+      '<table class="bb-tbl"><thead><tr><th>月份</th><th class="num">预计收入</th><th class="num">预计支出</th><th class="num">预计净额</th><th class="num">预计余额</th></tr></thead><tbody>' + histRows + cfRows + '</tbody></table>';
+  }
+  /* ---------- 导出图片（PNG，复用 FWTableImg，#2） ---------- */
+  function exportImg() {
     var type = document.getElementById('bbType').value;
     var val = document.getElementById('bbVal').value;
+    var rep = computeReport(type, val);
     var label = type === 'month' ? (val + ' 月度') : (val.replace('-', ' 年第') + ' 季度');
+    var s = rep.s, pnl = rep.pnl;
+    var rows = pnl.filter(function (r) { return r.project !== '未分配'; }).map(function (r) {
+      return { cells: [r.project, fmt(r.revenue), fmt(r.exp || 0), fmt(r.profit), (r.rate != null && isFinite(r.rate) ? r.rate.toFixed(1) + '%' : '—')], amountCls: r.profit >= 0 ? 'income' : 'expense' };
+    });
+    if (!rows.length) rows = [{ cells: ['（本期无项目数据）', '', '', '', ''], amountCls: 'neutral' }];
+    FWTableImg.render({
+      title: '经营简报', subtitle: label + ' · 财务工作台',
+      kpis: [
+        { label: '收入', value: fmt(s.inc), cls: 'income' },
+        { label: '支出', value: fmt(s.exp), cls: 'expense' },
+        { label: '结余', value: fmt(s.net), cls: s.net >= 0 ? 'income' : 'expense' },
+        { label: '分红', value: fmt(s.div), cls: 'neutral' }
+      ],
+      head: ['项目', '收入', '支出', '利润', '利润率'],
+      rows: rows,
+      amountCol: 3
+    }).then(function (canvas) { FWTableImg.downloadPNG(canvas, '老板月报_' + val + '.png'); FW.toast('已导出图片'); })
+      .catch(function (e) { FW.toast('导出图片失败：' + (e && e.message ? e.message : e)); });
+  }
+  /* ---------- 报表数据计算（buildPreview / exportImg 共用） ---------- */
+  function computeReport(type, val) {
     var rows = periodRows(type, val);
     var s = sum(rows);
-
     var cumRate = null, cumProfit = 0, cumRev = 0;
     if (FW.projectCostCalc && FW.projectCostCalc.compute) {
       var data = FW.projectCostCalc.compute('all');
@@ -100,6 +178,16 @@
       if (cumRev > 0) cumRate = cumProfit / cumRev * 100;
     }
     var pnl = projectPnl(rows);
+    return { rows: rows, s: s, pnl: pnl, cumRate: cumRate };
+  }
+
+  function buildPreview() {
+    var c = document.getElementById('bbPreview'); if (!c) return;
+    var type = document.getElementById('bbType').value;
+    var val = document.getElementById('bbVal').value;
+    var label = type === 'month' ? (val + ' 月度') : (val.replace('-', ' 年第') + ' 季度');
+    var rep = computeReport(type, val);
+    var rows = rep.rows, s = rep.s, pnl = rep.pnl, cumRate = rep.cumRate;
 
     var kpi =
       '<div class="bb-kpis">' +
@@ -107,10 +195,8 @@
         kpiCard('期间支出', fmt(s.exp), 'expense') +
         kpiCard('收支结余', fmt(s.net), s.net >= 0 ? 'income' : 'expense') +
         kpiCard('股东分红', fmt(s.div), 'neutral') +
-        kpiCard('可分配利润', fmt(s.net - s.div), (s.net - s.div) >= 0 ? 'income' : 'expense') +
         (cumRate != null ? kpiCard('累计利润率', cumRate.toFixed(1) + '%', cumRate >= 0 ? 'income' : 'expense') : '') +
-      '</div>' +
-      '<div class="muted" style="font-size:12px;margin:6px 2px 0">可分配利润 = 本期收支结余 − 本期股东分红（与「报表中心」未分配利润口径一致）。</div>';
+      '</div>';
 
     var pnlRows = pnl.map(function (r) {
       var rate = r.rate != null && isFinite(r.rate) ? r.rate.toFixed(1) + '%' : '—';
@@ -151,17 +237,21 @@
           '<label>期间 <select id="bbVal">' + mOpts + '</select></label>' +
           '<button class="btn" id="bbGen">🔄 生成预览</button>' +
           '<button class="btn primary" id="bbPdf">🖨 导出 PDF（打印）</button>' +
+          '<button class="btn" id="bbImg">🖼 导出图片（PNG）</button>' +
         '</div>' +
-        '<div class="bb-tool-note">导出会调用浏览器打印，在打印对话框选「另存为 PDF」即可；红金排版与界面一致。</div>' +
+        '<div class="bb-tool-note">PDF 走浏览器打印（对话框选「另存为 PDF」）；图片走本地 Canvas 生成 PNG；红金排版与界面一致。</div>' +
       '</div>' +
-      '<div id="bbPreview" class="print-area"></div>';
+      '<div id="bbPreview" class="print-area"></div>' +
+      '<div class="bb-cockpit no-print" id="bbCockpit"></div>';
 
     var typeSel = document.getElementById('bbType');
     var valSel = document.getElementById('bbVal');
     typeSel.onchange = function () { valSel.innerHTML = typeSel.value === 'month' ? mOpts : qOpts; };
     document.getElementById('bbGen').onclick = buildPreview;
     document.getElementById('bbPdf').onclick = function () { window.print(); };
+    document.getElementById('bbImg').onclick = exportImg;
     buildPreview();
+    renderCockpit();
   }
 
   FW.modules = FW.modules || {};
