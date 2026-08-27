@@ -2677,7 +2677,9 @@
         unbind();
         FW.db.upsert(KEY, rec);
         if (FW.convenience) FW.convenience.clearDraft();
-        FW.closeModal(); render(); FW.toast('已保存');
+        var _msg = '已保存';
+        if (!rec.project && (rec.type === 'income' || rec.type === 'expense' || rec.type === 'refund')) _msg = '已保存（未填项目，不计入项目核算）';
+        FW.closeModal(); render(); FW.toast(_msg);
       };
     });
   }
