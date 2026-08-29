@@ -1604,3 +1604,24 @@ button.pc-detail-tx { cursor:pointer }
   .per-card { break-inside:avoid; }
   .settle-modebar { display:none; }
 }
+
+/* v58：产品名归一（别名 → 标准名） */
+.al-tip { padding:9px 11px; font-size:12px; line-height:1.7; background:#F3F7FF; border:1px solid #CFE0FA; border-radius:8px; color:#2A5DB0; }
+.al-tip b { color:#2A5DB0; }
+.al-tip-inline { font-size:11px; color:var(--muted,#8a94a6); font-style:normal; }
+.al-table { width:100%; font-size:13px; }
+.al-table th { position:sticky; top:0; background:#FAFBFC; z-index:1; }
+.al-table td { padding:6px 8px; vertical-align:middle; }
+.al-table .al-sel { width:100%; max-width:280px; }
+.al-table tr.al-mapped td:first-child { color:var(--muted,#8a94a6); }
+.al-table tr.al-mapped { background:#FFFDF5; }
+.al-std { font-size:10px; padding:1px 6px; border-radius:8px; background:#F1FBF5; color:#1a9c59; border:1px solid #CDEBD9; white-space:nowrap; }
+.al-arrow { font-size:11px; color:#2A5DB0; margin-left:6px; }
+.al-foot { margin-top:8px; font-size:12px; line-height:1.6; }
+.al-susp { margin:10px 0; padding:9px 11px; background:#FFF8E8; border:1px solid #F0E2C0; border-radius:8px; }
+.al-susp-h { font-size:12px; font-weight:600; color:#8A6D1F; margin-bottom:6px; }
+.al-susp-row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; border-top:1px dashed #EFE3C8; }
+.al-susp-row:first-of-type { border-top:0; }
+.al-susp-row span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.al-susp-row .muted { flex:0 0 auto; }
+.al-susp-row .btn { flex:0 0 auto; padding:2px 9px; font-size:11px; }
