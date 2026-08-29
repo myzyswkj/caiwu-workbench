@@ -29,6 +29,63 @@
   ];
   function stockDir(label) { var t = STOCK_TYPES.filter(function (x) { return x.label === label; })[0]; return t ? t.dir : 'in'; }
 
+  /* ---------- 调货单粘贴解析（进多少出多少） ---------- */
+  // 默认单价规则（关键词包含匹配）与排除项；用户可在弹窗内改动并存本地
+  var TRANSFER_CONF_KEY = 'cw_transfer_conf';
+  var DEFAULT_TRANSFER_CONF = {
+    prices: [
+      { kw: '能量套', price: 35 },
+      { kw: '面膜', price: 40 },
+      { kw: '按摩', price: 10 }
+    ],
+    exclude: ['售后卡'],
+    unit: '盒',
+    lastPeriod: ''
+  };
+  function loadTransferConf() {
+    try {
+      var raw = localStorage.getItem(TRANSFER_CONF_KEY);
+      if (!raw) return JSON.parse(JSON.stringify(DEFAULT_TRANSFER_CONF));
+      var c = JSON.parse(raw) || {};
+      return {
+        prices: (c.prices && c.prices.length) ? c.prices : DEFAULT_TRANSFER_CONF.prices.slice(),
+        exclude: (c.exclude && c.exclude.length) ? c.exclude : DEFAULT_TRANSFER_CONF.exclude.slice(),
+        unit: c.unit || DEFAULT_TRANSFER_CONF.unit,
+        lastPeriod: c.lastPeriod || ''
+      };
+    } catch (e) { return JSON.parse(JSON.stringify(DEFAULT_TRANSFER_CONF)); }
+  }
+  function saveTransferConf(c) { try { localStorage.setItem(TRANSFER_CONF_KEY, JSON.stringify(c)); } catch (e) {} }
+  // 按关键词匹配单价
+  function matchPrice(item, conf) {
+    var ps = (conf && conf.prices) || [];
+    for (var i = 0; i < ps.length; i++) {
+      var k = String(ps[i].kw || '').trim();
+      if (k && item.indexOf(k) >= 0) return Number(ps[i].price) || 0;
+    }
+    return 0;
+  }
+  // 解析调货文本：全局扫描「产品名 + x/X/×/* + 数量」，不依赖分隔符（条目间只有空格也能识别）
+  // 命中排除词（如售后卡）直接跳过；同名产品数量累加
+  function parseTransferText(text, conf) {
+    var c = conf || loadTransferConf();
+    var ex = c.exclude || [];
+    var s = String(text || '');
+    var map = {}, order = [];
+    var re = /([^\s，,、；;]+)\s*[xX×*＊]\s*(\d+(?:\.\d+)?)/g;
+    var m;
+    while ((m = re.exec(s)) !== null) {
+      var name = String(m[1] || '').trim();
+      var qty = Number(m[2]);
+      if (!name || !(qty > 0)) continue;
+      var skip = ex.some(function (k) { return k && name.indexOf(String(k)) >= 0; });
+      if (skip) continue;
+      if (!map[name]) { map[name] = { item: name, qty: 0, price: matchPrice(name, c) }; order.push(name); }
+      map[name].qty += qty;
+    }
+    return order.map(function (k) { return map[k]; });
+  }
+
   var state = {
     tab: 'all',          // all / in / out / contract / stock
     deduction: '',       // 进项抵扣筛选
@@ -907,7 +964,7 @@
     if (kw) {
       var k = kw.toLowerCase();
       rows = rows.filter(function (t) {
-        return [t.no, t.item, t.spec, t.unit, t.type, t.party, t.warehouse, t.remark].some(function (f) { return (f || '').toLowerCase().indexOf(k) >= 0; });
+        return [t.no, t.item, t.spec, t.unit, t.type, t.party, t.warehouse, t.remark, t.period].some(function (f) { return (f || '').toLowerCase().indexOf(k) >= 0; });
       });
     }
     return rows;
@@ -949,9 +1006,10 @@
       '</div>';
 
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn" id="addStBtn">＋ 新增单据</button>';
+    ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn ghost" id="stPaste">📋 粘贴调货单</button><button class="btn" id="addStBtn">＋ 新增单据</button>';
     document.getElementById('stPrint').onclick = function () { window.print(); };
     document.getElementById('stCsv').onclick = exportStockCsv;
+    document.getElementById('stPaste').onclick = function () { openTransferPaste(); };
     document.getElementById('addStBtn').onclick = function () { openStockForm(null); };
 
     drawStockSummary(s);
@@ -990,7 +1048,7 @@
       return '<tr>' +
         '<td class="nowrap">' + FW.esc(t.date || '') + '</td>' +
         '<td>' + FW.esc(t.no || '') + '</td>' +
-        '<td>' + FW.esc(t.item || '—') + (t.spec ? '<div class="muted" style="font-size:11px">' + FW.esc(t.spec) + '</div>' : '') + '</td>' +
+        '<td>' + FW.esc(t.item || '—') + (t.spec ? '<div class="muted" style="font-size:11px">' + FW.esc(t.spec) + '</div>' : '') + (t.period ? '<div class="muted" style="font-size:11px">营期：' + FW.esc(t.period) + '</div>' : '') + '</td>' +
         '<td>' + (t.unit ? FW.esc(t.unit) : '<span class="muted">—</span>') + '</td>' +
         '<td><span class="tag">' + FW.esc(t.type || '—') + '</span> ' + dirTag + '</td>' +
         '<td class="num ' + qtyCls + '">' + (dir === 'in' ? '' : '−') + num(t.qty) + '</td>' +
@@ -1009,16 +1067,127 @@
     FW.qa('#stWrap .row-del').forEach(function (b) { b.onclick = function () { delStock(b.dataset.id); }; });
   }
 
+  /* 粘贴调货单：解析 → 预览（可改数量/单价）→ 一次性生成入库+出库 */
+  function openTransferPaste() {
+    var conf = loadTransferConf();
+    var rows = [];
+    var body =
+      '<div class="form-grid">' +
+        '<div class="field"><label>调货日期</label><input id="tf_date" type="date" value="' + FW.esc(FW.today()) + '"></div>' +
+        '<div class="field"><label>营期</label><input id="tf_period" value="' + FW.esc(conf.lastPeriod || '') + '" placeholder="如：七彩7.24营期"></div>' +
+        '<div class="field"><label>单位</label><input id="tf_unit" value="' + FW.esc(conf.unit || '盒') + '"></div>' +
+        '<div class="field"><label>往来单位</label><input id="tf_party" placeholder="选填"></div>' +
+        '<div class="field full"><label>粘贴调货内容</label><textarea id="tf_text" rows="5" placeholder="示例：赫娇七彩时光焕颜能量套 x 58，赫娇舒缓特护冻干面膜组合 x 10，按摩导入仪 x 1，粉色售后卡 x 1&#10;支持 x / × / * 分隔数量，中文逗号或换行分条；含「售后卡」的项自动忽略。"></textarea></div>' +
+        '<div class="field full"><button class="btn ghost sm" id="tf_parse">🔍 解析</button> <span id="tf_tip" style="font-size:12px;color:var(--muted)"></span></div>' +
+        '<div class="field full" id="tf_preview"></div>' +
+      '</div>' +
+      '<div class="form-actions"><button class="btn ghost" id="tf_cancel">取消</button><button class="btn" id="tf_save" disabled>生成出入库</button></div>';
+
+    FW.openModal('粘贴调货单（进多少出多少）', body, function () {
+      var dateEl = document.getElementById('tf_date');
+      var periodEl = document.getElementById('tf_period');
+      var unitEl = document.getElementById('tf_unit');
+      var partyEl = document.getElementById('tf_party');
+      var textEl = document.getElementById('tf_text');
+      var prevEl = document.getElementById('tf_preview');
+      var tipEl = document.getElementById('tf_tip');
+      var saveBtn = document.getElementById('tf_save');
+
+      function renderPreview() {
+        if (!rows.length) { prevEl.innerHTML = ''; saveBtn.disabled = true; return; }
+        var trs = rows.map(function (r, i) {
+          return '<tr>' +
+            '<td>' + FW.esc(r.item) + '</td>' +
+            '<td class="num"><input type="number" step="0.01" min="0" class="tf-qty" data-i="' + i + '" value="' + r.qty + '" style="width:84px"></td>' +
+            '<td class="num"><input type="number" step="0.01" min="0" class="tf-price" data-i="' + i + '" value="' + r.price + '" style="width:84px"></td>' +
+            '<td class="num">' + money(r.qty * r.price) + '</td>' +
+            '<td><button class="btn danger sm tf-del" data-i="' + i + '">删</button></td>' +
+            '</tr>';
+        }).join('');
+        var tq = rows.reduce(function (s, r) { return s + num(r.qty); }, 0);
+        var ta = rows.reduce(function (s, r) { return s + num(r.qty) * num(r.price); }, 0);
+        prevEl.innerHTML = '<table><thead><tr><th>产品</th><th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th></th></tr></thead><tbody>' + trs +
+          '<tr><td><b>合计</b></td><td class="num"><b>' + tq + '</b></td><td class="num"></td><td class="num"><b>' + money(ta) + '</b></td><td></td></tr>' +
+          '</tbody></table>' +
+          '<div style="font-size:12px;color:var(--muted);margin-top:6px">确认后每个产品生成两条：采购入库 + 销售出库（数量与金额相同，即进多少出多少）。</div>';
+        saveBtn.disabled = false;
+        FW.qa('#tf_preview .tf-qty').forEach(function (inp) {
+          inp.oninput = function () { rows[+this.dataset.i].qty = num(this.value); refreshAmounts(); };
+        });
+        FW.qa('#tf_preview .tf-price').forEach(function (inp) {
+          inp.oninput = function () { rows[+this.dataset.i].price = num(this.value); refreshAmounts(); };
+        });
+        FW.qa('#tf_preview .tf-del').forEach(function (b) {
+          b.onclick = function () { rows.splice(+this.dataset.i, 1); renderPreview(); };
+        });
+      }
+      // 只刷新金额列与合计，避免重绘导致输入框失焦
+      function refreshAmounts() {
+        var tb = prevEl.querySelector('tbody');
+        if (!tb) return;
+        var trs = tb.querySelectorAll('tr');
+        rows.forEach(function (r, i) {
+          var tr = trs[i]; if (!tr) return;
+          var td = tr.children[3]; if (td) td.textContent = money(num(r.qty) * num(r.price));
+        });
+        var tq = rows.reduce(function (s, r) { return s + num(r.qty); }, 0);
+        var ta = rows.reduce(function (s, r) { return s + num(r.qty) * num(r.price); }, 0);
+        var last = trs[rows.length];
+        if (last) { last.children[1].innerHTML = '<b>' + tq + '</b>'; last.children[3].innerHTML = '<b>' + money(ta) + '</b>'; }
+      }
+
+      document.getElementById('tf_parse').onclick = function () {
+        rows = parseTransferText(textEl.value, conf);
+        if (!rows.length) {
+          tipEl.textContent = '没解析出产品，请检查格式（示例：产品名 x 58）';
+          renderPreview(); return;
+        }
+        var skipped = (conf.exclude || []).filter(function (k) { return k && textEl.value.indexOf(k) >= 0; });
+        tipEl.textContent = '已解析 ' + rows.length + ' 种产品' + (skipped.length ? '（已忽略含「' + skipped.join('、') + '」的项）' : '');
+        renderPreview();
+      };
+      document.getElementById('tf_cancel').onclick = FW.closeModal;
+      saveBtn.onclick = function () {
+        if (!rows.length) { FW.toast('请先点「解析」'); return; }
+        var date = dateEl.value || FW.today();
+        var period = periodEl.value.trim();
+        var unit = unitEl.value.trim() || '盒';
+        var party = partyEl.value.trim();
+        if (!period && !confirm('没填营期，确定继续？')) return;
+        var n = 0;
+        rows.forEach(function (r) {
+          var q = num(r.qty), p = num(r.price);
+          if (!(q > 0)) return;
+          var common = {
+            date: date, period: period, item: r.item, unit: unit,
+            qty: q, price: p, amount: q * p,
+            party: party, remark: '调货单粘贴解析' + (period ? ' · ' + period : ''),
+            no: '', spec: '', warehouse: '', photos: []
+          };
+          ['采购入库', '销售出库'].forEach(function (tp) {
+            var rec = { id: FW.db.uid('st_'), type: tp };
+            Object.keys(common).forEach(function (k) { rec[k] = common[k]; });
+            FW.db.upsert(STOCK_KEY, rec);
+            n++;
+          });
+        });
+        conf.lastPeriod = period; conf.unit = unit; saveTransferConf(conf);
+        FW.closeModal(); renderStockView();
+        FW.toast('已生成 ' + n + ' 条记录（每个产品入库+出库各 1 条）');
+      };
+    });
+  }
+
   function openStockForm(id) {
     var edit = id ? FW.db.getById(STOCK_KEY, id) : null;
     var v = {
-      date: FW.today(), no: '', item: '', spec: '', unit: '个',
+      date: FW.today(), period: '', no: '', item: '', spec: '', unit: '个',
       type: '采购入库', qty: '', price: '', amount: '',
       party: '', warehouse: '', remark: '', photos: []
     };
     if (edit) {
       v = {
-        date: edit.date || FW.today(), no: edit.no || '', item: edit.item || '', spec: edit.spec || '', unit: edit.unit || '个',
+        date: edit.date || FW.today(), period: edit.period || '', no: edit.no || '', item: edit.item || '', spec: edit.spec || '', unit: edit.unit || '个',
         type: edit.type || '采购入库', qty: edit.qty, price: edit.price, amount: edit.amount,
         party: edit.party || '', warehouse: edit.warehouse || '', remark: edit.remark || '', photos: edit.photos || []
       };
@@ -1029,6 +1198,7 @@
       '<div class="form-grid">' +
         '<div class="field"><label>日期</label><input id="s_date" type="date" value="' + FW.esc(v.date) + '"></div>' +
         '<div class="field"><label>单号</label><input id="s_no" value="' + FW.esc(v.no) + '" placeholder="出入库单号（选填）"></div>' +
+        '<div class="field"><label>营期</label><input id="s_period" value="' + FW.esc(v.period) + '" placeholder="选填，如：七彩7.24营期"></div>' +
         '<div class="field full"><label>商品/物料名称</label><input id="s_item" value="' + FW.esc(v.item) + '" placeholder="名称（必填）"></div>' +
         '<div class="field"><label>规格</label><input id="s_spec" value="' + FW.esc(v.spec) + '" placeholder="选填"></div>' +
         '<div class="field"><label>单位</label><input id="s_unit" value="' + FW.esc(v.unit) + '" placeholder="个/件/箱"></div>' +
@@ -1066,6 +1236,7 @@
         var rec = {
           id: edit ? edit.id : FW.db.uid('st_'),
           date: document.getElementById('s_date').value || FW.today(),
+          period: document.getElementById('s_period').value.trim(),
           no: document.getElementById('s_no').value.trim(),
           item: item,
           spec: document.getElementById('s_spec').value.trim(),
@@ -1130,9 +1301,9 @@
   function exportStockCsv() {
     var rows = stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType);
     if (!rows.length) { FW.toast('没有可导出的单据'); return; }
-    var head = ['日期', '单号', '商品/物料', '规格', '单位', '业务类型', '方向', '数量', '单价', '金额', '往来单位', '仓库', '备注'];
+    var head = ['日期', '营期', '单号', '商品/物料', '规格', '单位', '业务类型', '方向', '数量', '单价', '金额', '往来单位', '仓库', '备注'];
     var data = rows.map(function (t) {
-      return [t.date, t.no || '', t.item || '', t.spec || '', t.unit || '', t.type || '', (stockDir(t.type) === 'in' ? '入' : '出'), t.qty, t.price, t.amount, t.party || '', t.warehouse || '', t.remark || ''];
+      return [t.date, t.period || '', t.no || '', t.item || '', t.spec || '', t.unit || '', t.type || '', (stockDir(t.type) === 'in' ? '入' : '出'), t.qty, t.price, t.amount, t.party || '', t.warehouse || '', t.remark || ''];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(',');
