@@ -29,6 +29,94 @@
   ];
   function stockDir(label) { var t = STOCK_TYPES.filter(function (x) { return x.label === label; })[0]; return t ? t.dir : 'in'; }
 
+  /* ---------- 产品名归一（别名 → 标准名） ---------- */
+  // 同一件货在不同单据里写法可能不同（「能量套」/「赫娇七彩时光焕颜能量套」），
+  // 归一只影响「汇总 / 均价 / 结存 / 项目核算下钻」的分组，不改原始单据文字（可一键批量改写）。
+  var ALIAS_KEY = 'cw_item_alias';
+  function loadAlias() { try { return JSON.parse(localStorage.getItem(ALIAS_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function saveAlias(m) { try { localStorage.setItem(ALIAS_KEY, JSON.stringify(m || {})); } catch (e) {} }
+  // 支持链式归一（A→B→C），带环检测
+  function normItem(name) {
+    var s = String(name == null ? '' : name).trim();
+    if (!s) return s;
+    var m = loadAlias(), cur = s, seen = {};
+    for (var i = 0; i < 20; i++) {
+      var nx = String(m[cur] == null ? '' : m[cur]).trim();
+      if (!nx || nx === cur || seen[nx]) break;
+      seen[nx] = 1; cur = nx;
+    }
+    return cur;
+  }
+  // 相似度：去空白/括号后比较；子串直接判高相似，否则用二元组 Jaccard
+  function itemSim(a, b) {
+    var x = String(a || '').replace(/[\s（）()【】\[\]·、,，/]/g, '');
+    var y = String(b || '').replace(/[\s（）()【】\[\]·、,，/]/g, '');
+    if (!x || !y) return 0;
+    if (x === y) return 1;
+    if (x.indexOf(y) >= 0 || y.indexOf(x) >= 0) return 0.9;
+    var sa = {}, n = 0, i;
+    for (i = 0; i < x.length - 1; i++) { sa[x.substr(i, 2)] = 1; n++; }
+    var m = 0, hit = 0;
+    for (i = 0; i < y.length - 1; i++) { m++; if (sa[y.substr(i, 2)]) hit++; }
+    if (!n || !m) return 0;
+    return (hit * 2) / (n + m);
+  }
+  // 库存里出现过的所有产品名（按单据数降序）
+  function stockItemNames() {
+    var cnt = {};
+    (FW.db.getList(STOCK_KEY) || []).forEach(function (t) {
+      var n = String(t.item || '').trim();
+      if (!n) return;
+      cnt[n] = (cnt[n] || 0) + 1;
+    });
+    return Object.keys(cnt).map(function (n) { return { name: n, count: cnt[n] }; })
+      .sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name, 'zh'); });
+  }
+  // 自动建议：相似的名字归到「更长更完整」的那个名下
+  function suggestAlias() {
+    var names = stockItemNames().map(function (x) { return x.name; });
+    var sorted = names.slice().sort(function (a, b) { return b.length - a.length; });
+    var sug = {};
+    sorted.forEach(function (a) {
+      if (sug[a]) return;                       // a 已被归给别人，不再当标准名
+      sorted.forEach(function (b) {
+        if (b === a || sug[b]) return;
+        if (itemSim(a, b) >= 0.7) sug[b] = a;
+      });
+    });
+    return sug;
+  }
+  // 疑似但未自动归并的配对（0.4 ≤ sim < 0.7），供人工确认
+  function suspectPairs() {
+    var names = stockItemNames().map(function (x) { return x.name; });
+    var out = [], i, j;
+    for (i = 0; i < names.length; i++) {
+      for (j = i + 1; j < names.length; j++) {
+        var s = itemSim(names[i], names[j]);
+        if (s >= 0.4 && s < 0.7) out.push({ a: names[i], b: names[j], sim: s });
+      }
+    }
+    return out.sort(function (x, y) { return y.sim - x.sim; }).slice(0, 20);
+  }
+  // 把历史单据的 item 直接改写成标准名（不可自动撤销，需确认）
+  function rewriteItemNames() {
+    var m = loadAlias(), n = 0, list = FW.db.getList(STOCK_KEY) || [];
+    list.forEach(function (t) {
+      var raw = String(t.item || '').trim();
+      var std = normItem(raw);
+      if (std !== raw) { t.item = std; FW.db.upsert(STOCK_KEY, t); n++; }
+    });
+    return n;
+  }
+  // 单据明细里提示「该名称已被归并到标准名」
+  function aliasTip(item) {
+    var raw = String(item || '').trim(), std = normItem(raw);
+    if (!std || !raw || std === raw) return '';
+    return '<div class="al-tip-inline" title="已按产品名归一设置合并计算">汇总按：' + FW.esc(std) + '</div>';
+  }
+  // 暴露给其他模块（项目核算下钻按标准名聚合）
+  FW.itemAlias = { norm: normItem, load: loadAlias, save: saveAlias };
+
   /* ---------- 调货单粘贴解析（进多少出多少） ---------- */
   // 默认单价规则（关键词包含匹配）与排除项；用户可在弹窗内改动并存本地
   var TRANSFER_CONF_KEY = 'cw_transfer_conf';
@@ -98,12 +186,13 @@
     renderStockView();
     FW.toast('已撤销 ' + g.count + ' 条记录');
   }
-  // 按关键词匹配单价
+  // 按关键词匹配单价（先按标准名归一，短名写法也能命中规则）
   function matchPrice(item, conf) {
+    var name = normItem(item);
     var ps = (conf && conf.prices) || [];
     for (var i = 0; i < ps.length; i++) {
       var k = String(ps[i].kw || '').trim();
-      if (k && item.indexOf(k) >= 0) return Number(ps[i].price) || 0;
+      if (k && name.indexOf(k) >= 0) return Number(ps[i].price) || 0;
     }
     return 0;
   }
@@ -117,7 +206,7 @@
     var re = /([^\s，,、；;]+)\s*[xX×*＊]\s*(\d+(?:\.\d+)?)/g;
     var m;
     while ((m = re.exec(s)) !== null) {
-      var name = String(m[1] || '').trim();
+      var name = normItem(String(m[1] || '').trim());
       var qty = Number(m[2]);
       if (!name || !(qty > 0)) continue;
       var skip = ex.some(function (k) { return k && name.indexOf(String(k)) >= 0; });
@@ -1010,7 +1099,7 @@
     if (kw) {
       var k = kw.toLowerCase();
       rows = rows.filter(function (t) {
-        return [t.no, t.item, t.spec, t.unit, t.type, t.party, t.warehouse, t.remark, t.period].some(function (f) { return (f || '').toLowerCase().indexOf(k) >= 0; });
+        return [t.no, t.item, normItem(t.item), t.spec, t.unit, t.type, t.party, t.warehouse, t.remark, t.period].some(function (f) { return (f || '').toLowerCase().indexOf(k) >= 0; });
       });
     }
     return rows;
@@ -1041,7 +1130,7 @@
       var p = String(t.period || '').trim() || NO_PERIOD;
       if (!map[p]) { map[p] = { period: p, items: {}, iorder: [], dates: {} }; order.push(p); }
       var g = map[p];
-      var item = String(t.item || '—').trim() || '—';
+      var item = normItem(String(t.item || '—').trim()) || '—';
       var unit = String(t.unit || '').trim();
       var key = item + '||' + unit;
       var q = num(t.qty), a = num(t.amount);
@@ -1085,6 +1174,131 @@
     });
   }
 
+  /* ---------- 产品名归一设置弹窗 ---------- */
+  function openAliasManager() {
+    var items = stockItemNames();
+    if (!items.length) { FW.toast('还没有库存单据，先登记或粘贴调货单'); return; }
+    var opts = items.map(function (x) { return x.name; });
+    Object.keys(loadAlias()).forEach(function (k) { var v = loadAlias()[k]; if (opts.indexOf(v) < 0) opts.push(v); });
+
+    function selHtml(name, mapped) {
+      return '<select class="al-sel" data-alias="' + FW.esc(name) + '">' +
+        '<option value="">（不归并）</option>' +
+        opts.filter(function (o) { return o !== name; }).map(function (o) {
+          return '<option value="' + FW.esc(o) + '"' + (mapped === o ? ' selected' : '') + '>' + FW.esc(o) + '</option>';
+        }).join('') + '</select>';
+    }
+    function tableHtml() {
+      var a = loadAlias();
+      return items.map(function (x) {
+        var mapped = a[x.name] || '';
+        return '<tr' + (mapped ? ' class="al-mapped"' : '') + '>' +
+          '<td>' + FW.esc(x.name) + (mapped ? '<span class="al-arrow">→ ' + FW.esc(mapped) + '</span>' : ' <span class="al-std">标准名</span>') + '</td>' +
+          '<td class="num muted">' + x.count + '</td>' +
+          '<td>' + selHtml(x.name, mapped) + '</td></tr>';
+      }).join('');
+    }
+
+    var body =
+      '<div class="al-tip">同一件货写法不同（如「能量套」与「赫娇七彩时光焕颜能量套」）会在汇总里分成两行、均价算歪。' +
+      '把短名<b>归并为</b>标准名后，汇总 / 均价 / 结存 / 项目核算下钻立即合并计算，<b>原始单据文字不会被改动</b>。</div>' +
+      '<div class="toolbar" style="margin:10px 0">' +
+        '<button class="btn ghost sm" id="alAuto">🔍 自动检测相似名</button>' +
+        '<button class="btn ghost sm" id="alRewrite">✏ 批量改写历史单据</button>' +
+        '<button class="btn danger sm" id="alClear">清空全部</button>' +
+      '</div>' +
+      '<div id="alSuspect"></div>' +
+      '<div style="max-height:44vh;overflow:auto"><table class="al-table"><thead><tr>' +
+        '<th>产品名（库存中出现过）</th><th class="num">单据数</th><th>归并为</th>' +
+      '</tr></thead><tbody id="alBody">' + tableHtml() + '</tbody></table></div>' +
+      '<div class="al-foot muted">改完点「保存」，所有汇总立即按新口径重算。「批量改写」会把历史单据里的别名直接改成标准名，不可自动撤销。</div>' +
+      '<div class="form-actions"><button class="btn ghost" id="al_cancel">取消</button><button class="btn" id="al_save">保存</button></div>';
+
+    FW.openModal('产品名归一（' + items.length + ' 个产品名）', body, function () {
+      var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
+      function refresh() { var el = document.getElementById('alBody'); if (el) el.innerHTML = tableHtml(); bindSel(); }
+      function bindSel() {
+        FW.qa('#alBody .al-sel').forEach(function (s) {
+          s.onchange = function () {
+            var from = s.getAttribute('data-alias'), to = s.value;
+            var a = loadAlias();
+            if (to) a[from] = to; else delete a[from];
+            // 别人若指向 from，一并改指到 to，避免断链
+            if (to) Object.keys(a).forEach(function (k) { if (a[k] === from) a[k] = to; });
+            saveAlias(a); refresh();
+          };
+        });
+      }
+      function drawSuspect() {
+        var ps = suspectPairs(), el = document.getElementById('alSuspect');
+        if (!el) return;
+        if (!ps.length) { el.innerHTML = ''; return; }
+        el.innerHTML = '<div class="al-susp"><div class="al-susp-h">疑似同名（自动检测没敢合并，请你判断）</div>' +
+          ps.map(function (p, i) {
+            return '<div class="al-susp-row"><span>' + FW.esc(p.a) + '</span><span class="muted">≈</span>' +
+              '<span>' + FW.esc(p.b) + '</span>' +
+              '<button class="btn ghost sm" data-merge="' + i + '">合并</button></div>';
+          }).join('') + '</div>';
+        FW.qa('#alSuspect [data-merge]').forEach(function (b) {
+          b.onclick = function () {
+            var p = ps[+b.getAttribute('data-merge')];
+            if (!p) return;
+            var std = p.a.length >= p.b.length ? p.a : p.b;
+            var other = (std === p.a) ? p.b : p.a;
+            var a = loadAlias();
+            a[other] = std;
+            Object.keys(a).forEach(function (k) { if (a[k] === other) a[k] = std; });
+            saveAlias(a);
+            FW.toast('「' + other + '」→「' + std + '」，记得点保存');
+            drawSuspect(); refresh();
+          };
+        });
+      }
+      bindSel(); drawSuspect();
+
+      var au = document.getElementById('alAuto');
+      if (au) au.onclick = function () {
+        var sug = suggestAlias(), ks = Object.keys(sug);
+        if (!ks.length) { FW.toast('没检测到相似的写法'); return; }
+        var a = loadAlias();
+        ks.forEach(function (k) { a[k] = sug[k]; });
+        saveAlias(a); refresh(); drawSuspect();
+        FW.toast('检测到 ' + ks.length + ' 组相似写法，已填入，确认后点保存');
+      };
+      var cl = document.getElementById('alClear');
+      if (cl) cl.onclick = function () {
+        if (!Object.keys(loadAlias()).length) { FW.toast('当前没有别名设置'); return; }
+        if (!confirm('确定清空全部产品名归一设置？\n（只清规则，历史单据文字不受影响）')) return;
+        saveAlias({}); refresh(); drawSuspect();
+        FW.toast('已清空');
+      };
+      var rw = document.getElementById('alRewrite');
+      if (rw) rw.onclick = function () {
+        var a = loadAlias();
+        if (!Object.keys(a).length) { FW.toast('当前没有别名设置，无需改写'); return; }
+        if (!confirm('将把历史单据里的别名直接改成标准名（' + Object.keys(a).length + ' 条规则）。\n' +
+          '此操作会修改原始记录文字，不能自动撤销。确定继续？')) return;
+        var n = rewriteItemNames();
+        FW.toast(n ? ('已改写 ' + n + ' 条单据的产品名') : '没有需要改写的单据');
+        if (n) { FW.closeModal(); renderStockView(); }
+      };
+      var ac = document.getElementById('al_cancel');
+      if (ac) ac.onclick = function () { FW.closeModal(); };
+      var as = document.getElementById('al_save');
+      if (as) as.onclick = function () {
+        var a = loadAlias();
+        Object.keys(a).forEach(function (k) {
+          var v = String(a[k] == null ? '' : a[k]).trim();
+          if (!v || v === k) delete a[k];
+        });
+        saveAlias(a);
+        FW.closeModal();
+        renderStockView();
+        FW.toast('产品名归一已保存，汇总已按新口径重算');
+      };
+    });
+  }
+
   function renderStockView() {
     var c = document.getElementById('content');
     var kw = state.stKw || '', from = state.stFrom || '', to = state.stTo || '', type = state.stType || '';
@@ -1119,6 +1333,7 @@
     var lg = loadLastGen();
     ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn ghost" id="stImg">🖼 导出图片</button><button class="btn ghost" id="stPaste">📋 粘贴调货单</button>' +
       '<button class="btn ghost" id="stReturn" title="快捷登记客户退回的货">↩ 登记退货</button>' +
+      '<button class="btn ghost" id="stAlias" title="把「能量套」这类简写归到全名，避免汇总里拆成两行">🏷 产品名</button>' +
       (lg ? '<button class="btn ghost" id="stUndo" title="撤销最近一次「粘贴调货单」生成的记录">↩ 撤销上次生成（' + lg.count + ' 条）</button>' : '') +
       '<button class="btn" id="addStBtn">＋ 新增单据</button>';
     document.getElementById('stPrint').onclick = function () { window.print(); };
@@ -1135,6 +1350,8 @@
     document.getElementById('stPaste').onclick = function () { openTransferPaste(); };
     var sr2 = document.getElementById('stReturn');
     if (sr2) sr2.onclick = openReturnForm;
+    var sa2 = document.getElementById('stAlias');
+    if (sa2) sa2.onclick = openAliasManager;
     document.getElementById('addStBtn').onclick = function () { openStockForm(null); };
     var su = document.getElementById('stUndo');
     if (su) su.onclick = undoStockLastGen;
@@ -1186,7 +1403,7 @@
       return '<tr>' +
         '<td class="nowrap">' + FW.esc(t.date || '') + '</td>' +
         '<td>' + FW.esc(t.no || '') + '</td>' +
-        '<td>' + FW.esc(t.item || '—') + (t.spec ? '<div class="muted" style="font-size:11px">' + FW.esc(t.spec) + '</div>' : '') + (t.period ? '<div class="muted" style="font-size:11px">营期：' + FW.esc(t.period) + '</div>' : '') + '</td>' +
+        '<td>' + FW.esc(t.item || '—') + aliasTip(t.item) + (t.spec ? '<div class="muted" style="font-size:11px">' + FW.esc(t.spec) + '</div>' : '') + (t.period ? '<div class="muted" style="font-size:11px">营期：' + FW.esc(t.period) + '</div>' : '') + '</td>' +
         '<td>' + (t.unit ? FW.esc(t.unit) : '<span class="muted">—</span>') + '</td>' +
         '<td><span class="tag">' + FW.esc(t.type || '—') + '</span> ' + dirTag + '</td>' +
         '<td class="num ' + qtyCls + '">' + (dir === 'in' ? '' : '−') + num(t.qty) + '</td>' +
@@ -1311,7 +1528,7 @@
   function openReturnDetail(period, item) {
     var rows = (FW.db.getList(STOCK_KEY) || []).filter(function (t) {
       return isReturnType(t.type) &&
-        String(t.item || '').trim() === String(item || '').trim() &&
+        normItem(String(t.item || '').trim()) === String(item || '').trim() &&
         String(t.period || '').trim() === String(period || '').trim();
     }).sort(function (a, b) { return (a.date || '').localeCompare(b.date || ''); });
     if (!rows.length) { FW.toast('没有找到该产品的退货记录'); return; }
@@ -1453,7 +1670,7 @@
       var k = periodKeyOf(t.date) || NO_DATE_KEY;
       if (!map[k]) { map[k] = { key: k, items: {}, iorder: [] }; order.push(k); }
       var g = map[k];
-      var item = String(t.item || '—').trim() || '—';
+      var item = normItem(String(t.item || '—').trim()) || '—';
       var unit = String(t.unit || '').trim();
       var key = item + '||' + unit;
       var q = num(t.qty), a = num(t.amount);
@@ -1614,7 +1831,7 @@
     // 产品候选：历史里出现过的（调货入库/出库都算），带出最近一次单位
     var seen = {};
     all.forEach(function (t) {
-      var nm = String(t.item || '').trim();
+      var nm = normItem(String(t.item || '').trim());
       if (!nm) return;
       if (!seen[nm]) seen[nm] = { item: nm, unit: t.unit || '', price: 0, wsum: 0, wqty: 0 };
       if (!seen[nm].unit && t.unit) seen[nm].unit = t.unit;
@@ -1660,7 +1877,7 @@
       function avgOf(period, item) {
         var wsum = 0, wqty = 0;
         all.forEach(function (t) {
-          if (String(t.item || '').trim() !== String(item || '').trim()) return;
+          if (normItem(String(t.item || '').trim()) !== String(item || '').trim()) return;
           if (isReturnType(t.type) || stockDir(t.type) !== 'in') return;
           if (period && String(t.period || '').trim() !== String(period).trim()) return;
           var q = num(t.qty), a = num(t.amount);
