@@ -653,7 +653,7 @@
         '• 数据来源：「登记内账」→ 类型=收入 且 项目=' + FW.esc(projectName) +
       '</div>';
 
-    FW.openModal('「' + FW.esc(projectName) + '」 — 收入明细', body);
+    openWideModal('「' + FW.esc(projectName) + '」 — 收入明细', body);
   }
 
   /* ============================================================
@@ -837,7 +837,7 @@
       '• 点击项目行可展开查看完整成本分类、工资构成与应收回款项明细；点击收入金额可查看收入流水明细' +
       '</div>';
 
-    FW.openModal('「' + FW.esc(v.project) + '」 — ' + FW.esc(title) + '计算过程', html);
+    openWideModal('「' + FW.esc(v.project) + '」 — ' + FW.esc(title) + '计算过程', html);
   }
 
   // ---------- 未归类收支提醒（②：解决“项目利润对不上”最常见原因） ----------
@@ -871,7 +871,7 @@
     }).join('');
     var body = '<div class="muted" style="font-size:12px;margin-bottom:8px">以下收支未填「项目」。点「去补归类」打开编辑，填写项目后保存即计入对应项目核算。未填项目的笔数越多，项目成本越偏低、利润越虚高。</div>' +
       '<div style="max-height:52vh;overflow:auto"><table class="pc-unclass-table"><thead><tr><th>日期</th><th>类型</th><th class="num">金额</th><th>对方</th><th>摘要</th><th>操作</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
-    FW.openModal('未归类收支（' + arr.length + ' 笔）', body, function () {
+    openWideModal('未归类收支（' + arr.length + ' 笔）', body, function () {
       FW.qa('[data-edit]').forEach(function (btn) {
         btn.onclick = function () {
           var id = this.getAttribute('data-edit');
@@ -879,6 +879,14 @@
           if (FW.modules.internal && FW.modules.internal.openForm) FW.modules.internal.openForm(id);
         };
       });
+    });
+  }
+
+  // 表格类弹窗统一用加宽版（880px），避免多列被挤成一团
+  function openWideModal(title, body, onMount) {
+    FW.openModal(title, body, function (b) {
+      var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
+      if (onMount) onMount(b);
     });
   }
 
@@ -1039,9 +1047,7 @@
       tableHtml = '<div style="max-height:54vh;overflow:auto"><table class="pc-unclass-table"><thead><tr><th>日期</th><th>类型</th><th>分类</th><th>对方</th><th class="num">金额</th><th>摘要</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
     }
     var body = kpiHtml + tableHtml;
-    FW.openModal(scope + fTitle + '（' + txRows.length + ' 笔）', body, function () {
-      var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
-    });
+    openWideModal(scope + fTitle + '（' + txRows.length + ' 笔）', body);
   }
 
   // 工资成本下钻：按底薪/奖金/提成折叠分组（点击分组头可收起/展开）
@@ -1840,7 +1846,7 @@
       '<div class="muted" style="font-size:12px;margin-bottom:8px">每行填写：<b>项目名,单量</b>（逗号、中文逗号或空格分隔均可，单量=0 表示清空）。例如：<br><code>项目A,120</code> &nbsp; <code>项目B 85</code> &nbsp; <code>项目C，0</code></div>' +
       '<textarea id="pcQtyInput" rows="10" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px" placeholder="项目A,120\n项目B,85"></textarea>' +
       '<div class="form-actions"><button class="btn ghost" id="pcQtyCancel">取消</button><button class="btn" id="pcQtySave">保存</button></div>';
-    FW.openModal('批量录入签收单量', body, function () {
+    openWideModal('批量录入签收单量', body, function () {
       document.getElementById('pcQtyCancel').onclick = FW.closeModal;
       document.getElementById('pcQtySave').onclick = function () {
         var txt = document.getElementById('pcQtyInput').value || '';
@@ -1883,7 +1889,7 @@
       }).join('') +
       '</tbody></table></div>' +
       '<div class="form-actions"><button class="btn ghost" id="pcCorCancel">取消</button><button class="btn" id="pcCorSave">保存校正</button></div>';
-    FW.openModal('校正净额收入', body, function () {
+    openWideModal('校正净额收入', body, function () {
       FW.qa('.pc-deduct-in').forEach(function (inp) {
         inp.oninput = function () {
           var i = +this.dataset.i;
