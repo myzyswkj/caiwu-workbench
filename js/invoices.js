@@ -56,6 +56,48 @@
     } catch (e) { return JSON.parse(JSON.stringify(DEFAULT_TRANSFER_CONF)); }
   }
   function saveTransferConf(c) { try { localStorage.setItem(TRANSFER_CONF_KEY, JSON.stringify(c)); } catch (e) {} }
+
+  /* ---------- 调货单「防重复 + 一键撤销」 ---------- */
+  var LASTGEN_KEY = 'cw_stock_last_gen';
+  function loadLastGen() {
+    try {
+      var raw = localStorage.getItem(LASTGEN_KEY);
+      if (!raw) return null;
+      var g = JSON.parse(raw);
+      if (!g || !g.ids || !g.ids.length) return null;
+      // 只保留仍然存在的记录，避免手工删过之后撤销时报错
+      var alive = g.ids.filter(function (id) { return !!FW.db.getById(STOCK_KEY, id); });
+      if (!alive.length) { localStorage.removeItem(LASTGEN_KEY); return null; }
+      g.ids = alive; g.count = alive.length;
+      return g;
+    } catch (e) { return null; }
+  }
+  function saveLastGen(g) { try { localStorage.setItem(LASTGEN_KEY, JSON.stringify(g)); } catch (e) {} }
+  function clearLastGen() { try { localStorage.removeItem(LASTGEN_KEY); } catch (e) {} }
+  // 检测同一「调货日期 + 营期」是否已有调货单解析生成的记录
+  function findTransferDup(date, period) {
+    return (FW.db.getList(STOCK_KEY) || []).filter(function (t) {
+      if (t.date !== date) return false;
+      if (String(t.period || '').trim() !== String(period || '').trim()) return false;
+      return String(t.remark || '').indexOf('调货单粘贴解析') >= 0;
+    });
+  }
+  function undoStockLastGen() {
+    var g = loadLastGen();
+    if (!g) { FW.toast('没有可撤销的生成记录'); return; }
+    var msg = '确定撤销上次生成的 ' + g.count + ' 条调货记录？\n' +
+      '日期：' + (g.date || '—') + '　营期：' + (g.period || '未填') + '\n' +
+      '（只删这次生成的，不影响其他单据）';
+    if (!confirm(msg)) return;
+    g.ids.forEach(function (id) {
+      var rec = FW.db.getById(STOCK_KEY, id);
+      if (rec && rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
+      FW.db.remove(STOCK_KEY, id);
+    });
+    clearLastGen();
+    renderStockView();
+    FW.toast('已撤销 ' + g.count + ' 条记录');
+  }
   // 按关键词匹配单价
   function matchPrice(item, conf) {
     var ps = (conf && conf.prices) || [];
@@ -1050,13 +1092,18 @@
       '</div>';
 
     var ta = document.getElementById('topActions');
-    ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn ghost" id="stPaste">📋 粘贴调货单</button><button class="btn" id="addStBtn">＋ 新增单据</button>';
+    var lg = loadLastGen();
+    ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn ghost" id="stPaste">📋 粘贴调货单</button>' +
+      (lg ? '<button class="btn ghost" id="stUndo" title="撤销最近一次「粘贴调货单」生成的记录">↩ 撤销上次生成（' + lg.count + ' 条）</button>' : '') +
+      '<button class="btn" id="addStBtn">＋ 新增单据</button>';
     document.getElementById('stPrint').onclick = function () { window.print(); };
     document.getElementById('stCsv').onclick = function () {
       if (state.stView === 'period') exportStockPeriodCsv(); else exportStockCsv();
     };
     document.getElementById('stPaste').onclick = function () { openTransferPaste(); };
     document.getElementById('addStBtn').onclick = function () { openStockForm(null); };
+    var su = document.getElementById('stUndo');
+    if (su) su.onclick = undoStockLastGen;
 
     if (state.stView === 'period') {
       drawStockSummary(stockSummary(rows));
@@ -1305,7 +1352,16 @@
         var unit = unitEl.value.trim() || '盒';
         var party = partyEl.value.trim();
         if (!period && !confirm('没填营期，确定继续？')) return;
-        var n = 0;
+        // 防重复：同一「调货日期 + 营期」已有调货单解析记录时拦截确认
+        var dup = findTransferDup(date, period);
+        if (dup.length) {
+          var dupMsg = '⚠️ 该日期（' + date + '）+ 营期（' + (period || '未填') + '）已有 ' + dup.length + ' 条调货记录。\n\n' +
+            '继续会再新增 ' + (rows.length * 2) + ' 条，数量会被重复计入（库存翻倍）。\n\n' +
+            '若是同一批货重复贴了，请点「取消」，去「按营期汇总」核对，或先点「↩ 撤销上次生成」清掉再贴。\n\n' +
+            '确定仍要继续吗？';
+          if (!confirm(dupMsg)) return;
+        }
+        var n = 0, genIds = [];
         rows.forEach(function (r) {
           var q = num(r.qty), p = num(r.price);
           if (!(q > 0)) return;
@@ -1319,12 +1375,14 @@
             var rec = { id: FW.db.uid('st_'), type: tp };
             Object.keys(common).forEach(function (k) { rec[k] = common[k]; });
             FW.db.upsert(STOCK_KEY, rec);
+            genIds.push(rec.id);
             n++;
           });
         });
         conf.lastPeriod = period; conf.unit = unit; saveTransferConf(conf);
+        if (genIds.length) saveLastGen({ ids: genIds, count: genIds.length, date: date, period: period, ts: Date.now() });
         FW.closeModal(); renderStockView();
-        FW.toast('已生成 ' + n + ' 条记录（每个产品入库+出库各 1 条）');
+        FW.toast('已生成 ' + n + ' 条记录（每个产品入库+出库各 1 条）；贴错可点「↩ 撤销上次生成」');
       };
     });
   }
