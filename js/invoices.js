@@ -97,6 +97,8 @@
     ctPhotos: [], ctDocFiles: [], ctAttachments: [],
     // 库存台账筛选
     stKw: '', stFrom: '', stTo: '', stType: '',
+    stView: 'detail',   // detail 单据明细 / period 按营期汇总
+    stPeriodOpen: {},   // 汇总视图中「产品按发货日期展开」的展开状态：key = period|item
     stPhotos: []
   };
 
@@ -979,6 +981,45 @@
     return { inQ: inQ, inA: inA, outQ: outQ, outA: outA, retQ: retQ, retA: retA, balance: inQ - outQ };
   }
 
+  /* ---------- 按营期汇总：营期 → 产品（入库/出库/结存）+ 按发货日期下钻 ---------- */
+  // 返回 [{period, items:[{item,unit,inQ,inA,outQ,outA,balQ,byDate:[{date,inQ,outQ,balQ}]}], tot:{...}}]
+  function periodAgg(rows) {
+    var NO_PERIOD = '未填营期';
+    var map = {}, order = [];
+    rows.forEach(function (t) {
+      var p = String(t.period || '').trim() || NO_PERIOD;
+      if (!map[p]) { map[p] = { period: p, items: {}, iorder: [], dates: {} }; order.push(p); }
+      var g = map[p];
+      var item = String(t.item || '—').trim() || '—';
+      var unit = String(t.unit || '').trim();
+      var key = item + '||' + unit;
+      var q = num(t.qty), a = num(t.amount);
+      var d = t.date || '';
+      var dir = stockDir(t.type);
+      if (!g.items[key]) { g.items[key] = { item: item, unit: unit, inQ: 0, inA: 0, outQ: 0, outA: 0, balQ: 0, byDate: {}, dorder: [] }; g.iorder.push(key); }
+      var it = g.items[key];
+      if (!it.byDate[d]) { it.byDate[d] = { date: d, inQ: 0, outQ: 0, balQ: 0 }; it.dorder.push(d); }
+      var bd = it.byDate[d];
+      if (dir === 'in') { it.inQ += q; it.inA += a; bd.inQ += q; } else { it.outQ += q; it.outA += a; bd.outQ += q; }
+      it.balQ = it.inQ - it.outQ;
+      bd.balQ = bd.inQ - bd.outQ;
+      g.dates[d] = 1;
+    });
+    return order.map(function (p) {
+      var g = map[p];
+      var items = g.iorder.map(function (k) {
+        var it = g.items[k];
+        it.byDateList = it.dorder.slice().sort().map(function (d) { return it.byDate[d]; });
+        return it;
+      });
+      var tot = items.reduce(function (s, it) {
+        s.inQ += it.inQ; s.inA += it.inA; s.outQ += it.outQ; s.outA += it.outA; s.balQ += it.balQ; return s;
+      }, { inQ: 0, inA: 0, outQ: 0, outA: 0, balQ: 0 });
+      var dates = Object.keys(g.dates).sort();
+      return { period: p, items: items, tot: tot, dateFrom: dates[0] || '', dateTo: dates[dates.length - 1] || '' };
+    });
+  }
+
   function renderStockView() {
     var c = document.getElementById('content');
     var kw = state.stKw || '', from = state.stFrom || '', to = state.stTo || '', type = state.stType || '';
@@ -998,6 +1039,9 @@
       '<div class="stat-row" id="stSummary"></div>' +
       '<div class="card">' +
         '<div class="toolbar">' +
+          '<button class="btn ' + (state.stView === 'detail' ? '' : 'ghost ') + 'sm" data-v="detail">单据明细</button>' +
+          '<button class="btn ' + (state.stView === 'period' ? '' : 'ghost ') + 'sm" data-v="period">按营期汇总</button>' +
+          '<span style="width:10px"></span>' +
           '<div class="field"><input id="stKw" placeholder="搜索名称/单号/往来单位" value="' + FW.esc(kw) + '"></div>' +
           '<div class="field"><select id="stType">' + typeOpts + '</select></div>' +
           '<button class="btn ghost sm" id="stReset">重置</button>' +
@@ -1008,19 +1052,29 @@
     var ta = document.getElementById('topActions');
     ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn ghost" id="stPaste">📋 粘贴调货单</button><button class="btn" id="addStBtn">＋ 新增单据</button>';
     document.getElementById('stPrint').onclick = function () { window.print(); };
-    document.getElementById('stCsv').onclick = exportStockCsv;
+    document.getElementById('stCsv').onclick = function () {
+      if (state.stView === 'period') exportStockPeriodCsv(); else exportStockCsv();
+    };
     document.getElementById('stPaste').onclick = function () { openTransferPaste(); };
     document.getElementById('addStBtn').onclick = function () { openStockForm(null); };
 
-    drawStockSummary(s);
-    drawStockTable(rows);
+    if (state.stView === 'period') {
+      drawStockSummary(stockSummary(rows));
+      drawStockPeriodView(rows);
+    } else {
+      drawStockSummary(s);
+      drawStockTable(rows);
+    }
 
+    FW.qa('#content [data-v]').forEach(function (b) {
+      b.onclick = function () { state.stView = b.dataset.v; renderStockView(); };
+    });
     FW.qa('#content [data-r]').forEach(function (b) { b.onclick = function () { setStockRange(b.dataset.r); }; });
     var sf = document.getElementById('stFrom'), st = document.getElementById('stTo');
     if (sf) sf.onchange = function () { state.stFrom = this.value; renderStockView(); };
     if (st) st.onchange = function () { state.stTo = this.value; renderStockView(); };
-    var sk = document.getElementById('stKw'); if (sk) sk.oninput = function () { state.stKw = this.value.trim(); drawStockTable(stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType)); };
-    var sp = document.getElementById('stType'); if (sp) sp.onchange = function () { state.stType = this.value; drawStockTable(stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType)); };
+    var sk = document.getElementById('stKw'); if (sk) sk.oninput = function () { state.stKw = this.value.trim(); renderStockList(); };
+    var sp = document.getElementById('stType'); if (sp) sp.onchange = function () { state.stType = this.value; renderStockList(); };
     var sr = document.getElementById('stReset'); if (sr) sr.onclick = function () { state.stKw = ''; state.stType = ''; state.stFrom = ''; state.stTo = ''; renderStockView(); };
   }
 
@@ -1068,6 +1122,103 @@
   }
 
   /* 粘贴调货单：解析 → 预览（可改数量/单价）→ 一次性生成入库+出库 */
+  // 局部重绘列表（搜索/类型切换/展开折叠时用）
+  function renderStockList() {
+    var rows = stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType);
+    if (state.stView === 'period') {
+      drawStockSummary(stockSummary(rows));
+      drawStockPeriodView(rows);
+    } else {
+      drawStockTable(rows);
+    }
+  }
+
+  // 按营期汇总视图：营期 → 产品（调货数量/均价/金额/结存），点产品行可展开按发货日期明细
+  function drawStockPeriodView(rows) {
+    var el = document.getElementById('stWrap');
+    if (!el) return;
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty">没有符合条件的单据。点右上角「📋 粘贴调货单」或「＋ 新增单据」登记，或调整筛选条件。</div>';
+      return;
+    }
+    var groups = periodAgg(rows);
+    var html = groups.map(function (g, gi) {
+      var trs = g.items.map(function (it, ii) {
+        var key = g.period + '|' + it.item;
+        var open = !!state.stPeriodOpen[key];
+        var canToggle = it.byDateList.length > 1;
+        var avg = it.inQ > 0 ? (it.inA / it.inQ) : 0;
+        var main = '<tr class="per-item' + (canToggle ? ' toggleable' : '') + '" data-g="' + gi + '" data-i="' + ii + '">' +
+          '<td>' + (canToggle ? '<span class="per-toggle">' + (open ? '▾' : '▸') + '</span> ' : '') + FW.esc(it.item) + '</td>' +
+          '<td>' + (it.unit ? FW.esc(it.unit) : '<span class="muted">—</span>') + '</td>' +
+          '<td class="num income"><b>' + num(it.inQ) + '</b></td>' +
+          '<td class="num">' + (it.inQ > 0 ? money(avg) : '<span class="muted">—</span>') + '</td>' +
+          '<td class="num">' + money(it.inA) + '</td>' +
+          '<td class="num ' + (it.balQ === 0 ? 'muted' : (it.balQ > 0 ? 'income' : 'expense')) + '">' + num(it.balQ) + '</td>' +
+          '</tr>';
+        if (open && canToggle) {
+          main += it.byDateList.map(function (bd) {
+            return '<tr class="per-date">' +
+              '<td style="padding-left:26px">' + FW.esc(bd.date || '未填日期') + '</td>' +
+              '<td></td>' +
+              '<td class="num income">' + num(bd.inQ) + '</td>' +
+              '<td class="num muted">—</td>' +
+              '<td class="num muted">—</td>' +
+              '<td class="num">' + num(bd.balQ) + '</td>' +
+              '</tr>';
+          }).join('');
+        }
+        return main;
+      }).join('');
+      var tq = g.tot.inQ, ta = g.tot.inA, tb = g.tot.balQ;
+      var tot = '<tr class="per-total"><td><b>小计</b></td><td></td>' +
+        '<td class="num"><b>' + num(tq) + '</b></td><td class="num"></td>' +
+        '<td class="num"><b>' + money(ta) + '</b></td>' +
+        '<td class="num"><b>' + num(tb) + '</b></td></tr>';
+      var span = g.dateFrom ? (g.dateFrom === g.dateTo ? FW.esc(g.dateFrom) : FW.esc(g.dateFrom) + ' ~ ' + FW.esc(g.dateTo)) : '';
+      return '<div class="per-card">' +
+        '<div class="per-head"><b>' + FW.esc(g.period) + '</b>' +
+        '<span class="muted" style="font-size:12px">' + span + (span ? ' · ' : '') + g.items.length + ' 种产品</span></div>' +
+        '<table><thead><tr><th>产品</th><th>单位</th><th class="num">调货数量</th><th class="num">均价</th><th class="num">金额</th><th class="num">结存</th></tr></thead><tbody>' +
+        trs + tot + '</tbody></table></div>';
+    }).join('');
+    el.innerHTML = html;
+    FW.qa('#stWrap .per-item.toggleable').forEach(function (tr) {
+      tr.onclick = function () {
+        var g = groups[+this.dataset.g]; if (!g) return;
+        var it = g.items[+this.dataset.i]; if (!it) return;
+        var key = g.period + '|' + it.item;
+        state.stPeriodOpen[key] = !state.stPeriodOpen[key];
+        renderStockList();
+      };
+    });
+  }
+
+  // 导出按营期汇总（CSV）
+  function exportStockPeriodCsv() {
+    var rows = stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType);
+    if (!rows.length) { FW.toast('没有可导出的数据'); return; }
+    var out = [];
+    periodAgg(rows).forEach(function (g) {
+      g.items.forEach(function (it) {
+        out.push([g.period, '', it.item, it.unit, num(it.inQ), (it.inQ > 0 ? (it.inA / it.inQ).toFixed(2) : ''), num(it.inA).toFixed(2), num(it.balQ)]);
+        it.byDateList.forEach(function (bd) {
+          out.push([g.period, bd.date, it.item, it.unit, num(bd.inQ), '', '', num(bd.balQ)]);
+        });
+      });
+    });
+    var head = ['营期', '发货日期', '产品', '单位', '调货数量', '均价', '金额', '结存'];
+    var csv = '\ufeff' + [head].concat(out).map(function (r) {
+      return r.map(function (v) { var s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',');
+    }).join('\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '库存按营期汇总_' + FW.today() + '.csv';
+    a.click();
+    FW.toast('已导出按营期汇总（CSV）');
+  }
+
   function openTransferPaste() {
     var conf = loadTransferConf();
     var rows = [];
