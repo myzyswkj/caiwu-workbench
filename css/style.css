@@ -1049,6 +1049,8 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .pc-note-stock { background:#F3F7FF; border-left-color:#2A5DB0; }
 .pc-note-stock .pc-note-ico { color:#2A5DB0; }
 .pc-note-stock b { color:#2A5DB0; }
+.pc-stock-warn { margin-top:8px; padding:6px 10px; border-radius:8px; background:#FFF1F3; border:1px solid #F3C9D1; color:#A3122B; font-size:12px; line-height:1.7; }
+.pc-stock-warn b { color:#A3122B; }
 .sal-stat-val.amt-recover { color: var(--info); }
 .proj-sum-table td.amt-recover { color: var(--info); font-weight: 600; }
 .tag.prepay { background: #e3f0ec; color: var(--info); }
