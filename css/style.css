@@ -1045,6 +1045,10 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .pc-note { display: flex; gap: 10px; align-items: flex-start; background: #EEF2EF; border: 1px solid var(--border); border-left: 4px solid var(--info); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; line-height: 1.55; color: var(--info); }
 .pc-note-ico { font-size: 18px; line-height: 1.2; color: var(--info); }
 .pc-note b { color: var(--info); }
+/* v55：库存台账营期净额自动计入（项目核算说明条） */
+.pc-note-stock { background:#F3F7FF; border-left-color:#2A5DB0; }
+.pc-note-stock .pc-note-ico { color:#2A5DB0; }
+.pc-note-stock b { color:#2A5DB0; }
 .sal-stat-val.amt-recover { color: var(--info); }
 .proj-sum-table td.amt-recover { color: var(--info); font-weight: 600; }
 .tag.prepay { background: #e3f0ec; color: var(--info); }
@@ -1587,9 +1591,10 @@ button.pc-detail-tx { cursor:pointer }
 .settle-kpis .kpi .v.expense { color:#C8102E; }
 .settle-kpis .kpi .v.gold { color:#B8860B; }
 .settle-kpis .kpi .s { font-size:11px; color:var(--muted,#8a94a6); }
-/* v54：营期净额（调货 − 退货）一键计入项目核算 */
+/* v54→v55：营期净额（调货 − 退货）自动计入项目核算 */
 .per-net-badge { font-size:11px; padding:2px 8px; border-radius:10px; background:#F3F7FF; color:#2A5DB0; border:1px solid #CFE0FA; white-space:nowrap; }
 .per-push-badge { font-size:11px; padding:2px 8px; border-radius:10px; background:#F1FBF5; color:#1a9c59; border:1px solid #CDEBD9; white-space:nowrap; }
+.per-push-badge.warn { background:#FFF8E8; color:#8A6D1F; border-color:#F0E2C0; }
 .per-head .per-push { padding:2px 10px; font-size:12px; }
 .push-exist { margin-top:8px; padding:8px 10px; font-size:12px; line-height:1.6; background:#FFF8E8; border:1px solid #F0E2C0; border-radius:8px; color:#8A6D1F; }
 @media print {
