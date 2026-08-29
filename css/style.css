@@ -1587,7 +1587,13 @@ button.pc-detail-tx { cursor:pointer }
 .settle-kpis .kpi .v.expense { color:#C8102E; }
 .settle-kpis .kpi .v.gold { color:#B8860B; }
 .settle-kpis .kpi .s { font-size:11px; color:var(--muted,#8a94a6); }
+/* v54：营期净额（调货 − 退货）一键计入项目核算 */
+.per-net-badge { font-size:11px; padding:2px 8px; border-radius:10px; background:#F3F7FF; color:#2A5DB0; border:1px solid #CFE0FA; white-space:nowrap; }
+.per-push-badge { font-size:11px; padding:2px 8px; border-radius:10px; background:#F1FBF5; color:#1a9c59; border:1px solid #CDEBD9; white-space:nowrap; }
+.per-head .per-push { padding:2px 10px; font-size:12px; }
+.push-exist { margin-top:8px; padding:8px 10px; font-size:12px; line-height:1.6; background:#FFF8E8; border:1px solid #F0E2C0; border-radius:8px; color:#8A6D1F; }
 @media print {
+  .per-push { display:none; }
   .per-card { break-inside:avoid; }
   .settle-modebar { display:none; }
 }
