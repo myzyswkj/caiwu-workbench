@@ -1265,12 +1265,18 @@
         '<td class="num"><b>' + num(tb) + '</b></td></tr>';
       var span = g.dateFrom ? (g.dateFrom === g.dateTo ? FW.esc(g.dateFrom) : FW.esc(g.dateFrom) + ' ~ ' + FW.esc(g.dateTo)) : '';
       var retTip = Math.abs(tr) > 0.000001 ? '<span class="per-ret-badge">退货 ' + num(tr) + ' · ' + money(tra) + '</span>' : '';
+      var pushed = findPushed(g.period);
+      var netAmt = periodNet(g);
+      var pushHtml =
+        '<span class="per-net-badge" title="调货金额 − 退货金额，即要计入项目核算的成本">净额 ' + money(netAmt) + '</span>' +
+        (pushed.length ? '<span class="per-push-badge" title="已写入登记内账，计入项目核算">✓ 已计入 ' + money(pushed[0].amount) + '</span>' : '') +
+        '<button class="btn sm per-push" data-push="' + FW.esc(g.period) + '">' + (pushed.length ? '✎ 更新 / 撤回' : '→ 计入项目核算') + '</button>';
       return '<div class="per-card">' +
         '<div class="per-head"><b>' + FW.esc(g.period) + '</b>' +
-        '<span class="muted" style="font-size:12px">' + span + (span ? ' · ' : '') + g.items.length + ' 种产品</span>' + retTip + '</div>' +
+        '<span class="muted" style="font-size:12px">' + span + (span ? ' · ' : '') + g.items.length + ' 种产品</span>' + retTip + pushHtml + '</div>' +
         '<table><thead><tr><th>产品</th><th>单位</th><th class="num">调货数量</th><th class="num">均价</th><th class="num">金额</th><th class="num">退货数量</th><th class="num">退货金额</th><th class="num">结存</th></tr></thead><tbody>' +
         trs + tot + '</tbody></table>' +
-        '<div class="per-foot muted">调货数量 = 采购入库（不含退货） ；结存 = 调货 − 出库 + 退货</div>' +
+        '<div class="per-foot muted">调货数量 = 采购入库（不含退货） ；结存 = 调货 − 出库 + 退货 ；净额 = 调货金额 − 退货金额（点「→ 计入项目核算」写入对应项目成本）</div>' +
         '</div>';
     }).join('');
     el.innerHTML = html;
@@ -1290,6 +1296,14 @@
         var idx = v.indexOf('||');
         if (idx < 0) return;
         openReturnDetail(v.slice(0, idx), v.slice(idx + 2));
+      };
+    });
+    FW.qa('#stWrap [data-push]').forEach(function (b) {
+      b.onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        var p = this.getAttribute('data-push') || '';
+        var g = groups.filter(function (x) { return x.period === p; })[0];
+        if (g) openPushToProject(g);
       };
     });
   }
@@ -1333,6 +1347,176 @@
     });
   }
 
+  /* ---------- 营期净额（调货 − 退货）→ 一键计入项目核算 ---------- */
+  // 原理：往「登记内账」写一条 type=expense 的流水（带项目名 + 成本分类 + srcStock 标记），
+  //       项目核算的「流水成本」就会自动把它算进对应项目；重复计入时按同一营期覆盖更新，不会累加。
+  var PUSH_CONF_KEY = 'cw_stock_push_conf';
+  function loadPushConf() {
+    try {
+      var c = JSON.parse(localStorage.getItem(PUSH_CONF_KEY) || '{}') || {};
+      return { map: c.map || {}, cat: c.cat || '' };
+    } catch (e) { return { map: {}, cat: '' }; }
+  }
+  function savePushConf(c) { try { localStorage.setItem(PUSH_CONF_KEY, JSON.stringify(c)); } catch (e) {} }
+
+  // 成本分类候选：优先内账自定义分类，回退科目默认分类
+  function pushCatOptions() {
+    var l = FW.db.getList('internal_cats') || [];
+    var names = l.map(function (c) { return (c && c.name) ? String(c.name) : ''; }).filter(function (s) { return s; });
+    if (!names.length && window.CatMatch && window.CatMatch.DEFAULT_RULES) {
+      window.CatMatch.DEFAULT_RULES.forEach(function (r) { if (r.cat1 && names.indexOf(r.cat1) < 0) names.push(r.cat1); });
+    }
+    if (!names.length) names = ['材料采购'];
+    return names;
+  }
+
+  // 项目名候选：内账流水（含分摊行）+ 项目核算里设置过单量的项目
+  function pushProjectOptions() {
+    var set = {};
+    (FW.db.getList('internal') || []).forEach(function (t) {
+      var p = (t.project || '').trim(); if (p) set[p] = 1;
+      (t.allocations || []).forEach(function (a) { var q = (a.project || '').trim(); if (q) set[q] = 1; });
+    });
+    (FW.db.getList('project_qty') || []).forEach(function (it) { var q = (it.project || '').trim(); if (q) set[q] = 1; });
+    return Object.keys(set).sort(function (a, b) { return a.localeCompare(b, 'zh'); });
+  }
+
+  // 已计入项目核算的记录（靠 srcStock 标记识别同一营期）
+  function findPushed(period) {
+    return (FW.db.getList('internal') || []).filter(function (t) {
+      return t && t.srcStock && String(t.srcStock) === String(period);
+    }).sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+  }
+  // 净额 = 调货金额 − 退货冲减（退货不论方向，都是冲减进货成本，故取绝对值）
+  function periodRetOff(g) { return Math.abs(num(g.tot.retA)); }
+  function periodNet(g) { return num(g.tot.inA) - periodRetOff(g); }
+
+  // 该营期出现最多的往来单位（自动带出，可改）
+  function periodParty(period) {
+    var cnt = {};
+    (FW.db.getList(STOCK_KEY) || []).forEach(function (t) {
+      if (String(t.period || '').trim() !== String(period).trim()) return;
+      var p = (t.party || '').trim(); if (!p) return;
+      cnt[p] = (cnt[p] || 0) + 1;
+    });
+    var best = '', n = 0;
+    Object.keys(cnt).forEach(function (k) { if (cnt[k] > n) { n = cnt[k]; best = k; } });
+    return best;
+  }
+
+  function openPushToProject(g) {
+    var period = g.period;
+    var net = periodNet(g);
+    var conf = loadPushConf();
+    var exist = findPushed(period);
+    var cats = pushCatOptions();
+    var defCat = (conf.cat && cats.indexOf(conf.cat) >= 0) ? conf.cat : (cats.indexOf('材料采购') >= 0 ? '材料采购' : cats[0]);
+    var defProj = (conf.map && conf.map[period]) || (period === '未填营期' ? '' : period);
+    var defDate = g.dateTo || g.dateFrom || FW.today();
+    var defParty = periodParty(period);
+    var defRemark = '营期「' + period + '」调货 ' + money(g.tot.inA) + ' − 退货 ' + money(periodRetOff(g)) + '（来自库存台账·按营期汇总）';
+
+    var itemsHtml = g.items.map(function (it) {
+      var n = num(it.inA) - Math.abs(num(it.retA));
+      var hasRet = Math.abs(num(it.retA)) > 0.000001;
+      return '<tr>' +
+        '<td>' + FW.esc(it.item) + '</td>' +
+        '<td class="num">' + num(it.inQ) + '</td>' +
+        '<td class="num">' + money(it.inA) + '</td>' +
+        '<td class="num ' + (hasRet ? 'expense' : 'muted') + '">' + (hasRet ? money(Math.abs(num(it.retA))) : '—') + '</td>' +
+        '<td class="num"><b>' + money(n) + '</b></td>' +
+        '</tr>';
+    }).join('');
+
+    var body =
+      '<div class="muted" style="font-size:12px;margin-bottom:8px">把该营期「调货金额 − 退货金额」记成一笔成本支出，写入「登记内账」，<b>项目核算</b>里对应项目的流水成本会自动加上它。</div>' +
+      '<div style="max-height:32vh;overflow:auto;margin-bottom:10px"><table><thead><tr>' +
+        '<th>产品</th><th class="num">调货数量</th><th class="num">调货金额</th><th class="num">退货冲减</th><th class="num">净额</th>' +
+      '</tr></thead><tbody>' + itemsHtml +
+        '<tr class="per-total"><td><b>合计</b></td><td class="num"><b>' + num(g.tot.inQ) + '</b></td>' +
+        '<td class="num"><b>' + money(g.tot.inA) + '</b></td>' +
+        '<td class="num expense"><b>' + money(periodRetOff(g)) + '</b></td>' +
+        '<td class="num"><b>' + money(net) + '</b></td></tr>' +
+      '</tbody></table></div>' +
+      '<div class="form-grid">' +
+        '<div class="field full"><label>计入项目（项目核算里的项目名，可改）</label>' +
+          '<input id="ps_project" list="ps_proj_list" value="' + FW.esc(defProj) + '" placeholder="如：七彩7.24营期">' +
+          '<datalist id="ps_proj_list">' + pushProjectOptions().map(function (p) { return '<option value="' + FW.esc(p) + '"></option>'; }).join('') + '</datalist></div>' +
+        '<div class="field"><label>记账日期</label><input id="ps_date" type="date" value="' + FW.esc(defDate) + '"></div>' +
+        '<div class="field"><label>成本分类</label><select id="ps_cat">' + cats.map(function (c) { return '<option' + (c === defCat ? ' selected' : '') + '>' + FW.esc(c) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><label>金额（默认净额，可改）</label><input id="ps_amt" type="number" step="0.01" value="' + net.toFixed(2) + '"></div>' +
+        '<div class="field"><label>往来单位</label><input id="ps_party" value="' + FW.esc(defParty) + '" placeholder="选填"></div>' +
+        '<div class="field full"><label>摘要</label><input id="ps_remark" value="' + FW.esc(defRemark) + '"></div>' +
+      '</div>' +
+      (exist.length
+        ? '<div class="push-exist">该营期已计入过 ' + exist.length + ' 笔（最近：' + FW.esc(exist[0].date || '') + '，' + money(exist[0].amount) +
+          '，项目「' + FW.esc(exist[0].project || '—') + '」）。再点「' + (exist.length ? '更新为最新金额' : '确认计入') + '」会<b>覆盖更新</b>最近那笔，不会重复累加。</div>'
+        : '') +
+      '<div id="ps_dup"></div>' +
+      '<div class="form-actions">' +
+        (exist.length ? '<button class="btn danger sm" id="ps_del" style="margin-right:auto">撤回已计入</button>' : '') +
+        '<button class="btn ghost" id="ps_cancel">取消</button>' +
+        '<button class="btn" id="ps_save">' + (exist.length ? '更新为最新金额' : '确认计入') + '</button>' +
+      '</div>';
+
+    FW.openModal('计入项目核算 · ' + FW.esc(period), body, function () {
+      // 疑似重复：目标项目在营期日期区间内已有的支出（排除本营期生成的），避免同一批货记两次成本
+      var dupEl = document.getElementById('ps_dup');
+      function refreshDup() {
+        if (!dupEl) return;
+        var p = document.getElementById('ps_project').value.trim();
+        if (!p) { dupEl.innerHTML = ''; return; }
+        var arr = (FW.db.getList('internal') || []).filter(function (t) {
+          if (t.type !== 'expense' || t.srcStock) return false;
+          if ((t.project || '').trim() !== p) return false;
+          if (g.dateFrom && t.date && t.date < g.dateFrom) return false;
+          if (g.dateTo && t.date && t.date > g.dateTo) return false;
+          return true;
+        });
+        if (!arr.length) { dupEl.innerHTML = ''; return; }
+        var sum = arr.reduce(function (s, t) { return s + num(t.amount); }, 0);
+        var span = (g.dateFrom || '') === (g.dateTo || '') ? (g.dateFrom || '') : (g.dateFrom || '?') + ' ~ ' + (g.dateTo || '?');
+        dupEl.innerHTML = '<div class="push-exist">⚠️ 项目「' + FW.esc(p) + '」在 ' + FW.esc(span) + ' 期间已有 <b>' + arr.length +
+          '</b> 笔支出（合计 ' + money(sum) + '，不含本营期计入的）。若那批货已经记过账，这里再计入会让成本翻倍，请确认后再点。</div>';
+      }
+      var pEl = document.getElementById('ps_project');
+      if (pEl) pEl.oninput = refreshDup;
+      refreshDup();
+      document.getElementById('ps_cancel').onclick = FW.closeModal;
+      var dBtn = document.getElementById('ps_del');
+      if (dBtn) dBtn.onclick = function () {
+        if (!confirm('确定撤回已计入项目核算的这 ' + exist.length + ' 笔成本？\n（只删除内账里由本营期生成的流水，不影响库存单据）')) return;
+        exist.forEach(function (t) { FW.db.remove('internal', t.id); });
+        FW.closeModal(); renderStockList();
+        FW.toast('已撤回，项目核算中不再计入该营期成本');
+      };
+      document.getElementById('ps_save').onclick = function () {
+        var proj = document.getElementById('ps_project').value.trim();
+        if (!proj) { FW.toast('请填写要计入的项目名'); return; }
+        var amt = num(document.getElementById('ps_amt').value);
+        if (!(amt > 0)) { FW.toast('金额需大于 0（当前净额 ' + money(net) + '）'); return; }
+        var cat = document.getElementById('ps_cat').value;
+        var rec = {
+          id: exist.length ? exist[0].id : FW.db.uid('t_'),
+          type: 'expense',
+          date: document.getElementById('ps_date').value || FW.today(),
+          project: proj,
+          party: document.getElementById('ps_party').value.trim(),
+          reimburser: '',
+          amount: amt,
+          remark: document.getElementById('ps_remark').value.trim(),
+          photos: exist.length ? (exist[0].photos || []) : [],
+          category: cat, account: '', fromAccount: '', toAccount: '', equityDir: 'in',
+          srcStock: period
+        };
+        FW.db.upsert('internal', rec);
+        conf.map = conf.map || {}; conf.map[period] = proj; conf.cat = cat; savePushConf(conf);
+        FW.closeModal(); renderStockList();
+        FW.toast('已计入项目核算：' + proj + ' +' + money(amt) + '（' + cat + '）');
+      };
+    });
+  }
+
   // 导出按营期汇总（CSV）
   function exportStockPeriodCsv() {
     var rows = stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType);
@@ -1340,13 +1524,15 @@
     var out = [];
     periodAgg(rows).forEach(function (g) {
       g.items.forEach(function (it) {
-        out.push([g.period, '', it.item, it.unit, num(it.inQ), (it.inQ > 0 ? (it.inA / it.inQ).toFixed(2) : ''), num(it.inA).toFixed(2), num(it.balQ)]);
+        var off = Math.abs(num(it.retA));
+        out.push([g.period, '', it.item, it.unit, num(it.inQ), (it.inQ > 0 ? (it.inA / it.inQ).toFixed(2) : ''), num(it.inA).toFixed(2),
+          num(it.retQ), off.toFixed(2), (num(it.inA) - off).toFixed(2), num(it.balQ)]);
         it.byDateList.forEach(function (bd) {
-          out.push([g.period, bd.date, it.item, it.unit, num(bd.inQ), '', '', num(bd.balQ)]);
+          out.push([g.period, bd.date, it.item, it.unit, num(bd.inQ), '', '', num(bd.retQ), '', '', num(bd.balQ)]);
         });
       });
     });
-    var head = ['营期', '发货日期', '产品', '单位', '调货数量', '均价', '金额', '结存'];
+    var head = ['营期', '发货日期', '产品', '单位', '调货数量', '均价', '金额', '退货数量', '退货冲减', '净额', '结存'];
     var csv = '\ufeff' + [head].concat(out).map(function (r) {
       return r.map(function (v) { var s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',');
     }).join('\n');
