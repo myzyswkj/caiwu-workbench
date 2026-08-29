@@ -1561,4 +1561,18 @@ button.pc-detail-tx { cursor:pointer }
 .pc-gr-row { }
 .bb-pcard-drill { margin-top:8px; width:100%; cursor:pointer; font-size:12px; padding:6px 0; border:1px solid var(--line,#e3e3e3); border-radius:8px; background:#fff7f8; color:#C8102E; }
 .bb-pcard-drill:hover { background:#fff0f2; border-color:#C8102E; }
+
+/* v51：库存台账「按营期汇总」视图 */
+.per-card { margin-bottom:16px; border:1px solid var(--line,#e3e3e3); border-radius:12px; overflow:hidden; }
+.per-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 14px; background:linear-gradient(90deg,#fff7f8,#fff); border-bottom:1px solid var(--line,#e3e3e3); }
+.per-head b { color:#C8102E; font-size:14px; }
+.per-card table { margin:0; border-radius:0; }
+.per-card table th, .per-card table td { padding:8px 10px; }
+.per-item.toggleable { cursor:pointer; }
+.per-item.toggleable:hover { background:#FFF7F8; }
+.per-toggle { color:#C8102E; display:inline-block; width:14px; }
+.per-date { background:#FAFBFD; font-size:12px; color:#5a6472; }
+.per-total { background:#F7F9FC; border-top:1px solid var(--line,#e3e3e3); }
+@media print {
+  .per-card { break-inside:avoid; }
 }
