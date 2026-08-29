@@ -1226,8 +1226,19 @@
     if (searchEl) searchEl.oninput = function () { state.kw = this.value; buildBody(); };
     var pnlEl = document.getElementById('pcPnl');
     if (pnlEl) pnlEl.onchange = function () { state.pnl = this.value; buildBody(); };
-    var ub = document.getElementById('pcUnclassView');
-    if (ub) ub.onclick = openUnclassified;
+  var ub = document.getElementById('pcUnclassView');
+  if (ub) ub.onclick = openUnclassified;
+
+  // 清理旧版「计入项目核算」写入的重复流水（带 srcStock 标记）
+  var dl = document.getElementById('pcDropLegacy');
+  if (dl) dl.onclick = function () {
+    var list = legacyStockTx();
+    if (!list.length) { FW.toast('没有需要清理的记录'); buildBody(); return; }
+    if (!global.confirm('将删除 ' + list.length + ' 笔由旧版「计入项目核算」写入的内账流水（带 srcStock 标记）。你的其它流水不受影响，继续？')) return;
+    list.forEach(function (t) { FW.db.remove('internal', t.id); });
+    FW.toast('已删除 ' + list.length + ' 笔重复流水');
+    buildBody();
+  };
 
     // 自定义排序控件
     var sortKeyEl = document.getElementById('pcSortKey');
@@ -1434,15 +1445,32 @@
       '</div>';
   }
 
+  // 旧版遗留：v54「→ 计入项目核算」按钮写入内账的支出流水（带 srcStock 标记），与现在的自动计入重复
+  function legacyStockTx() {
+    return (FW.db.getList('internal') || []).filter(function (t) { return t && t.srcStock; });
+  }
+
   // 库存台账采购成本说明（营期净额自动计入）
   function stockNote(data) {
-    if (!data || !data.stockCount) return '';
+    var legacy = legacyStockTx();
+    if (!data || (!data.stockCount && !legacy.length)) return '';
+    var legacyHtml = legacy.length
+      ? '<div class="pc-stock-warn">⚠️ 检测到 <b>' + legacy.length + '</b> 笔旧版「计入项目核算」写入的内账流水（营期：' +
+        legacy.map(function (t) { return FW.esc(String(t.srcStock)); }).join('、') +
+        '），与现在的自动计入<b>重复</b>，会导致成本翻倍。' +
+        '<button class="btn sm" id="pcDropLegacy" style="margin-left:8px">删除这 ' + legacy.length + ' 笔重复流水</button>' +
+        '（只删库存生成的，你自己的流水不受影响）</div>'
+      : '';
+    if (!data.stockCount) {
+      return '<div class="pc-note pc-note-stock"><span class="pc-note-ico">📦</span><div>' + legacyHtml + '</div></div>';
+    }
     return '<div class="pc-note pc-note-stock">' +
       '<span class="pc-note-ico">📦</span>' +
       '<div>库存台账 <b>' + data.stockCount + '</b> 个营期的<b>净额</b>（调货金额 − 退货金额）合计 <b>' + FW.fmtMoney(data.stockTot || 0) + '</b>，已自动计入各项目「流水成本」，分类固定为 <b>' + STOCK_CAT + '</b>（<b>营期名即项目名</b>，内账流水不重复写入）。' +
       (data.stockOn
         ? '若内账那笔采购支出<b>已挂同名项目</b>，请在上方「成本分类」里取消勾选 <b>' + STOCK_CAT + '</b> 即可排除，避免重复计算。'
         : '当前已剔除 <b>' + STOCK_CAT + '</b>，未计入成本。') +
+      legacyHtml +
       '</div></div>';
   }
 
