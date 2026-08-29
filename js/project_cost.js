@@ -1039,7 +1039,9 @@
       tableHtml = '<div style="max-height:54vh;overflow:auto"><table class="pc-unclass-table"><thead><tr><th>日期</th><th>类型</th><th>分类</th><th>对方</th><th class="num">金额</th><th>摘要</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
     }
     var body = kpiHtml + tableHtml;
-    FW.openModal(scope + fTitle + '（' + txRows.length + ' 笔）', body);
+    FW.openModal(scope + fTitle + '（' + txRows.length + ' 笔）', body, function () {
+      var m = document.querySelector('.modal'); if (m) m.classList.add('modal-wide');
+    });
   }
 
   // 工资成本下钻：按底薪/奖金/提成折叠分组（点击分组头可收起/展开）
