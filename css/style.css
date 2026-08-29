@@ -1573,6 +1573,21 @@ button.pc-detail-tx { cursor:pointer }
 .per-toggle { color:#C8102E; display:inline-block; width:14px; }
 .per-date { background:#FAFBFD; font-size:12px; color:#5a6472; }
 .per-total { background:#F7F9FC; border-top:1px solid var(--line,#e3e3e3); }
+/* v53：退货独立列 + 结算对账（半月分期） */
+.per-foot { padding:7px 12px; font-size:12px; border-top:1px dashed var(--line,#e3e3e3); background:#FCFCFD; }
+.per-ret-badge { margin-left:auto; font-size:11px; padding:2px 8px; border-radius:10px; background:#fff0f2; color:#C8102E; border:1px solid #ffd6dc; white-space:nowrap; }
+.per-item .ret-val { font-weight:600; }
+.ret-val.clickable-amt { color:#C8102E; border-bottom:1px dashed #C8102E; }
+.settle-modebar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 12px; margin-bottom:12px; background:#FFFDF5; border:1px solid #F0E2C0; border-radius:8px; }
+.settle-kpis { display:flex; gap:10px; flex-wrap:wrap; padding:10px 14px; background:#FAFBFD; border-bottom:1px solid var(--line,#e3e3e3); }
+.settle-kpis .kpi { flex:1 1 130px; min-width:130px; padding:8px 12px; background:#fff; border:1px solid var(--line,#e3e3e3); border-radius:8px; }
+.settle-kpis .kpi .l { font-size:11px; color:var(--muted,#8a94a6); }
+.settle-kpis .kpi .v { font-size:17px; font-weight:700; line-height:1.35; }
+.settle-kpis .kpi .v.income { color:#1a9c59; }
+.settle-kpis .kpi .v.expense { color:#C8102E; }
+.settle-kpis .kpi .v.gold { color:#B8860B; }
+.settle-kpis .kpi .s { font-size:11px; color:var(--muted,#8a94a6); }
 @media print {
   .per-card { break-inside:avoid; }
+  .settle-modebar { display:none; }
 }
