@@ -43,6 +43,47 @@
   function getInternal() { return FW.db.getList('internal'); }
   function getSalaryRecs() { return FW.db.getList('salary_records'); }
 
+  /* ===== 库存台账（stock）→ 项目核算 =====
+   * 口径：营期名 = 项目名；采购成本 = 调货金额 − 退货冲减（退货取绝对值，方向与结存无关）。
+   * 自动计入流水成本，分类固定为「采购成本」；不再向内账写入流水（内账已记过同一批货，写会翻倍）。
+   * 若内账那笔采购支出已挂了同名项目，会在成本分类面板里取消勾选「采购成本」即可排除。
+   */
+  var STOCK_KEY = 'stock';
+  var STOCK_CAT = '采购成本';
+  var STOCK_CAT2 = '采购成本 / 采购成本';
+  var STOCK_DIRS = { '采购入库': 'in', '其他入库': 'in', '销售退货': 'in', '销售出库': 'out', '其他出库': 'out', '采购退货': 'out' };
+  function isStockReturn(type) { return type === '销售退货' || type === '采购退货'; }
+  function stockDir(type) { return STOCK_DIRS[type] || 'in'; }
+  function stockYearOk(t, year) { return year === 'all' || String((t.date || '').slice(0, 4)) === String(year); }
+  // 按营期聚合 → { 营期: {period, inQ, inA, retQ, retA, outQ, outA, net, from, to, items:{}} }
+  function stockPeriodAgg(year) {
+    var map = {};
+    (FW.db.getList(STOCK_KEY) || []).forEach(function (t) {
+      if (!t || !stockYearOk(t, year)) return;
+      var p = String(t.period || '').trim();
+      if (!p || p === '未填营期') return;
+      var g = map[p] || (map[p] = { period: p, inQ: 0, inA: 0, retQ: 0, retA: 0, outQ: 0, outA: 0, from: '', to: '', items: {}, iorder: [] });
+      var q = num(t.qty), a = num(t.amount), d = t.date || '';
+      var it = null;
+      if (isStockReturn(t.type)) { g.retQ += Math.abs(q); g.retA += Math.abs(a); }
+      else if (stockDir(t.type) === 'in') { g.inQ += q; g.inA += a; }
+      else { g.outQ += q; g.outA += a; }
+      if (!isStockReturn(t.type) && stockDir(t.type) === 'in' || isStockReturn(t.type)) {
+        var k = (String(t.item || '—').trim() || '—') + '||' + (String(t.unit || '').trim());
+        it = g.items[k] || (g.items[k] = { item: k.split('||')[0], unit: k.split('||')[1], inQ: 0, inA: 0, retQ: 0, retA: 0 });
+        if (isStockReturn(t.type)) { it.retQ += Math.abs(q); it.retA += Math.abs(a); }
+        else { it.inQ += q; it.inA += a; }
+      }
+      if (d) { if (!g.from || d < g.from) g.from = d; if (!g.to || d > g.to) g.to = d; }
+    });
+    Object.keys(map).forEach(function (p) {
+      var g = map[p];
+      g.net = g.inA - g.retA;
+      g.items = Object.keys(g.items).map(function (k) { return g.items[k]; });
+    });
+    return map;
+  }
+
   // 一级分类（"主 / 子" 取主）
   function cat1(t) { return ((t.category || '').split(' / ')[0] || '').trim() || '其他'; }
 
@@ -201,6 +242,26 @@
       }
     });
 
+    // ===== 库存台账：营期净额（调货 − 退货）自动计入流水成本，分类「采购成本」 =====
+    // 营期名即项目名；不写内账流水（内账已记过），避免同一批货成本翻倍
+    var stockMap = stockPeriodAgg(year);
+    var stockKeys = Object.keys(stockMap);
+    var stockOn = !catHidden(STOCK_CAT);
+    var stockTot = 0;
+    if (stockKeys.length) allCats[STOCK_CAT] = 1;
+    stockKeys.forEach(function (p) {
+      var g = stockMap[p];
+      if (Math.abs(g.net) < 0.005) return;
+      stockTot += g.net;
+      if (!stockOn) return;
+      var d = ensure(p);
+      d.flowCost += g.net;
+      d.byCat[STOCK_CAT] = (d.byCat[STOCK_CAT] || 0) + g.net;
+      d.byCat2[STOCK_CAT2] = (d.byCat2[STOCK_CAT2] || 0) + g.net;
+      d.stockPeriods = d.stockPeriods || [];
+      d.stockPeriods.push(g.period);
+    });
+
     // 工资：底薪/奖金/提成按项目汇总；「未分类」部分进入未分配
     recs.forEach(function (r) {
       var recKey = r.id || (r.empId + '-' + r.year + '-' + r.month);
@@ -318,6 +379,18 @@
       var sum = salaryComps(r).reduce(function (s, c) { return s + (c.project === '未分类' ? 0 : c.amount); }, 0);
       if (vis.labor) mEnsure(k).labor += sum;
     });
+    // 库存台账采购成本按月归集（入库 +金额 / 退货 −金额），与分项表口径一致
+    if (stockOn && vis.flow) {
+      (FW.db.getList(STOCK_KEY) || []).forEach(function (t) {
+        if (!t || !stockYearOk(t, year)) return;
+        var p = String(t.period || '').trim();
+        if (!p || p === '未填营期') return;
+        var k = (t.date || '').slice(0, 7); if (k.length < 7) return;
+        var a = num(t.amount);
+        if (isStockReturn(t.type)) mEnsure(k).flow -= Math.abs(a);
+        else if (stockDir(t.type) === 'in') mEnsure(k).flow += a;
+      });
+    }
     var mkeys = Object.keys(mMap).sort();
     var monthly = {
       labels: mkeys.map(function (k) { return year === 'all' ? k : k.slice(5); }),
@@ -333,7 +406,12 @@
     };
 
     var allCatKeys = Object.keys(allCats).sort();
-    return { rows: rows, tot: tot, vTot: vTot, avgRate: vTot.rate, avgRoi: vTot.roi, cats: cats, laborTypes: laborTypes, monthly: monthly, unalloc: unalloc, catTot: catTot, cat2Tot: cat2Tot, allCats: allCatKeys };
+    return {
+      rows: rows, tot: tot, vTot: vTot, avgRate: vTot.rate, avgRoi: vTot.roi,
+      cats: cats, laborTypes: laborTypes, monthly: monthly, unalloc: unalloc,
+      catTot: catTot, cat2Tot: cat2Tot, allCats: allCatKeys,
+      stockMap: stockMap, stockOn: stockOn, stockTot: stockTot, stockCount: stockKeys.length
+    };
   }
 
   function getYears() {
@@ -902,6 +980,26 @@
         if (filter !== 'all' && filter !== 'income' && filter !== 'cost') return;
         pushInternal(t);
       });
+      // 库存台账：营期净额（调货 − 退货）自动计入的采购成本（营期名 = 项目名，不占内账流水）
+      if (filter === 'all' || filter === 'cost') {
+        var sm = stockPeriodAgg(state.year);
+        Object.keys(sm).forEach(function (p) {
+          if (project && p !== project) return;
+          var g = sm[p];
+          if (Math.abs(g.net) < 0.005) return;
+          var span = (g.from === g.to || !g.to) ? (g.from || g.to || '') : (g.from + '~' + g.to);
+          txRows.push({
+            date: span,
+            type: '采购成本',
+            category: STOCK_CAT2,
+            party: '库存台账·' + g.period,
+            amount: g.net,
+            remark: '营期「' + g.period + '」调货 ' + FW.fmtMoney(g.inA) + ' − 退货 ' + FW.fmtMoney(g.retA) + '（自动计入，内账不重复记）',
+            cls: 'amt-expense'
+          });
+          exp += g.net;
+        });
+      }
       txRows.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
     }
     if (!txRows.length) { FW.toast('该项目无相关流水'); return; }
@@ -1110,9 +1208,10 @@
     html += recoverNote(data);
     html += unallocHtml(data);
     // 筛选行 + 排名数据表置于图表上方
-    html += filterBarHtml(data);
-    html += unclassifiedBanner();
-    html += filterNote;
+  html += filterBarHtml(data);
+  html += unclassifiedBanner();
+  html += stockNote(data);
+  html += filterNote;
     html += tableHtml(rows, data);
     html += chartHtml(data, rows);
     html += profitRateHtml(rows);
@@ -1333,6 +1432,18 @@
       '<span class="pc-note-ico">↩</span>' +
       '<div>项目「应收回款项」合计 <b>' + FW.fmtMoney(data.tot.recoverable) + '</b>：来自「往来账」中标记为 <b>预付</b> 且关联了项目的单据，取其<b>未用完余额</b>（预付款 − 已核销）。这笔<b>待收回</b>的钱从各项目「总成本」中<b>扣除</b>（总成本 = 流水成本 − 应收回款项 + 工资成本）。核销（消耗 / 收回）后余额减少，对总成本与利润的影响会同步联动调整。</div>' +
       '</div>';
+  }
+
+  // 库存台账采购成本说明（营期净额自动计入）
+  function stockNote(data) {
+    if (!data || !data.stockCount) return '';
+    return '<div class="pc-note pc-note-stock">' +
+      '<span class="pc-note-ico">📦</span>' +
+      '<div>库存台账 <b>' + data.stockCount + '</b> 个营期的<b>净额</b>（调货金额 − 退货金额）合计 <b>' + FW.fmtMoney(data.stockTot || 0) + '</b>，已自动计入各项目「流水成本」，分类固定为 <b>' + STOCK_CAT + '</b>（<b>营期名即项目名</b>，内账流水不重复写入）。' +
+      (data.stockOn
+        ? '若内账那笔采购支出<b>已挂同名项目</b>，请在上方「成本分类」里取消勾选 <b>' + STOCK_CAT + '</b> 即可排除，避免重复计算。'
+        : '当前已剔除 <b>' + STOCK_CAT + '</b>，未计入成本。') +
+      '</div></div>';
   }
 
   // 未分配资金提醒
