@@ -1117,7 +1117,7 @@
 
     var ta = document.getElementById('topActions');
     var lg = loadLastGen();
-    ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn ghost" id="stPaste">📋 粘贴调货单</button>' +
+    ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn ghost" id="stImg">🖼 导出图片</button><button class="btn ghost" id="stPaste">📋 粘贴调货单</button>' +
       '<button class="btn ghost" id="stReturn" title="快捷登记客户退回的货">↩ 登记退货</button>' +
       (lg ? '<button class="btn ghost" id="stUndo" title="撤销最近一次「粘贴调货单」生成的记录">↩ 撤销上次生成（' + lg.count + ' 条）</button>' : '') +
       '<button class="btn" id="addStBtn">＋ 新增单据</button>';
@@ -1126,6 +1126,11 @@
       if (state.stView === 'period') exportStockPeriodCsv();
       else if (state.stView === 'settle') exportStockSettleCsv();
       else exportStockCsv();
+    };
+    var si = document.getElementById('stImg');
+    if (si) si.onclick = function () {
+      if (state.stView === 'period') exportStockPeriodImg();
+      else FW.toast('请先切到「按营期汇总」再导出图片');
     };
     document.getElementById('stPaste').onclick = function () { openTransferPaste(); };
     var sr2 = document.getElementById('stReturn');
@@ -1372,6 +1377,56 @@
     a.download = '库存按营期汇总_' + FW.today() + '.csv';
     a.click();
     FW.toast('已导出按营期汇总（CSV）');
+  }
+
+  // 导出按营期汇总（PNG 图片，一图看清每个营期的调货/退货/净额，适合直接发给老板看）
+  function exportStockPeriodImg() {
+    if (!window.FWTableImg) { FW.toast('图片导出组件未加载，请刷新页面重试'); return; }
+    var rows = stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType);
+    if (!rows.length) { FW.toast('没有可导出的数据'); return; }
+    var groups = periodAgg(rows);
+    if (!groups.length) { FW.toast('没有可导出的数据'); return; }
+    var head = ['营期', '产品', '调货数量', '调货金额', '退货冲减', '净额', '结存'];
+    var outRows = [], prodSet = {}, tQ = 0, tIn = 0, tOff = 0, tNet = 0;
+    groups.forEach(function (g) {
+      var gOff = periodRetOff(g), gNet = periodNet(g);
+      g.items.forEach(function (it) {
+        prodSet[g.period + '|' + it.item] = 1;
+        var off = (it.retOff != null) ? num(it.retOff) : Math.abs(num(it.retA));
+        outRows.push([g.period, it.item, String(num(it.inQ)), money(it.inA), money(off), money(num(it.inA) - off), String(num(it.balQ))]);
+      });
+      tQ += num(g.tot.inQ); tIn += num(g.tot.inA); tOff += gOff; tNet += gNet;
+      outRows.push([g.period, '— 小计（' + g.items.length + ' 种产品）', String(num(g.tot.inQ)), money(g.tot.inA), money(gOff), money(gNet), String(num(g.tot.balQ))]);
+    });
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+    var d = new Date();
+    var stamp = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
+      pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    var rng = (state.stFrom || state.stTo) ? ((state.stFrom || '不限') + ' ~ ' + (state.stTo || '不限')) : '全部';
+    FW.toast('图片生成中…');
+    window.FWTableImg.render({
+      title: '库存台账 · 按营期汇总',
+      eyebrow: '财务工作台 · 库存台账',
+      subtitle: '期间：' + rng + '　|　导出日期：' + FW.today(),
+      footer: '由 财务工作台 导出 · ' + stamp + ' · 仅供内部参考',
+      kpis: [
+        { label: '营期数', value: String(groups.length) },
+        { label: '产品数', value: String(Object.keys(prodSet).length) },
+        { label: '调货金额', value: money(tIn), cls: 'income' },
+        { label: '退货冲减', value: money(tOff), cls: 'expense' },
+        { label: '净额合计', value: money(tNet) }
+      ],
+      head: head,
+      rows: outRows,
+      colWidths: [150, 205, 92, 115, 115, 115, 84],
+      amountCol: 3
+    }).then(function (canvas) {
+      window.FWTableImg.downloadPNG(canvas, '库存按营期汇总_' + FW.today() + '.png');
+      FW.toast('已导出按营期汇总（PNG）');
+    }).catch(function (err) {
+      console.error('[库存导出图片] 失败：', err);
+      FW.toast('图片生成失败：' + (err && err.message ? err.message : err));
+    });
   }
 
   /* ---------- 结算对账：按半月分期（1-15 / 16-月末），调货 − 退货抵扣 = 应付 ---------- */
