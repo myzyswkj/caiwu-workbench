@@ -55,6 +55,12 @@
   function isStockReturn(type) { return type === '销售退货' || type === '采购退货'; }
   function stockDir(type) { return STOCK_DIRS[type] || 'in'; }
   function stockYearOk(t, year) { return year === 'all' || String((t.date || '').slice(0, 4)) === String(year); }
+  // 产品名归一：与库存台账共用同一套别名（FW.itemAlias 由 js/invoices.js 暴露），未加载时原样返回
+  function normStockItem(name) {
+    var s = String(name == null ? '' : name).trim();
+    if (!s) return s;
+    return (FW.itemAlias && FW.itemAlias.norm) ? FW.itemAlias.norm(s) : s;
+  }
   // 按营期聚合 → { 营期: {period, inQ, inA, retQ, retA, outQ, outA, net, from, to, items:{}} }
   function stockPeriodAgg(year) {
     var map = {};
@@ -69,7 +75,7 @@
       else if (stockDir(t.type) === 'in') { g.inQ += q; g.inA += a; }
       else { g.outQ += q; g.outA += a; }
       if (!isStockReturn(t.type) && stockDir(t.type) === 'in' || isStockReturn(t.type)) {
-        var k = (String(t.item || '—').trim() || '—') + '||' + (String(t.unit || '').trim());
+        var k = (normStockItem(t.item) || '—') + '||' + (String(t.unit || '').trim());
         it = g.items[k] || (g.items[k] = { item: k.split('||')[0], unit: k.split('||')[1], inQ: 0, inA: 0, retQ: 0, retA: 0 });
         if (isStockReturn(t.type)) { it.retQ += Math.abs(q); it.retA += Math.abs(a); }
         else { it.inQ += q; it.inA += a; }
