@@ -139,8 +139,10 @@
     ctPhotos: [], ctDocFiles: [], ctAttachments: [],
     // 库存台账筛选
     stKw: '', stFrom: '', stTo: '', stType: '',
-    stView: 'detail',   // detail 单据明细 / period 按营期汇总
+    stView: 'detail',   // detail 单据明细 / period 按营期汇总 / settle 结算对账
     stPeriodOpen: {},   // 汇总视图中「产品按发货日期展开」的展开状态：key = period|item
+    stSettleMode: 'next', // 退货抵扣方式：next 月末归集次月初抵扣 / cur 当期直接抵扣
+    stSettleOpen: {},   // 结算视图中「期段展开」的展开状态：key = 期段标签
     stPhotos: []
   };
 
@@ -1013,18 +1015,25 @@
     }
     return rows;
   }
+  // 口径：调货入库不含退货；退货单独按净额统计（销售退货 +，采购退货 −）；结存 = 调货 − 出库 + 退货
   function stockSummary(rows) {
     var inQ = 0, inA = 0, outQ = 0, outA = 0, retQ = 0, retA = 0;
     rows.forEach(function (t) {
       var q = num(t.qty), a = num(t.amount);
-      if (t.type === '采购退货' || t.type === '销售退货') { retQ += q; retA += a; }
-      if (stockDir(t.type) === 'in') { inQ += q; inA += a; } else { outQ += q; outA += a; }
+      if (isReturnType(t.type)) {
+        var sg = retSign(t.type);
+        retQ += q * sg; retA += a * sg;
+      } else if (stockDir(t.type) === 'in') { inQ += q; inA += a; } else { outQ += q; outA += a; }
     });
-    return { inQ: inQ, inA: inA, outQ: outQ, outA: outA, retQ: retQ, retA: retA, balance: inQ - outQ };
+    return { inQ: inQ, inA: inA, outQ: outQ, outA: outA, retQ: retQ, retA: retA, balance: inQ - outQ + retQ };
   }
 
-  /* ---------- 按营期汇总：营期 → 产品（入库/出库/结存）+ 按发货日期下钻 ---------- */
-  // 返回 [{period, items:[{item,unit,inQ,inA,outQ,outA,balQ,byDate:[{date,inQ,outQ,balQ}]}], tot:{...}}]
+  /* ---------- 按营期汇总：营期 → 产品（调货/退货/结存）+ 按发货日期下钻 ---------- */
+  // 退货方向：销售退货（客户退回，dir in）记正数；采购退货（退给上游，dir out）记负数
+  function isReturnType(type) { return type === '销售退货' || type === '采购退货'; }
+  function retSign(type) { return type === '采购退货' ? -1 : 1; }
+
+  // 返回 [{period, items:[{item,unit,inQ,inA,outQ,outA,retQ,retA,balQ,byDate:[...]}], tot:{...}}]
   function periodAgg(rows) {
     var NO_PERIOD = '未填营期';
     var map = {}, order = [];
@@ -1037,14 +1046,25 @@
       var key = item + '||' + unit;
       var q = num(t.qty), a = num(t.amount);
       var d = t.date || '';
-      var dir = stockDir(t.type);
-      if (!g.items[key]) { g.items[key] = { item: item, unit: unit, inQ: 0, inA: 0, outQ: 0, outA: 0, balQ: 0, byDate: {}, dorder: [] }; g.iorder.push(key); }
+      var isRet = isReturnType(t.type);
+      if (!g.items[key]) {
+        g.items[key] = { item: item, unit: unit, inQ: 0, inA: 0, outQ: 0, outA: 0, retQ: 0, retA: 0, balQ: 0, byDate: {}, dorder: [] };
+        g.iorder.push(key);
+      }
       var it = g.items[key];
-      if (!it.byDate[d]) { it.byDate[d] = { date: d, inQ: 0, outQ: 0, balQ: 0 }; it.dorder.push(d); }
+      if (!it.byDate[d]) { it.byDate[d] = { date: d, inQ: 0, outQ: 0, retQ: 0, balQ: 0 }; it.dorder.push(d); }
       var bd = it.byDate[d];
-      if (dir === 'in') { it.inQ += q; it.inA += a; bd.inQ += q; } else { it.outQ += q; it.outA += a; bd.outQ += q; }
-      it.balQ = it.inQ - it.outQ;
-      bd.balQ = bd.inQ - bd.outQ;
+      if (isRet) {
+        // 退货独立统计，不再混入「调货数量」
+        var sg = retSign(t.type);
+        it.retQ += q * sg; it.retA += a * sg; bd.retQ += q * sg;
+      } else if (stockDir(t.type) === 'in') {
+        it.inQ += q; it.inA += a; bd.inQ += q;
+      } else {
+        it.outQ += q; it.outA += a; bd.outQ += q;
+      }
+      it.balQ = it.inQ - it.outQ + it.retQ;
+      bd.balQ = bd.inQ - bd.outQ + bd.retQ;
       g.dates[d] = 1;
     });
     return order.map(function (p) {
@@ -1055,8 +1075,9 @@
         return it;
       });
       var tot = items.reduce(function (s, it) {
-        s.inQ += it.inQ; s.inA += it.inA; s.outQ += it.outQ; s.outA += it.outA; s.balQ += it.balQ; return s;
-      }, { inQ: 0, inA: 0, outQ: 0, outA: 0, balQ: 0 });
+        s.inQ += it.inQ; s.inA += it.inA; s.outQ += it.outQ; s.outA += it.outA;
+        s.retQ += it.retQ; s.retA += it.retA; s.balQ += it.balQ; return s;
+      }, { inQ: 0, inA: 0, outQ: 0, outA: 0, retQ: 0, retA: 0, balQ: 0 });
       var dates = Object.keys(g.dates).sort();
       return { period: p, items: items, tot: tot, dateFrom: dates[0] || '', dateTo: dates[dates.length - 1] || '' };
     });
@@ -1083,6 +1104,7 @@
         '<div class="toolbar">' +
           '<button class="btn ' + (state.stView === 'detail' ? '' : 'ghost ') + 'sm" data-v="detail">单据明细</button>' +
           '<button class="btn ' + (state.stView === 'period' ? '' : 'ghost ') + 'sm" data-v="period">按营期汇总</button>' +
+          '<button class="btn ' + (state.stView === 'settle' ? '' : 'ghost ') + 'sm" data-v="settle">结算对账（半月）</button>' +
           '<span style="width:10px"></span>' +
           '<div class="field"><input id="stKw" placeholder="搜索名称/单号/往来单位" value="' + FW.esc(kw) + '"></div>' +
           '<div class="field"><select id="stType">' + typeOpts + '</select></div>' +
@@ -1094,13 +1116,18 @@
     var ta = document.getElementById('topActions');
     var lg = loadLastGen();
     ta.innerHTML = '<button class="btn ghost" id="stPrint">🖨 打印</button><button class="btn ghost" id="stCsv">⬇ 导出CSV</button><button class="btn ghost" id="stPaste">📋 粘贴调货单</button>' +
+      '<button class="btn ghost" id="stReturn" title="快捷登记客户退回的货">↩ 登记退货</button>' +
       (lg ? '<button class="btn ghost" id="stUndo" title="撤销最近一次「粘贴调货单」生成的记录">↩ 撤销上次生成（' + lg.count + ' 条）</button>' : '') +
       '<button class="btn" id="addStBtn">＋ 新增单据</button>';
     document.getElementById('stPrint').onclick = function () { window.print(); };
     document.getElementById('stCsv').onclick = function () {
-      if (state.stView === 'period') exportStockPeriodCsv(); else exportStockCsv();
+      if (state.stView === 'period') exportStockPeriodCsv();
+      else if (state.stView === 'settle') exportStockSettleCsv();
+      else exportStockCsv();
     };
     document.getElementById('stPaste').onclick = function () { openTransferPaste(); };
+    var sr2 = document.getElementById('stReturn');
+    if (sr2) sr2.onclick = openReturnForm;
     document.getElementById('addStBtn').onclick = function () { openStockForm(null); };
     var su = document.getElementById('stUndo');
     if (su) su.onclick = undoStockLastGen;
@@ -1108,6 +1135,9 @@
     if (state.stView === 'period') {
       drawStockSummary(stockSummary(rows));
       drawStockPeriodView(rows);
+    } else if (state.stView === 'settle') {
+      drawStockSummary(stockSummary(rows));
+      drawStockSettleView(rows);
     } else {
       drawStockSummary(s);
       drawStockTable(rows);
@@ -1129,10 +1159,10 @@
     var el = document.getElementById('stSummary');
     if (!el) return;
     el.innerHTML =
-      '<div class="stat"><div class="label">入库合计</div><div class="value income">' + s.inQ + ' 件</div><div class="sub">金额 ' + money(s.inA) + '</div></div>' +
+      '<div class="stat"><div class="label">调货入库</div><div class="value income">' + s.inQ + ' 件</div><div class="sub">金额 ' + money(s.inA) + '</div></div>' +
       '<div class="stat"><div class="label">出库合计</div><div class="value expense">' + s.outQ + ' 件</div><div class="sub">金额 ' + money(s.outA) + '</div></div>' +
-      '<div class="stat"><div class="label">退货合计</div><div class="value">' + s.retQ + ' 件</div><div class="sub">金额 ' + money(s.retA) + '</div></div>' +
-      '<div class="stat"><div class="label">库存结存（数量）</div><div class="value">' + s.balance + ' 件</div><div class="sub">入 − 出</div></div>';
+      '<div class="stat"><div class="label">退货（净）</div><div class="value ' + (s.retQ > 0 ? 'expense' : '') + '">' + s.retQ + ' 件</div><div class="sub">金额 ' + money(s.retA) + '</div></div>' +
+      '<div class="stat"><div class="label">库存结存（数量）</div><div class="value">' + s.balance + ' 件</div><div class="sub">调货 − 出库 + 退货</div></div>';
   }
 
   function drawStockTable(rows) {
@@ -1175,6 +1205,9 @@
     if (state.stView === 'period') {
       drawStockSummary(stockSummary(rows));
       drawStockPeriodView(rows);
+    } else if (state.stView === 'settle') {
+      drawStockSummary(stockSummary(rows));
+      drawStockSettleView(rows);
     } else {
       drawStockTable(rows);
     }
@@ -1195,21 +1228,27 @@
         var open = !!state.stPeriodOpen[key];
         var canToggle = it.byDateList.length > 1;
         var avg = it.inQ > 0 ? (it.inA / it.inQ) : 0;
+        var hasRet = Math.abs(it.retQ) > 0.000001;
         var main = '<tr class="per-item' + (canToggle ? ' toggleable' : '') + '" data-g="' + gi + '" data-i="' + ii + '">' +
           '<td>' + (canToggle ? '<span class="per-toggle">' + (open ? '▾' : '▸') + '</span> ' : '') + FW.esc(it.item) + '</td>' +
           '<td>' + (it.unit ? FW.esc(it.unit) : '<span class="muted">—</span>') + '</td>' +
           '<td class="num income"><b>' + num(it.inQ) + '</b></td>' +
           '<td class="num">' + (it.inQ > 0 ? money(avg) : '<span class="muted">—</span>') + '</td>' +
           '<td class="num">' + money(it.inA) + '</td>' +
+          '<td class="num ' + (hasRet ? 'ret-val clickable-amt' : 'muted') + '"' + (hasRet ? ' data-ret="' + FW.esc(g.period) + '||' + FW.esc(it.item) + '" title="点击查看退货明细"' : '') + '>' + (hasRet ? num(it.retQ) : '<span class="muted">—</span>') + '</td>' +
+          '<td class="num ' + (hasRet ? 'expense' : 'muted') + '">' + (hasRet ? money(it.retA) : '<span class="muted">—</span>') + '</td>' +
           '<td class="num ' + (it.balQ === 0 ? 'muted' : (it.balQ > 0 ? 'income' : 'expense')) + '">' + num(it.balQ) + '</td>' +
           '</tr>';
         if (open && canToggle) {
           main += it.byDateList.map(function (bd) {
+            var bRet = Math.abs(bd.retQ) > 0.000001;
             return '<tr class="per-date">' +
               '<td style="padding-left:26px">' + FW.esc(bd.date || '未填日期') + '</td>' +
               '<td></td>' +
               '<td class="num income">' + num(bd.inQ) + '</td>' +
               '<td class="num muted">—</td>' +
+              '<td class="num muted">—</td>' +
+              '<td class="num ' + (bRet ? 'expense' : 'muted') + '">' + (bRet ? num(bd.retQ) : '—') + '</td>' +
               '<td class="num muted">—</td>' +
               '<td class="num">' + num(bd.balQ) + '</td>' +
               '</tr>';
@@ -1217,17 +1256,22 @@
         }
         return main;
       }).join('');
-      var tq = g.tot.inQ, ta = g.tot.inA, tb = g.tot.balQ;
+      var tq = g.tot.inQ, ta = g.tot.inA, tb = g.tot.balQ, tr = g.tot.retQ, tra = g.tot.retA;
       var tot = '<tr class="per-total"><td><b>小计</b></td><td></td>' +
         '<td class="num"><b>' + num(tq) + '</b></td><td class="num"></td>' +
         '<td class="num"><b>' + money(ta) + '</b></td>' +
+        '<td class="num ' + (Math.abs(tr) > 0.000001 ? 'expense' : 'muted') + '"><b>' + num(tr) + '</b></td>' +
+        '<td class="num expense"><b>' + money(tra) + '</b></td>' +
         '<td class="num"><b>' + num(tb) + '</b></td></tr>';
       var span = g.dateFrom ? (g.dateFrom === g.dateTo ? FW.esc(g.dateFrom) : FW.esc(g.dateFrom) + ' ~ ' + FW.esc(g.dateTo)) : '';
+      var retTip = Math.abs(tr) > 0.000001 ? '<span class="per-ret-badge">退货 ' + num(tr) + ' · ' + money(tra) + '</span>' : '';
       return '<div class="per-card">' +
         '<div class="per-head"><b>' + FW.esc(g.period) + '</b>' +
-        '<span class="muted" style="font-size:12px">' + span + (span ? ' · ' : '') + g.items.length + ' 种产品</span></div>' +
-        '<table><thead><tr><th>产品</th><th>单位</th><th class="num">调货数量</th><th class="num">均价</th><th class="num">金额</th><th class="num">结存</th></tr></thead><tbody>' +
-        trs + tot + '</tbody></table></div>';
+        '<span class="muted" style="font-size:12px">' + span + (span ? ' · ' : '') + g.items.length + ' 种产品</span>' + retTip + '</div>' +
+        '<table><thead><tr><th>产品</th><th>单位</th><th class="num">调货数量</th><th class="num">均价</th><th class="num">金额</th><th class="num">退货数量</th><th class="num">退货金额</th><th class="num">结存</th></tr></thead><tbody>' +
+        trs + tot + '</tbody></table>' +
+        '<div class="per-foot muted">调货数量 = 采购入库（不含退货） ；结存 = 调货 − 出库 + 退货</div>' +
+        '</div>';
     }).join('');
     el.innerHTML = html;
     FW.qa('#stWrap .per-item.toggleable').forEach(function (tr) {
@@ -1238,6 +1282,54 @@
         state.stPeriodOpen[key] = !state.stPeriodOpen[key];
         renderStockList();
       };
+    });
+    FW.qa('#stWrap [data-ret]').forEach(function (td) {
+      td.onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        var v = this.getAttribute('data-ret') || '';
+        var idx = v.indexOf('||');
+        if (idx < 0) return;
+        openReturnDetail(v.slice(0, idx), v.slice(idx + 2));
+      };
+    });
+  }
+
+  // 某营期某产品的退货明细（点汇总表的退货数字打开）
+  function openReturnDetail(period, item) {
+    var rows = (FW.db.getList(STOCK_KEY) || []).filter(function (t) {
+      return isReturnType(t.type) &&
+        String(t.item || '').trim() === String(item || '').trim() &&
+        String(t.period || '').trim() === String(period || '').trim();
+    }).sort(function (a, b) { return (a.date || '').localeCompare(b.date || ''); });
+    if (!rows.length) { FW.toast('没有找到该产品的退货记录'); return; }
+    var tq = 0, ta = 0;
+    var trs = rows.map(function (t) {
+      var q = num(t.qty), a = num(t.amount), sg = retSign(t.type);
+      tq += q * sg; ta += a * sg;
+      return '<tr>' +
+        '<td class="nowrap">' + FW.esc(t.date || '') + '</td>' +
+        '<td><span class="tag ' + (t.type === '销售退货' ? 'ok' : 'warn') + '">' + FW.esc(t.type) + '</span></td>' +
+        '<td class="num">' + (sg > 0 ? '+' : '−') + num(q) + '</td>' +
+        '<td>' + (t.unit ? FW.esc(t.unit) : '<span class="muted">—</span>') + '</td>' +
+        '<td class="num">' + money(t.price) + '</td>' +
+        '<td class="num ' + (sg > 0 ? 'expense' : 'income') + '">' + (sg > 0 ? '−' : '+') + money(a) + '</td>' +
+        '<td>' + FW.esc(t.party || '—') + '</td>' +
+        '<td>' + FW.esc(t.remark || '—') + '</td>' +
+        '</tr>';
+    }).join('');
+    var body =
+      '<div class="pc-pd-kpis">' +
+        '<div class="kpi"><div class="l">净退货数量</div><div class="v expense">' + num(tq) + '</div></div>' +
+        '<div class="kpi"><div class="l">应抵扣金额</div><div class="v expense">' + money(ta) + '</div></div>' +
+        '<div class="kpi"><div class="l">退货笔数</div><div class="v">' + rows.length + '</div></div>' +
+      '</div>' +
+      '<div style="max-height:52vh;overflow:auto"><table class="pc-unclass-table"><thead><tr>' +
+      '<th>日期</th><th>类型</th><th class="num">数量</th><th>单位</th><th class="num">单价</th><th class="num">金额</th><th>往来单位</th><th>摘要</th>' +
+      '</tr></thead><tbody>' + trs + '</tbody></table></div>' +
+      '<div class="form-actions"><button class="btn ghost" id="rd_close">关闭</button></div>';
+    FW.openModal('退货明细 · ' + FW.esc(item) + '（' + FW.esc(period) + '）', body, function () {
+      var b = document.getElementById('rd_close');
+      if (b) b.onclick = function () { FW.closeModal(); };
     });
   }
 
@@ -1264,6 +1356,293 @@
     a.download = '库存按营期汇总_' + FW.today() + '.csv';
     a.click();
     FW.toast('已导出按营期汇总（CSV）');
+  }
+
+  /* ---------- 结算对账：按半月分期（1-15 / 16-月末），调货 − 退货抵扣 = 应付 ---------- */
+  var NO_DATE_KEY = '未填日期';
+  function periodKeyOf(d) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) return '';
+    return d.slice(0, 7) + '-' + (Number(d.slice(8, 10)) <= 15 ? '上' : '下');
+  }
+  function periodLabel(k) {
+    if (k === NO_DATE_KEY) return NO_DATE_KEY;
+    return k.slice(0, 7) + ' ' + (k.slice(8) === '上' ? '上半月' : '下半月');
+  }
+  function periodRange(k) {
+    if (k === NO_DATE_KEY) return { from: '', to: '' };
+    var ym = k.slice(0, 7);
+    return k.slice(8) === '上' ? { from: ym + '-01', to: ym + '-15' } : { from: ym + '-16', to: ym + '-31' };
+  }
+
+  // mode: 'cur' 当期直接抵扣 / 'next' 月末归集、次月初那次结算抵扣
+  // 返回 [{key,label,from,to,isFirstHalf,items:[{item,unit,buyQ,buyA,retQ,retA,carInQ,carInA,dedQ,dedA,carQ,carA,payQ,payA}],tot:{...}}]
+  function settleAgg(rows, mode) {
+    var map = {}, order = [];
+    rows.forEach(function (t) {
+      var k = periodKeyOf(t.date) || NO_DATE_KEY;
+      if (!map[k]) { map[k] = { key: k, items: {}, iorder: [] }; order.push(k); }
+      var g = map[k];
+      var item = String(t.item || '—').trim() || '—';
+      var unit = String(t.unit || '').trim();
+      var key = item + '||' + unit;
+      var q = num(t.qty), a = num(t.amount);
+      if (!g.items[key]) {
+        g.items[key] = { item: item, unit: unit, buyQ: 0, buyA: 0, retQ: 0, retA: 0 };
+        g.iorder.push(key);
+      }
+      var it = g.items[key];
+      if (isReturnType(t.type)) {
+        var sg = retSign(t.type);
+        it.retQ += q * sg; it.retA += a * sg;
+      } else if (stockDir(t.type) === 'in') {
+        it.buyQ += q; it.buyA += a;
+      }
+    });
+    order.sort();
+    var carry = {};
+    return order.map(function (k) {
+      var g = map[k];
+      var isFirstHalf = (k !== NO_DATE_KEY && k.slice(8) === '上');
+      var items = g.iorder.map(function (key) {
+        var it = g.items[key];
+        var c = carry[key] || { q: 0, a: 0 };
+        it.carInQ = c.q; it.carInA = c.a;
+        if (mode === 'cur' || k === NO_DATE_KEY) {
+          it.dedQ = it.retQ; it.dedA = it.retA;
+          it.carQ = 0; it.carA = 0;
+        } else if (isFirstHalf) {
+          // 月初这次结算：抵扣上期（上月）结转过来的退货
+          it.dedQ = c.q; it.dedA = c.a;
+          it.carQ = it.retQ; it.carA = it.retA;
+        } else {
+          // 月末这次结算：先不抵，本期退货并入结转，等次月初再抵
+          it.dedQ = 0; it.dedA = 0;
+          it.carQ = c.q + it.retQ; it.carA = c.a + it.retA;
+        }
+        it.payQ = it.buyQ - it.dedQ;
+        it.payA = it.buyA - it.dedA;
+        carry[key] = { q: it.carQ, a: it.carA };
+        return it;
+      });
+      var tot = items.reduce(function (s, it) {
+        s.buyQ += it.buyQ; s.buyA += it.buyA; s.retQ += it.retQ; s.retA += it.retA;
+        s.carInQ += it.carInQ; s.carInA += it.carInA;
+        s.dedQ += it.dedQ; s.dedA += it.dedA;
+        s.carQ += it.carQ; s.carA += it.carA;
+        s.payQ += it.payQ; s.payA += it.payA; return s;
+      }, { buyQ: 0, buyA: 0, retQ: 0, retA: 0, carInQ: 0, carInA: 0, dedQ: 0, dedA: 0, carQ: 0, carA: 0, payQ: 0, payA: 0 });
+      var rg = periodRange(k);
+      return { key: k, label: periodLabel(k), from: rg.from, to: rg.to, isFirstHalf: isFirstHalf, items: items, tot: tot };
+    });
+  }
+
+  function drawStockSettleView(rows) {
+    var el = document.getElementById('stWrap');
+    if (!el) return;
+    var mode = state.stSettleMode || 'next';
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty">没有符合条件的单据。点右上角「📋 粘贴调货单」或「↩ 登记退货」，或调整筛选条件。</div>';
+      return;
+    }
+    var groups = settleAgg(rows, mode);
+    var modeBar =
+      '<div class="settle-modebar">' +
+        '<span style="font-size:13px;color:var(--muted)">退货抵扣方式：</span>' +
+        '<button class="btn ' + (mode === 'next' ? '' : 'ghost ') + 'sm" data-m="next">月末归集·次月初抵扣</button>' +
+        '<button class="btn ' + (mode === 'cur' ? '' : 'ghost ') + 'sm" data-m="cur">当期直接抵扣</button>' +
+        '<span class="muted" style="font-size:12px">' + (mode === 'next'
+          ? '每月末归集退货，到次月「上半月」那次结算时一次性抵扣（结转变动见卡片底部）'
+          : '本期发生的退货，直接在本期结算时扣掉') + '</span>' +
+      '</div>';
+
+    var html = modeBar + groups.map(function (g) {
+      var trs = g.items.map(function (it) {
+        var hasRet = Math.abs(it.retQ) > 0.000001;
+        var hasIn = Math.abs(it.carInQ) > 0.000001;
+        return '<tr>' +
+          '<td>' + FW.esc(it.item) + (hasIn ? '<div class="muted" style="font-size:11px">含上期结转退货 ' + num(it.carInQ) + '</div>' : '') + '</td>' +
+          '<td>' + (it.unit ? FW.esc(it.unit) : '<span class="muted">—</span>') + '</td>' +
+          '<td class="num income">' + num(it.buyQ) + '</td>' +
+          '<td class="num">' + money(it.buyA) + '</td>' +
+          '<td class="num ' + (hasRet ? 'expense' : 'muted') + '">' + (hasRet ? num(it.retQ) : '—') + '</td>' +
+          '<td class="num ' + (hasRet ? 'expense' : 'muted') + '">' + (hasRet ? money(it.retA) : '—') + '</td>' +
+          '<td class="num ' + (Math.abs(it.dedA) > 0.000001 ? 'expense' : 'muted') + '">' + (Math.abs(it.dedA) > 0.000001 ? money(it.dedA) : '—') + '</td>' +
+          '<td class="num"><b>' + money(it.payA) + '</b></td>' +
+          '</tr>';
+      }).join('');
+      var t = g.tot;
+      var tot = '<tr class="per-total"><td><b>小计</b></td><td></td>' +
+        '<td class="num"><b>' + num(t.buyQ) + '</b></td>' +
+        '<td class="num"><b>' + money(t.buyA) + '</b></td>' +
+        '<td class="num expense"><b>' + num(t.retQ) + '</b></td>' +
+        '<td class="num expense"><b>' + money(t.retA) + '</b></td>' +
+        '<td class="num expense"><b>' + money(t.dedA) + '</b></td>' +
+        '<td class="num"><b>' + money(t.payA) + '</b></td></tr>';
+      var span = g.from ? (g.from + ' ~ ' + g.to) : '';
+      var kpi =
+        '<div class="settle-kpis">' +
+          '<div class="kpi"><div class="l">本期调货</div><div class="v income">' + money(t.buyA) + '</div><div class="s">' + num(t.buyQ) + ' 件</div></div>' +
+          '<div class="kpi"><div class="l">抵扣退货</div><div class="v expense">' + money(t.dedA) + '</div><div class="s">' + (Math.abs(t.carInQ) > 0.000001 ? '含上期结转 ' + num(t.carInQ) + ' 件' : '本期 ' + num(t.retQ) + ' 件') + '</div></div>' +
+          '<div class="kpi"><div class="l">本期应付</div><div class="v gold">' + money(t.payA) + '</div><div class="s">' + num(t.payQ) + ' 件</div></div>' +
+        '</div>';
+      var carryNote = (mode === 'next' && g.key !== NO_DATE_KEY && Math.abs(t.carQ) > 0.000001)
+        ? '<div class="per-foot muted">本期未抵扣退货 <b>' + num(t.carQ) + ' 件 / ' + money(t.carA) + '</b>，结转至下一期抵扣</div>'
+        : '';
+      return '<div class="per-card">' +
+        '<div class="per-head"><b>' + FW.esc(g.label) + '</b>' +
+        '<span class="muted" style="font-size:12px">' + span + (span ? ' · ' : '') + g.items.length + ' 种产品</span></div>' +
+        kpi +
+        '<table><thead><tr><th>产品</th><th>单位</th><th class="num">调货数量</th><th class="num">调货金额</th><th class="num">退货数量</th><th class="num">退货金额</th><th class="num">抵扣金额</th><th class="num">本期应付</th></tr></thead><tbody>' +
+        trs + tot + '</tbody></table>' + carryNote + '</div>';
+    }).join('');
+    el.innerHTML = html;
+    FW.qa('#stWrap [data-m]').forEach(function (b) {
+      b.onclick = function () { state.stSettleMode = this.dataset.m; renderStockList(); };
+    });
+  }
+
+  // 导出结算对账（CSV）
+  function exportStockSettleCsv() {
+    var rows = stockFiltered(state.stKw, state.stFrom, state.stTo, state.stType);
+    if (!rows.length) { FW.toast('没有可导出的数据'); return; }
+    var mode = state.stSettleMode || 'next';
+    var out = [];
+    settleAgg(rows, mode).forEach(function (g) {
+      g.items.forEach(function (it) {
+        out.push([g.label, g.from, g.to, it.item, it.unit,
+          num(it.buyQ), num(it.buyA).toFixed(2),
+          num(it.retQ), num(it.retA).toFixed(2),
+          num(it.dedQ), num(it.dedA).toFixed(2),
+          num(it.carQ), num(it.carA).toFixed(2),
+          num(it.payQ), num(it.payA).toFixed(2)]);
+      });
+      var t = g.tot;
+      out.push([g.label, g.from, g.to, '【小计】', '',
+        num(t.buyQ), num(t.buyA).toFixed(2),
+        num(t.retQ), num(t.retA).toFixed(2),
+        num(t.dedQ), num(t.dedA).toFixed(2),
+        num(t.carQ), num(t.carA).toFixed(2),
+        num(t.payQ), num(t.payA).toFixed(2)]);
+    });
+    var head = ['结算期', '起始日', '截止日', '产品', '单位', '调货数量', '调货金额', '退货数量', '退货金额', '抵扣数量', '抵扣金额', '结转数量', '结转金额', '应付数量', '应付金额'];
+    var csv = '\ufeff' + [head].concat(out).map(function (r) {
+      return r.map(function (v) { var s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',');
+    }).join('\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '结算对账_' + (mode === 'next' ? '次月初抵扣' : '当期抵扣') + '_' + FW.today() + '.csv';
+    a.click();
+    FW.toast('已导出结算对账（CSV）');
+  }
+
+  /* ---------- 快捷登记退货 ---------- */
+  function openReturnForm() {
+    var conf = loadTransferConf();
+    var all = FW.db.getList(STOCK_KEY) || [];
+    // 产品候选：历史里出现过的（调货入库/出库都算），带出最近一次单位
+    var seen = {};
+    all.forEach(function (t) {
+      var nm = String(t.item || '').trim();
+      if (!nm) return;
+      if (!seen[nm]) seen[nm] = { item: nm, unit: t.unit || '', price: 0, wsum: 0, wqty: 0 };
+      if (!seen[nm].unit && t.unit) seen[nm].unit = t.unit;
+      var q = num(t.qty), a = num(t.amount);
+      if (q > 0 && a > 0) { seen[nm].wsum += a; seen[nm].wqty += q; }
+    });
+    var products = Object.keys(seen).map(function (k) {
+      var p = seen[k];
+      p.avg = p.wqty > 0 ? (p.wsum / p.wqty) : 0;
+      return p;
+    }).sort(function (a, b) { return a.item.localeCompare(b.item, 'zh'); });
+    if (!products.length) {
+      FW.toast('还没有任何库存记录，请先粘贴调货单');
+      return;
+    }
+    var optHtml = products.map(function (p) {
+      return '<option value="' + FW.esc(p.item) + '" data-unit="' + FW.esc(p.unit) + '" data-price="' + (p.avg || 0) + '">' + FW.esc(p.item) + '</option>';
+    }).join('');
+
+    var body =
+      '<div class="form-grid">' +
+        '<div class="field"><label>退货日期</label><input id="rt_date" type="date" value="' + FW.esc(FW.today()) + '"></div>' +
+        '<div class="field"><label>营期</label><input id="rt_period" value="' + FW.esc(conf.lastPeriod || '') + '" placeholder="如：七彩7.24营期"></div>' +
+        '<div class="field full"><label>退回产品</label><select id="rt_item">' + optHtml + '</select></div>' +
+        '<div class="field"><label>单位</label><input id="rt_unit" value="' + FW.esc(products[0].unit || '盒') + '"></div>' +
+        '<div class="field"><label>数量</label><input id="rt_qty" type="number" step="0.01" min="0" placeholder="退回多少"></div>' +
+        '<div class="field"><label>单价（自动带出均价，可改）</label><input id="rt_price" type="number" step="0.01" min="0" value="' + (products[0].avg || 0) + '"></div>' +
+        '<div class="field"><label>退货类型</label><select id="rt_type"><option>销售退货</option><option>采购退货</option></select></div>' +
+        '<div class="field"><label>往来单位</label><input id="rt_party" placeholder="选填"></div>' +
+        '<div class="field full"><label>备注</label><input id="rt_remark" placeholder="选填，如：客户退回/整箱未拆"></div>' +
+        '<div class="field full"><div id="rt_amt" class="muted" style="font-size:13px"></div><div id="rt_src" class="muted" style="font-size:12px"></div></div>' +
+      '</div>' +
+      '<div class="form-actions"><button class="btn ghost" id="rt_cancel">取消</button><button class="btn" id="rt_save">保存退货</button></div>';
+
+    FW.openModal('登记退货', body, function () {
+      var dEl = document.getElementById('rt_date'), pEl = document.getElementById('rt_period');
+      var iEl = document.getElementById('rt_item'), uEl = document.getElementById('rt_unit');
+      var qEl = document.getElementById('rt_qty'), prEl = document.getElementById('rt_price');
+      var tEl = document.getElementById('rt_type'), paEl = document.getElementById('rt_party'), rEl = document.getElementById('rt_remark');
+      var aEl = document.getElementById('rt_amt'), sBtn = document.getElementById('rt_save');
+
+      // 某产品在某营期内的调货加权均价；period 为空则取全局
+      function avgOf(period, item) {
+        var wsum = 0, wqty = 0;
+        all.forEach(function (t) {
+          if (String(t.item || '').trim() !== String(item || '').trim()) return;
+          if (isReturnType(t.type) || stockDir(t.type) !== 'in') return;
+          if (period && String(t.period || '').trim() !== String(period).trim()) return;
+          var q = num(t.qty), a = num(t.amount);
+          if (q > 0 && a > 0) { wsum += a; wqty += q; }
+        });
+        return wqty > 0 ? (wsum / wqty) : 0;
+      }
+      function calcAmt() {
+        var q = num(qEl.value), p = num(prEl.value);
+        aEl.innerHTML = '退货金额：<b class="expense">' + money(q * p) + '</b>（将在结算时抵扣货款）';
+      }
+      // 单价优先取「该营期调货均价」，该营期没调货记录则回退全局均价
+      function syncPrice() {
+        var period = pEl.value.trim(), item = iEl.value;
+        var inP = period ? avgOf(period, item) : 0;
+        var glb = avgOf('', item);
+        var avg = inP || glb;
+        prEl.value = avg ? avg.toFixed(2) : 0;
+        var src = inP ? '营期「' + period + '」调货均价' : (glb ? '全局调货均价（该营期暂无调货记录）' : '未取到历史单价，请手填');
+        aEl.dataset.src = src;
+        calcAmt();
+        var tip = document.getElementById('rt_src');
+        if (tip) tip.textContent = '单价来源：' + src;
+      }
+      function syncItem() {
+        var o = iEl.options[iEl.selectedIndex];
+        if (o && o.dataset.unit) uEl.value = o.dataset.unit;
+        syncPrice();
+      }
+      iEl.onchange = syncItem;
+      pEl.oninput = syncPrice;
+      qEl.oninput = calcAmt; prEl.oninput = calcAmt;
+      document.getElementById('rt_cancel').onclick = function () { FW.closeModal(); };
+      sBtn.onclick = function () {
+        var q = num(qEl.value);
+        if (!(q > 0)) { FW.toast('请填写退货数量'); return; }
+        var p = num(prEl.value);
+        var rec = {
+          id: FW.db.uid('st_'),
+          date: dEl.value || FW.today(),
+          period: pEl.value.trim(),
+          item: iEl.value, spec: '', unit: uEl.value.trim() || '盒',
+          type: tEl.value, qty: q, price: p, amount: q * p,
+          party: paEl.value.trim(), warehouse: '',
+          remark: rEl.value.trim() || '退货登记', no: '', photos: []
+        };
+        FW.db.upsert(STOCK_KEY, rec);
+        FW.closeModal();
+        renderStockView();
+        FW.toast('已登记退货：' + rec.item + ' × ' + q + '（' + money(rec.amount) + '）');
+      };
+      syncItem();
+    });
   }
 
   function openTransferPaste() {
