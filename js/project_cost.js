@@ -51,6 +51,13 @@
   var STOCK_KEY = 'stock';
   var STOCK_CAT = '采购成本';
   var STOCK_CAT2 = '采购成本 / 采购成本';
+  // 退款支出：类型=支出、分类为「退款支出」（含「退款」字样）→ 冲减项目收入，不计入流水成本
+  var REFUND_CAT = '退款支出';
+  function isRefundExp(t) {
+    if (!t || t.type !== 'expense') return false;
+    var c = ((t.category || '').split(' / ')[0] || '').trim();
+    return !!c && c.indexOf('退款') >= 0;
+  }
   var STOCK_DIRS = { '采购入库': 'in', '其他入库': 'in', '销售退货': 'in', '销售出库': 'out', '其他出库': 'out', '采购退货': 'out' };
   function isStockReturn(type) { return type === '销售退货' || type === '采购退货'; }
   function stockDir(type) { return STOCK_DIRS[type] || 'in'; }
@@ -168,6 +175,7 @@
 
     // ===== 未分配统计 =====
     var unFlowCount = 0, unFlowAmt = 0;
+    var unRefundCount = 0, unRefundAmt = 0;   // 无项目的「退款支出」（冲减收入，不计入未归类支出）
     var unLaborAmt = 0, laborUnallocRecs = {};
     var preUnallocCount = 0, preUnallocAmt = 0;
 
@@ -201,6 +209,15 @@
                 });
               }
             }
+          } else if (isRefundExp(t)) {
+            // 退款支出（多项目分摊）：按分摊比例冲减各项目收入，不计入流水成本
+            var rc = cat1(t), rcf = catFull(t);
+            split.forEach(function (s) {
+              var dd2 = ensure(s.project);
+              dd2.revenue -= s.amount;
+              dd2.revByCat[rc] = (dd2.revByCat[rc] || 0) - s.amount;
+              dd2.revByCat2[rcf] = (dd2.revByCat2[rcf] || 0) - s.amount;
+            });
           } else {
             var sgn = t.type === 'refund' ? -1 : 1;
             var c = cat1(t), cf = catFull(t);
@@ -220,9 +237,20 @@
       }
       var p = (t.project || '').trim();
       var a = num(t.amount);
-      if (!p) { unFlowCount++; unFlowAmt += (a + dv); return; }
+      if (!p) {
+        // 无项目的退款支出：单独统计（冲减的是「未归类收入」，不属于未归类支出）
+        if (isRefundExp(t)) { unRefundCount++; unRefundAmt += a; return; }
+        unFlowCount++; unFlowAmt += (a + dv); return;
+      }
       var d = ensure(p);
-      if (t.type === 'income') {
+      if (isRefundExp(t)) {
+        // 退款支出：冲减项目收入，不计入流水成本
+        var rc2 = cat1(t), rcf2 = catFull(t);
+        d.revenue -= a;
+        d.revByCat[rc2] = (d.revByCat[rc2] || 0) - a;
+        d.revByCat2[rcf2] = (d.revByCat2[rcf2] || 0) - a;
+      }
+      else if (t.type === 'income') {
         // 实际收入 = 到账净额 + 已扣支出（还原毛额）；已扣支出计入流水成本（只计一次，不重复）
         d.revenue += (a + dv);
         var ic = cat1(t), icf = catFull(t);
@@ -370,13 +398,15 @@
         var split = splitAmounts(t);
         if (split) {
           if (t.type === 'income') { if (vis.rev) split.forEach(function (s) { mEnsure(k).rev += s.amount; }); }
+          else if (isRefundExp(t)) { if (vis.rev) split.forEach(function (s) { mEnsure(k).rev -= s.amount; }); }   // 退款支出 → 冲减收入
           else { var sgn = t.type === 'refund' ? -1 : 1; var mc = cat1(t); if (!catHidden(mc) && vis.flow) split.forEach(function (s) { mEnsure(k).flow += s.amount * sgn; }); }
           return;
         }
       }
       var p = (t.project || '').trim(); if (!p) return;
       var d = mEnsure(k);
-      if (t.type === 'income') { if (vis.rev) d.rev += num(t.amount); }
+      if (isRefundExp(t)) { if (vis.rev) d.rev -= num(t.amount); }   // 退款支出 → 冲减收入
+      else if (t.type === 'income') { if (vis.rev) d.rev += num(t.amount); }
       else if (t.type === 'expense') { var me = cat1(t); if (!catHidden(me) && vis.flow) d.flow += num(t.amount); }
       else if (t.type === 'refund') { var mr = cat1(t); if (!catHidden(mr) && vis.flow) d.flow -= num(t.amount); }
     });
@@ -407,6 +437,7 @@
 
     var unalloc = {
       flowCount: unFlowCount, flowAmt: unFlowAmt,
+      refundCount: unRefundCount, refundAmt: unRefundAmt,
       laborCount: Object.keys(laborUnallocRecs).length, laborAmt: unLaborAmt,
       prepayCount: preUnallocCount, prepayAmt: preUnallocAmt
     };
@@ -554,9 +585,9 @@
    */
   function openIncomeDetail(projectName) {
     var year = state.year;
-    // 筛选当前年度的所有收入流水
+    // 筛选当前年度的收入流水 + 「退款支出」（退款支出冲减收入，故一并列出）
     var txs = getInternal().filter(function (t) {
-      return t.type === 'income' && inYear((t.date || '').slice(0, 4), year);
+      return (t.type === 'income' || isRefundExp(t)) && inYear((t.date || '').slice(0, 4), year);
     });
 
     var items = [];
@@ -570,6 +601,16 @@
         var dvTotal = num(t.deduct);
         var splitSum = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
         split.forEach(function (s) {
+          if (s.project !== projectName) return;
+          if (isRefundExp(t)) {
+            // 分摊的退款支出：冲减该项目收入
+            items.push({
+              date: t.date || '', party: t.party || '', category: catFull(t),
+              amount: -s.amount, deduct: 0, actual: -s.amount,
+              remark: '(分摊) 退款支出·冲减收入', feeName: '', id: t.id
+            });
+            return;
+          }
           if (s.project === projectName) {
             var dShare = dvTotal > 0 ? dvTotal * s.amount / splitSum : 0;
             items.push({
@@ -586,19 +627,28 @@
           }
         });
       } else if (p === projectName) {
-        // 单项目归属的收入
-        var dv = num(t.deduct);
-        items.push({
-          date: t.date || '',
-          party: t.party || '',
-          category: catFull(t),
-          amount: num(t.amount),
-          deduct: dv,
-          actual: num(t.amount) + dv,
-          remark: t.remark || '',
-          feeName: t.feeName || '',
-          id: t.id
-        });
+        if (isRefundExp(t)) {
+          // 单项目归属的退款支出：冲减该项目收入
+          items.push({
+            date: t.date || '', party: t.party || '', category: catFull(t),
+            amount: -num(t.amount), deduct: 0, actual: -num(t.amount),
+            remark: (t.remark || '') + '（退款支出·冲减收入）', feeName: '', id: t.id
+          });
+        } else {
+          // 单项目归属的收入
+          var dv = num(t.deduct);
+          items.push({
+            date: t.date || '',
+            party: t.party || '',
+            category: catFull(t),
+            amount: num(t.amount),
+            deduct: dv,
+            actual: num(t.amount) + dv,
+            remark: t.remark || '',
+            feeName: t.feeName || '',
+            id: t.id
+          });
+        }
       }
     });
 
@@ -656,7 +706,8 @@
       '<div class="muted" style="font-size:11px;margin-top:8px;line-height:1.6">' +
         '• 到账金额 = 实际到账的净额 &nbsp;|&nbsp; 已扣服务费 = 按费率反推（毛收入口径），名称可自定义（如快递代收服务费）&nbsp;|&nbsp; 实际收入 = 到账金额 + 已扣服务费<br>' +
         '• 标记「(分摊)」的记录表示该笔收入按比例分摊到了多个项目<br>' +
-        '• 数据来源：「登记内账」→ 类型=收入 且 项目=' + FW.esc(projectName) +
+        '• 分类为「退款支出」的支出（退给客户的钱）按<b>负数</b>列出，直接冲减收入，不计入支出费用<br>' +
+        '• 数据来源：「登记内账」→ 类型=收入（含退款支出）且 项目=' + FW.esc(projectName) +
       '</div>';
 
     openWideModal('「' + FW.esc(projectName) + '」 — 收入明细', body);
@@ -864,8 +915,8 @@
     var arr = unclassifiedList();
     if (!arr.length) { FW.toast('没有未归类的收支'); return; }
     var rowsHtml = arr.slice().sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); }).map(function (t) {
-      var tcls = t.type === 'income' ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : 'amt-expense');
-      var tlabel = t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : '支出');
+      var tcls = isRefundExp(t) ? 'amt-recover' : (t.type === 'income' ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : 'amt-expense'));
+      var tlabel = isRefundExp(t) ? '退款支出' : (t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : '支出'));
       return '<tr>' +
         '<td>' + FW.esc(t.date || '') + '</td>' +
         '<td>' + tlabel + '</td>' +
@@ -900,12 +951,14 @@
   // 下钻：列出某项目（或全部项目）的逐笔流水；filter: all/income/cost/labor/recover
   function openProjectDetail(project, filter) {
     filter = filter || 'all';
-    var txRows = [], inc = 0, exp = 0, rf = 0, dv = 0;
+    var txRows = [], inc = 0, exp = 0, rf = 0, dv = 0, rfx = 0;
     function pushInternal(t) {
-      var cls = (t.type === 'income') ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : (t.type === 'dividend' ? 'amt-gold' : 'amt-expense'));
-      var tl = t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : (t.type === 'dividend' ? '分红' : '支出'));
-      txRows.push({ date: t.date || '', type: tl, category: (t.category || t.cat1 || '—'), party: (t.party || '—'), amount: Number(t.amount), remark: (t.remark || '—'), cls: cls, srcId: t.id });
-      if (t.type === 'income') inc += Number(t.amount);
+      var isRf = isRefundExp(t);   // 退款支出：冲减收入，显示为负数，不计入支出
+      var cls = isRf ? 'amt-recover' : ((t.type === 'income') ? 'amt-income' : (t.type === 'refund' ? 'amt-recover' : (t.type === 'dividend' ? 'amt-gold' : 'amt-expense')));
+      var tl = isRf ? '退款支出' : (t.type === 'income' ? '收入' : (t.type === 'refund' ? '退款收入' : (t.type === 'dividend' ? '分红' : '支出')));
+      txRows.push({ date: t.date || '', type: tl, category: (t.category || t.cat1 || '—'), party: (t.party || '—'), amount: isRf ? -Number(t.amount) : Number(t.amount), remark: (t.remark || '—'), cls: cls, srcId: t.id });
+      if (isRf) { inc -= Number(t.amount); rfx += Number(t.amount); }
+      else if (t.type === 'income') inc += Number(t.amount);
       else if (t.type === 'expense') exp += Number(t.amount);
       else if (t.type === 'refund') rf += Number(t.amount);
       else if (t.type === 'dividend') dv += Number(t.amount);
@@ -952,8 +1005,12 @@
               txRows.push({ date: t.date || '', type: '收入', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-income' });
               inc += a;
             }
+            if (filter === 'income' && isRefundExp(t)) {
+              txRows.push({ date: t.date || '', type: '退款支出', category: cf, party: party, amount: -a, remark: srcNote + '（冲减收入）', srcId: srcId, cls: 'amt-recover' });
+              inc -= a; rfx += a;
+            }
             if (filter === 'cost') {
-              if (t.type === 'expense') {
+              if (t.type === 'expense' && !isRefundExp(t)) {
                 txRows.push({ date: t.date || '', type: '支出', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-expense' });
                 exp += a;
               } else if (t.type === 'refund') {
@@ -976,6 +1033,9 @@
                   txRows.push({ date: t.date || '', type: feeName2, category: cf, party: party, amount: dShare, remark: dNote2, srcId: srcId, cls: 'amt-expense' });
                   exp += dShare;
                 }
+              } else if (t.type === 'expense' && isRefundExp(t)) {
+                txRows.push({ date: t.date || '', type: '退款支出', category: cf, party: party, amount: -a, remark: srcNote + '（冲减收入）', srcId: srcId, cls: 'amt-recover' });
+                inc -= a; rfx += a;
               } else if (t.type === 'expense') {
                 txRows.push({ date: t.date || '', type: '支出', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-expense' });
                 exp += a;
@@ -989,7 +1049,8 @@
         }
         // 无分摊：按单项目字段匹配
         if (project && p !== project) return;
-        if (filter === 'income' && t.type !== 'income') return;
+        if (filter === 'income' && t.type !== 'income' && !isRefundExp(t)) return;
+        if (filter === 'cost' && isRefundExp(t)) return;   // 退款支出不属于成本/费用
         if (filter === 'cost' && t.type !== 'expense' && t.type !== 'refund') return;
         if (filter !== 'all' && filter !== 'income' && filter !== 'cost') return;
         pushInternal(t);
@@ -1025,7 +1086,8 @@
       kpiHtml = '<div class="pc-pd-kpis">' +
         '<span>收入 <b class="amt-income">' + FW.fmtMoney(inc) + '</b></span>' +
         '<span>支出 <b class="amt-expense">' + FW.fmtMoney(exp) + '</b></span>' +
-        '<span>退款 <b class="amt-recover">' + FW.fmtMoney(rf) + '</b></span>' +
+        '<span>退款收入 <b class="amt-recover">' + FW.fmtMoney(rf) + '</b></span>' +
+        '<span>退款支出 <b class="amt-recover" title="冲减收入，不计入支出费用">' + FW.fmtMoney(rfx) + '</b></span>' +
         '<span>分红 <b class="amt-gold">' + FW.fmtMoney(dv) + '</b></span>' +
         '<span>净额 <b class="' + (inc - exp + rf - dv >= 0 ? 'amt-income' : 'amt-expense') + '">' + FW.fmtMoney(inc - exp + rf - dv) + '</b></span>' +
         '</div>';
@@ -1491,9 +1553,10 @@
   // 未分配资金提醒
   function unallocHtml(data) {
     var u = data.unalloc;
-    if (!u.flowCount && !u.laborCount && !u.prepayCount) return '';
+    if (!u.flowCount && !u.laborCount && !u.prepayCount && !u.refundCount) return '';
     var parts = [];
     if (u.flowCount) parts.push('流水 <b>' + u.flowCount + '</b> 笔、合计 <b>' + FW.fmtMoney(u.flowAmt) + '</b> 未填写项目');
+    if (u.refundCount) parts.push('退款支出 <b>' + u.refundCount + '</b> 笔、合计 <b>' + FW.fmtMoney(u.refundAmt) + '</b> 未填写项目（无法冲减到具体项目收入）');
     if (u.laborCount) parts.push('工资 <b>' + u.laborCount + '</b> 条、合计 <b>' + FW.fmtMoney(u.laborAmt) + '</b> 未分类项目');
     if (u.prepayCount) parts.push('预付款 <b>' + u.prepayCount + '</b> 笔、余额合计 <b>' + FW.fmtMoney(u.prepayAmt) + '</b> 未关联项目');
     return '<div class="pc-unalloc">' +
