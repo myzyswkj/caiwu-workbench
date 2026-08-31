@@ -17,7 +17,10 @@
   var CATKEY = 'internal_cats';
   var RULEKEY = 'internal_catrules';     // 科目智能匹配规则（用户可编辑，否则用 CatMatch.DEFAULT_RULES）
   var catAutoTouched = false;            // 本次表单中用户是否手动改过分类（改过则停止自动匹配，避免覆盖）
-  var DEFAULT_CATS = ['办公用品', '差旅费', '餐饮招待', '工资薪酬', '房租物业', '交通出行', '广告宣传', '材料采购', '设备购置', '税费', '利息收入', '其他收入', '其他支出'];
+  var DEFAULT_CATS = ['办公用品', '差旅费', '餐饮招待', '工资薪酬', '房租物业', '交通出行', '广告宣传', '材料采购', '设备购置', '税费', '利息收入', '其他收入', '其他支出', '退款支出'];
+  // 退款支出（退给客户的钱）：类型=支出，但口径是「冲减收入」，不计入支出/费用
+  // 一级分类为「退款支出」（或含「退款」字样）即生效
+  var REFUND_CAT = '退款支出';
   var SEP = ' / ';   // 账户层级分隔符（与分类一致）
   var DEFAULT_ACCTS = ['现金', '银行卡', '支付宝', '微信', '对公账户', '其他'];
   var ACCT_KEY = 'internal_accounts';   // 自定义账户列表（按账本隔离，二级结构：[{name, children:[name]}])
@@ -82,9 +85,22 @@
 
   var CATKEY_ = CATKEY;
   function cats() { return FW.db.getList(CATKEY_); }
-  function ensureCats() { if (!cats().length) FW.db.saveList(CATKEY_, DEFAULT_CATS.map(function (n) { return { name: n, children: [] }; })); }
+  function ensureCats() {
+    var list = cats();
+    if (!list.length) { FW.db.saveList(CATKEY_, DEFAULT_CATS.map(function (n) { return { name: n, children: [] }; })); return; }
+    // 老账本升级：补齐「退款支出」分类（缺失时自动追加，不覆盖用户已有分类）
+    var has = list.some(function (c) { return c && c.name === REFUND_CAT; });
+    if (!has) { list.push({ name: REFUND_CAT, children: [] }); FW.db.saveList(CATKEY_, list); }
+  }
   function cat1Name(t) { return (t.category || '').split(' / ')[0]; }
   function cat2Name(t) { return (t.category || '').split(' / ')[1] || ''; }
+  // 是否「退款支出」：类型=支出 且 一级分类是退款支出（或含「退款」字样）
+  // 口径：冲减收入、不计入支出费用（利润不变，只是费用栏不再混着退款）
+  function isRefundExpense(t) {
+    if (!t || t.type !== 'expense') return false;
+    var c = cat1Name(t) || '';
+    return !!c && c.indexOf('退款') >= 0;
+  }
 
   /* ---------- 期初余额 ---------- */
   function getOpenings() { return FW.db.getList(OPEN_KEY); }
@@ -95,13 +111,20 @@
   function getBudget(month) { return FW.db.getList(BKEY).filter(function (b) { return b.month === month; })[0] || null; }
   function monthExpense(month) {
     var rows = all().filter(function (t) { return t.date.slice(0, 7) === month; });
-    var exp = rows.filter(function (t) { return t.type === 'expense'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    // 预算只管「费用」，退款支出（冲减收入）不计入
+    var exp = rows.filter(function (t) { return t.type === 'expense' && !isRefundExpense(t); }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var rf = rows.filter(function (t) { return t.type === 'refund'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     return exp - rf;
   }
   function monthSum(m) {
     var inc = 0, exp = 0;
-    all().forEach(function (t) { if (t.date && t.date.slice(0, 7) === m) { if (t.type === 'income') inc += +t.amount; else if (t.type === 'expense') exp += +t.amount; else if (t.type === 'refund') exp -= +t.amount; } });
+    all().forEach(function (t) {
+      if (t.date && t.date.slice(0, 7) === m) {
+        if (t.type === 'income') inc += +t.amount;
+        else if (t.type === 'expense') { if (isRefundExpense(t)) inc -= +t.amount; else exp += +t.amount; }  // 退款支出 → 冲减收入
+        else if (t.type === 'refund') exp -= +t.amount;
+      }
+    });
     return { inc: inc, exp: exp, net: inc - exp };
   }
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
@@ -351,7 +374,7 @@
     }
     function lbl(t) {
       if (t.type === 'income') return '收入';
-      if (t.type === 'expense') return '支出';
+      if (t.type === 'expense') return isRefundExpense(t) ? '退款支出' : '支出';
       if (t.type === 'refund') return '退款收入';
       if (t.type === 'transfer') return '账户互转';
       if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
@@ -578,8 +601,10 @@
   function drawTable() {
     var rows = filteredRows();
     var income = rows.filter(function (t) { return t.type === 'income'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
-    var expense = rows.filter(function (t) { return t.type === 'expense'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    // 支出（费用）不含「退款支出」——退款支出单列，用于冲减收入
+    var expense = rows.filter(function (t) { return t.type === 'expense' && !isRefundExpense(t); }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var refund = rows.filter(function (t) { return t.type === 'refund'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    var refundExp = rows.filter(isRefundExpense).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var netExpense = expense - refund;
     var unalloc = rows.filter(function (t) {
       var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
@@ -591,7 +616,8 @@
       '<div class="stat"><div class="label">筛选后收入</div><div class="value income">' + FW.fmtMoney(income) + '</div></div>' +
       '<div class="stat"><div class="label">筛选后支出（净额）</div><div class="value expense">' + FW.fmtMoney(netExpense) + '</div></div>' +
       '<div class="stat"><div class="label">退款收入（冲减支出）</div><div class="value refund">' + FW.fmtMoney(refund) + '</div></div>' +
-      '<div class="stat"><div class="label">筛选后结余</div><div class="value">' + FW.fmtMoney(income - netExpense) + '</div></div>' +
+      '<div class="stat"><div class="label">退款支出（冲减收入）</div><div class="value refund" title="分类为「退款支出」的支出：退给客户的钱，直接冲减收入，不计入支出费用">' + FW.fmtMoney(refundExp) + '</div></div>' +
+      '<div class="stat"><div class="label">筛选后结余</div><div class="value">' + FW.fmtMoney(income - netExpense - refundExp) + '</div></div>' +
       '<div class="stat"><div class="label">笔数</div><div class="value">' + rows.length + '</div></div>' +
       '<div class="stat"><div class="label">未分摊笔数</div><div class="value' + (unalloc ? ' expense' : '') + '" title="应收项目分摊、但还没填分摊的收支/退款笔数；点上方「仅看未分摊」可列出">' + unalloc + '</div></div>';
     document.getElementById('txWrap').innerHTML = rows.length ? tableHtml(rows, computeQualityFlags(rows)) : '<div class="empty">没有符合条件的流水，点右上角「新增流水」开始登记。</div>';
@@ -609,7 +635,7 @@
 
   function typeMeta(t) {
     if (t.type === 'income') return { tag: '收入', cls: 'income' };
-    if (t.type === 'expense') return { tag: '支出', cls: 'expense' };
+    if (t.type === 'expense') return isRefundExpense(t) ? { tag: '退款支出', cls: 'refund' } : { tag: '支出', cls: 'expense' };
     if (t.type === 'refund') return { tag: '退款收入', cls: 'refund' };
     if (t.type === 'transfer') return { tag: '账户互转', cls: 'transfer' };
     if (t.type === 'equity') return { tag: (t.equityDir === 'out' ? '股本抽回' : '股本注入'), cls: 'equity' };
@@ -895,6 +921,7 @@
       var k = keyFn(t);
       if (!map[k]) map[k] = { income: 0, expense: 0 };
       if (t.type === 'income') map[k].income += Number(t.amount);
+      else if (isRefundExpense(t)) map[k].income -= Number(t.amount);   // 退款支出 → 冲减收入（不计支出）
       else if (t.type === 'expense') map[k].expense += Number(t.amount);
       else if (t.type === 'refund') map[k].expense -= Number(t.amount);
     });
@@ -912,7 +939,9 @@
 
     var totalIncome = rowsIn.reduce(function (a, t) { return a + (t.type === 'income' ? +t.amount : 0); }, 0);
     var totalRefund = rowsIn.reduce(function (a, t) { return a + (t.type === 'refund' ? +t.amount : 0); }, 0);
-    var totalExpense = rowsIn.reduce(function (a, t) { return a + ((t.type === 'expense' ? +t.amount : 0) - (t.type === 'refund' ? +t.amount : 0)); }, 0);
+    // 退款支出（分类=退款支出）：冲减收入，不计入支出费用
+    var totalRefundExp = rowsIn.reduce(function (a, t) { return a + (isRefundExpense(t) ? +t.amount : 0); }, 0);
+    var totalExpense = rowsIn.reduce(function (a, t) { return a + ((t.type === 'expense' && !isRefundExpense(t) ? +t.amount : 0) - (t.type === 'refund' ? +t.amount : 0)); }, 0);
     var curMonth = FW.today().slice(0, 7);
     var prev = monthSum(prevMonth(curMonth));
     function mom(cur, pv) { if (!(pv > 0)) return null; return (cur - pv) / pv * 100; }
@@ -961,9 +990,10 @@
       // —— 利润层 ——
       '<div class="stat-row">' +
         '<div class="stat"><div class="label">区间收入 ' + rangeTxt + '</div><div class="value income">' + FW.fmtMoney(totalIncome) + '</div></div>' +
-        '<div class="stat"><div class="label">区间支出（净额）</div><div class="value expense">' + FW.fmtMoney(totalExpense) + '</div></div>' +
+        '<div class="stat"><div class="label">区间支出（净额）</div><div class="value expense" title="不含退款支出（退款支出单独冲减收入）">' + FW.fmtMoney(totalExpense) + '</div></div>' +
         '<div class="stat"><div class="label">退款收入（冲减支出）</div><div class="value refund">' + FW.fmtMoney(totalRefund) + '</div></div>' +
-        '<div class="stat"><div class="label">区间结余（利润）</div><div class="value">' + FW.fmtMoney(totalIncome - totalExpense) + '</div></div>' +
+        '<div class="stat"><div class="label">退款支出（冲减收入）</div><div class="value refund" title="分类为「退款支出」的支出：退给客户的钱，直接冲减收入，不计入支出费用">' + FW.fmtMoney(totalRefundExp) + '</div></div>' +
+        '<div class="stat"><div class="label">区间结余（利润）</div><div class="value">' + FW.fmtMoney(totalIncome - totalExpense - totalRefundExp) + '</div></div>' +
         '<div class="stat"><div class="label">收入环比（上月）</div><div class="value ' + (incMom == null ? '' : (incMom >= 0 ? 'income' : 'expense')) + '">' + (incMom == null ? '—' : (incMom >= 0 ? '▲' : '▼') + Math.abs(incMom).toFixed(1) + '%') + '</div></div>' +
         '<div class="stat"><div class="label">支出环比（上月）</div><div class="value ' + (expMom == null ? '' : (expMom >= 0 ? 'income' : 'expense')) + '">' + (expMom == null ? '—' : (expMom >= 0 ? '▲' : '▼') + Math.abs(expMom).toFixed(1) + '%') + '</div></div>' +
       '</div>' +
@@ -1727,6 +1757,7 @@
           '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select></div>' +
           '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a> <a href="#" id="mgRules" style="font-size:12px;color:var(--primary);align-self:center">匹配规则</a></div>' +
           '<div class="field full"><span id="catHint" class="cat-hint"></span></div>' +
+          (type === 'expense' ? '<div class="field full muted" style="font-size:12px;line-height:1.6">💡 分类选「<b>' + REFUND_CAT + '</b>」＝退给客户的钱：该笔将<b>冲减收入</b>，不计入支出费用（利润不受影响，只是费用里不再混着退款）。</div>' : '') +
           '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
           deductField +
         '</div>' +
@@ -1960,7 +1991,7 @@
         var cls = r.type === 'income' ? 'income' : (r.type === 'refund' ? 'refund' : 'expense');
         return '<tr' + (dupFlags[i] ? ' class="dup-row"' : '') + '>' +
           '<td><input type="checkbox" class="pc" data-i="' + i + '" ' + (s.chosen[i] ? 'checked' : '') + '></td>' +
-          '<td>' + FW.esc(r.date) + '</td>' +
+          '<td>' + (dupFlags[i] ? '<span class="dup-badge" title="疑似重复：与已导入或本批内同日期/同金额/同对方记录重复">重复</span>' : '') + FW.esc(r.date) + '</td>' +
           '<td class="' + cls + '">' + (r.type === 'income' ? '收入' : r.type === 'refund' ? '退款收入' : '支出') + '</td>' +
           '<td class="num ' + cls + '">' + FW.fmtMoney(r.amount) + '</td>' +
           '<td>' + FW.esc(r.party || '—') + (dupFlags[i] ? ' <span class="tx-flag" title="疑似重复：与已导入或本批内同日期/同金额/同对方记录重复">◆</span>' : '') + '</td>' +
@@ -2882,6 +2913,7 @@
         }).join('');
         return '<div class="cat-l1" draggable="true" data-i="' + i + '">' +
           '<div class="cat-l1-head"><span class="drag-h" draggable="false">⇕</span><b>' + FW.esc(c.name) + '</b>' +
+          (c.name === REFUND_CAT ? '<span class="tag" style="font-size:11px;margin-left:6px;color:#0E8C8C;border-color:#0E8C8C" title="该分类下的支出＝退给客户的钱，冲减收入、不计入支出费用">冲减收入</span>' : '') +
           '<span class="cat-ops"><button class="btn ghost sm cat-l2-add" data-i="' + i + '">＋二级</button><button class="btn danger sm cat-l1-del" data-i="' + i + '">删</button></span></div>' +
           (kids || '<div class="muted" style="font-size:12px">（暂无二级分类）</div>') + '</div>';
       }).join('');
@@ -3127,7 +3159,7 @@
 
   function typeLabel(t) {
     if (t.type === 'income') return '收入';
-    if (t.type === 'expense') return '支出';
+    if (t.type === 'expense') return isRefundExpense(t) ? '退款支出' : '支出';
     if (t.type === 'refund') return '退款收入';
     if (t.type === 'transfer') return '账户互转';
     if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
@@ -4007,6 +4039,7 @@
       if (!dayMap[t.date]) dayMap[t.date] = { inc: 0, exp: 0 };
       if (t.type === 'income') dayMap[t.date].inc += +t.amount;
       else if (t.type === 'refund') dayMap[t.date].exp -= +t.amount;
+      else if (isRefundExpense(t)) dayMap[t.date].inc -= +t.amount;   // 退款支出 → 冲减收入
       else dayMap[t.date].exp += +t.amount;
     });
     var weekNames = ['日', '一', '二', '三', '四', '五', '六'];
@@ -4050,8 +4083,13 @@
     netProfit: netProfit,                    // (from,to) -> 区间经营结余
     equityNet: equityNet,                    // (from,to) -> 区间股本净
     filterRows: filterRows,                  // (filter) -> 按筛选条件过滤流水（支持二级分类 category2）
-    cat2Name: cat2Name                       // (t) -> 提取二级分类名
+    cat2Name: cat2Name,                      // (t) -> 提取二级分类名
+    isRefundExpense: isRefundExpense,        // (t) -> 是否「退款支出」（分类含「退款」的支出）
+    REFUND_CAT: REFUND_CAT                   // 退款支出分类标准名
   };
+  // 全局快捷入口：其他模块（项目核算 / 首页 / 报表中心）统一复用同一判定，避免口径不一致
+  FW.isRefundExpense = isRefundExpense;
+  FW.REFUND_CAT = REFUND_CAT;
 
   FW.internalAccMgr = { getAccounts: getAccounts, saveAccounts: saveAccounts, refreshAccts: refreshAccts };
 
