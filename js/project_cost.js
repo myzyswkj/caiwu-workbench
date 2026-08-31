@@ -51,13 +51,8 @@
   var STOCK_KEY = 'stock';
   var STOCK_CAT = '采购成本';
   var STOCK_CAT2 = '采购成本 / 采购成本';
-  // 退款支出：类型=支出、分类为「退款支出」（含「退款」字样）→ 冲减项目收入，不计入流水成本
-  var REFUND_CAT = '退款支出';
-  function isRefundExp(t) {
-    if (!t || t.type !== 'expense') return false;
-    var c = ((t.category || '').split(' / ')[0] || '').trim();
-    return !!c && c.indexOf('退款') >= 0;
-  }
+  // 退款支出：类型='refund_out' → 冲减项目收入，不计入流水成本
+  function isRefundExp(t) { return t && t.type === 'refund_out'; }
   var STOCK_DIRS = { '采购入库': 'in', '其他入库': 'in', '销售退货': 'in', '销售出库': 'out', '其他出库': 'out', '采购退货': 'out' };
   function isStockReturn(type) { return type === '销售退货' || type === '采购退货'; }
   function stockDir(type) { return STOCK_DIRS[type] || 'in'; }
@@ -706,8 +701,8 @@
       '<div class="muted" style="font-size:11px;margin-top:8px;line-height:1.6">' +
         '• 到账金额 = 实际到账的净额 &nbsp;|&nbsp; 已扣服务费 = 按费率反推（毛收入口径），名称可自定义（如快递代收服务费）&nbsp;|&nbsp; 实际收入 = 到账金额 + 已扣服务费<br>' +
         '• 标记「(分摊)」的记录表示该笔收入按比例分摊到了多个项目<br>' +
-        '• 分类为「退款支出」的支出（退给客户的钱）按<b>负数</b>列出，直接冲减收入，不计入支出费用<br>' +
-        '• 数据来源：「登记内账」→ 类型=收入（含退款支出）且 项目=' + FW.esc(projectName) +
+        '• 类型为「退款支出」的流水（退给客户的钱）按<b>负数</b>列出，直接冲减收入，不计入支出费用<br>' +
+        '• 数据来源：「登记内账」→ 类型=收入/退款支出 且 项目=' + FW.esc(projectName) +
       '</div>';
 
     openWideModal('「' + FW.esc(projectName) + '」 — 收入明细', body);
@@ -1033,7 +1028,7 @@
                   txRows.push({ date: t.date || '', type: feeName2, category: cf, party: party, amount: dShare, remark: dNote2, srcId: srcId, cls: 'amt-expense' });
                   exp += dShare;
                 }
-              } else if (t.type === 'expense' && isRefundExp(t)) {
+              } else if (isRefundExp(t)) {
                 txRows.push({ date: t.date || '', type: '退款支出', category: cf, party: party, amount: -a, remark: srcNote + '（冲减收入）', srcId: srcId, cls: 'amt-recover' });
                 inc -= a; rfx += a;
               } else if (t.type === 'expense') {
