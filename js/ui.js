@@ -53,10 +53,13 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   };
 
-  /* ---------- SVG 柱状图 ---------- */
+  /* ---------- SVG 柱状图 ----------
+   * opts.precise=true 时显示完整金额（¥89,183.00）而非短写法（8.9万），
+   * 避免财务页面出现“图表标注加起来不等于合计”的视觉误差。
+   */
   FW.barChart = function (title, items, opts) {
     opts = opts || {};
-    var w = 320, h = 220, padL = 42, padB = 28, padT = 14, padR = 10;
+    var w = opts.width || 320, h = opts.height || 220, padL = 42, padB = 28, padT = opts.precise ? 28 : 14, padR = 10;
     var max = Math.max.apply(null, items.map(function (i) { return i.value; }).concat([1]));
     var color = opts.color || '#2C7A6B';
     var n = items.length || 1;
@@ -70,8 +73,15 @@
       var bh = (h - padB - padT) * (it.value / max);
       var y = (h - padB) - bh;
       svg += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="3" fill="' + color + '" opacity="0.9"/>';
-      svg += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (y - 4).toFixed(1) + '" font-size="9" text-anchor="middle" fill="#41506a">' + FW.shortMoney(it.value) + '</text>';
-      svg += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (h - padB + 13).toFixed(1) + '" font-size="9.5" text-anchor="middle" fill="#7a869a">' + FW.esc(FW.clip(it.label, 6)) + '</text>';
+      var lx = x + bw / 2;
+      var label = opts.precise ? FW.fmtMoney(it.value) : FW.shortMoney(it.value);
+      var ly = opts.precise ? y - 12 : y - 4;
+      if (opts.precise) {
+        svg += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" font-size="9" text-anchor="middle" fill="#41506a" transform="rotate(-45, ' + lx.toFixed(1) + ', ' + ly.toFixed(1) + ')">' + label + '</text>';
+      } else {
+        svg += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" font-size="9" text-anchor="middle" fill="#41506a">' + label + '</text>';
+      }
+      svg += '<text x="' + lx.toFixed(1) + '" y="' + (h - padB + 13).toFixed(1) + '" font-size="9.5" text-anchor="middle" fill="#7a869a">' + FW.esc(FW.clip(it.label, 6)) + '</text>';
     });
     svg += '</svg>';
     return '<div class="chart-box"><h4>' + FW.esc(title) + '</h4>' + svg + '</div>';
