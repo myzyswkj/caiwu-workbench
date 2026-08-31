@@ -17,10 +17,7 @@
   var CATKEY = 'internal_cats';
   var RULEKEY = 'internal_catrules';     // 科目智能匹配规则（用户可编辑，否则用 CatMatch.DEFAULT_RULES）
   var catAutoTouched = false;            // 本次表单中用户是否手动改过分类（改过则停止自动匹配，避免覆盖）
-  var DEFAULT_CATS = ['办公用品', '差旅费', '餐饮招待', '工资薪酬', '房租物业', '交通出行', '广告宣传', '材料采购', '设备购置', '税费', '利息收入', '其他收入', '其他支出', '退款支出'];
-  // 退款支出（退给客户的钱）：类型=支出，但口径是「冲减收入」，不计入支出/费用
-  // 一级分类为「退款支出」（或含「退款」字样）即生效
-  var REFUND_CAT = '退款支出';
+  var DEFAULT_CATS = ['办公用品', '差旅费', '餐饮招待', '工资薪酬', '房租物业', '交通出行', '广告宣传', '材料采购', '设备购置', '税费', '利息收入', '其他收入', '其他支出'];
   var SEP = ' / ';   // 账户层级分隔符（与分类一致）
   var DEFAULT_ACCTS = ['现金', '银行卡', '支付宝', '微信', '对公账户', '其他'];
   var ACCT_KEY = 'internal_accounts';   // 自定义账户列表（按账本隔离，二级结构：[{name, children:[name]}])
@@ -87,20 +84,24 @@
   function cats() { return FW.db.getList(CATKEY_); }
   function ensureCats() {
     var list = cats();
-    if (!list.length) { FW.db.saveList(CATKEY_, DEFAULT_CATS.map(function (n) { return { name: n, children: [] }; })); return; }
-    // 老账本升级：补齐「退款支出」分类（缺失时自动追加，不覆盖用户已有分类）
-    var has = list.some(function (c) { return c && c.name === REFUND_CAT; });
-    if (!has) { list.push({ name: REFUND_CAT, children: [] }); FW.db.saveList(CATKEY_, list); }
+    if (!list.length) { FW.db.saveList(CATKEY_, DEFAULT_CATS.map(function (n) { return { name: n, children: [] }; })); }
   }
   function cat1Name(t) { return (t.category || '').split(' / ')[0]; }
   function cat2Name(t) { return (t.category || '').split(' / ')[1] || ''; }
-  // 是否「退款支出」：类型=支出 且 一级分类是退款支出（或含「退款」字样）
-  // 口径：冲减收入、不计入支出费用（利润不变，只是费用栏不再混着退款）
-  function isRefundExpense(t) {
-    if (!t || t.type !== 'expense') return false;
-    var c = cat1Name(t) || '';
-    return !!c && c.indexOf('退款') >= 0;
+
+  // 老 v60 数据迁移：把「分类=退款支出」的支出记录改为类型='refund_out'（新类型：退款支出）
+  function migrateRefundOutType() {
+    var changed = false;
+    all().forEach(function (t) {
+      if (t.type === 'expense' && (cat1Name(t) || '').indexOf('退款') >= 0) {
+        t.type = 'refund_out';
+        changed = true;
+      }
+    });
+    if (changed) FW.db.saveList(KEY, FW.db.getList(KEY));
   }
+  // 是否「退款支出」：类型='refund_out'（退给客户的钱），口径是冲减收入、不计入支出费用
+  function isRefundExpense(t) { return t && t.type === 'refund_out'; }
 
   /* ---------- 期初余额 ---------- */
   function getOpenings() { return FW.db.getList(OPEN_KEY); }
@@ -111,8 +112,8 @@
   function getBudget(month) { return FW.db.getList(BKEY).filter(function (b) { return b.month === month; })[0] || null; }
   function monthExpense(month) {
     var rows = all().filter(function (t) { return t.date.slice(0, 7) === month; });
-    // 预算只管「费用」，退款支出（冲减收入）不计入
-    var exp = rows.filter(function (t) { return t.type === 'expense' && !isRefundExpense(t); }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    // 预算只管「费用」：退款支出(refund_out)冲减收入、退款收入(refund)冲减支出
+    var exp = rows.filter(function (t) { return t.type === 'expense'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var rf = rows.filter(function (t) { return t.type === 'refund'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     return exp - rf;
   }
@@ -121,8 +122,9 @@
     all().forEach(function (t) {
       if (t.date && t.date.slice(0, 7) === m) {
         if (t.type === 'income') inc += +t.amount;
-        else if (t.type === 'expense') { if (isRefundExpense(t)) inc -= +t.amount; else exp += +t.amount; }  // 退款支出 → 冲减收入
-        else if (t.type === 'refund') exp -= +t.amount;
+        else if (t.type === 'expense') exp += +t.amount;
+        else if (t.type === 'refund_out') inc -= +t.amount;          // 退款支出 → 冲减收入
+        else if (t.type === 'refund') exp -= +t.amount;              // 退款收入 → 冲减支出
       }
     });
     return { inc: inc, exp: exp, net: inc - exp };
@@ -180,13 +182,13 @@
       if (f.to && t.date > f.to) return false;
       if (f.kw && ((t.remark || '') + (txProjectText(t)) + (t.category || '')).indexOf(f.kw) < 0) return false;
       if (f.noAlloc) {
-        var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
+        var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
         var hasAlloc = !!(t.allocations && t.allocations.length);
         var hasProject = !!(t.project && String(t.project).trim());
         if (!allocatable || hasAlloc || hasProject || t.skipAlloc) return false; // 只保留「连单项目都没挂、又没做分摊、且未标记不参与」的收支/退款
       }
       if (f.allocStatus) {
-        var _alloc = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
+        var _alloc = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
         var _has = !!(t.allocations && t.allocations.length) || !!(t.project && String(t.project).trim());
         if (f.allocStatus === 'done' && !_has) return false;
         if (f.allocStatus === 'skip' && !t.skipAlloc) return false;
@@ -215,6 +217,7 @@
       if (t.type === 'income') { flow[t.account] = (flow[t.account] || 0) + a; }
       else if (t.type === 'expense') { flow[t.account] = (flow[t.account] || 0) - a; }
       else if (t.type === 'refund') { flow[t.account] = (flow[t.account] || 0) + a; }
+      else if (t.type === 'refund_out') { flow[t.account] = (flow[t.account] || 0) - a; }
       else if (t.type === 'transfer') {
         if (t.fromAccount) move[t.fromAccount] = (move[t.fromAccount] || 0) - a;
         if (t.toAccount) move[t.toAccount] = (move[t.toAccount] || 0) + a;
@@ -272,7 +275,8 @@
       if (!inRange(t, from, to)) return s;
       if (t.type === 'income') return s + (Number(t.amount) || 0);
       if (t.type === 'expense') return s - (Number(t.amount) || 0);
-      if (t.type === 'refund') return s + (Number(t.amount) || 0);
+      if (t.type === 'refund') return s + (Number(t.amount) || 0);       // 退款收入冲减支出 → 利润+
+      if (t.type === 'refund_out') return s - (Number(t.amount) || 0);   // 退款支出冲减收入 → 利润-
       return s;
     }, 0);
   }
@@ -294,6 +298,7 @@
   /* ---------- 渲染主框架 ---------- */
   function render() {
     ensureCats();
+    migrateRefundOutType();
     var c = document.getElementById('content');
     c.innerHTML =
       '<div id="inToolbar" class="toolbar"></div>' +
@@ -372,15 +377,7 @@
         return (b.photos && b.photos.length ? 1 : 0) - (a.photos && a.photos.length ? 1 : 0);
       })[0];
     }
-    function lbl(t) {
-      if (t.type === 'income') return '收入';
-      if (t.type === 'expense') return isRefundExpense(t) ? '退款支出' : '支出';
-      if (t.type === 'refund') return '退款收入';
-      if (t.type === 'transfer') return '账户互转';
-      if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
-      if (t.type === 'dividend') return '股东分红';
-      return t.type || '';
-    }
+    function lbl(t) { return typeLabel(t); }
     var rows = '';
     dups.forEach(function (g, i) {
       var keep = keepOf(g);
@@ -490,7 +487,7 @@
           '<div class="field"><select id="fCat">' + catOpts + '</select></div>' +
           '<div class="field"><select id="fCat2">' + cat2OptsF + '</select></div>' +
           '<div class="field"><select id="fAcc">' + accOpts + '</select></div>' +
-          '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="transfer">账户互转</option><option value="equity">股本资金</option><option value="dividend">股东分红</option></select></div>' +
+          '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入（冲减支出）</option><option value="refund_out">退款支出（冲减收入）</option><option value="transfer">账户互转</option><option value="equity">股本资金</option><option value="dividend">股东分红</option></select></div>' +
           '<div class="field"><select id="fAllocStatus"><option value="">分摊状态：全部</option><option value="done">已分摊</option><option value="wait">待分摊</option><option value="skip">不参与</option></select></div>' +
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
@@ -562,7 +559,7 @@
     // 离群基线：同项目(或同对方)同类型的金额中位数
     var byProj = {};
     allRows.forEach(function (t) {
-      if (t.type !== 'income' && t.type !== 'expense') return;
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund' && t.type !== 'refund_out') return;
       var amt = Number(t.amount) || 0; if (!amt) return;
       var k = (t.project || '').trim() || ('_p_' + (t.party || '').trim());
       (byProj[k] = byProj[k] || []).push(amt);
@@ -585,7 +582,7 @@
       }
       var fl = {};
       if (dup) fl.dup = true;
-      if (t.type === 'income' || t.type === 'expense') {
+      if (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') {
         var pk = (t.project || '').trim() || ('_p_' + (t.party || '').trim());
         var med = medians[pk];
         if (med && med > 0 && amt > med * 3 && amt > 100) {
@@ -601,13 +598,12 @@
   function drawTable() {
     var rows = filteredRows();
     var income = rows.filter(function (t) { return t.type === 'income'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
-    // 支出（费用）不含「退款支出」——退款支出单列，用于冲减收入
-    var expense = rows.filter(function (t) { return t.type === 'expense' && !isRefundExpense(t); }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    var expense = rows.filter(function (t) { return t.type === 'expense'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var refund = rows.filter(function (t) { return t.type === 'refund'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
-    var refundExp = rows.filter(isRefundExpense).reduce(function (a, t) { return a + Number(t.amount); }, 0);
+    var refundExp = rows.filter(function (t) { return t.type === 'refund_out'; }).reduce(function (a, t) { return a + Number(t.amount); }, 0);
     var netExpense = expense - refund;
     var unalloc = rows.filter(function (t) {
-      var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
+      var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
       var hasAlloc = !!(t.allocations && t.allocations.length);
       var hasProject = !!(t.project && String(t.project).trim());
       return allocatable && !hasAlloc && !hasProject && !t.skipAlloc;
@@ -616,7 +612,7 @@
       '<div class="stat"><div class="label">筛选后收入</div><div class="value income">' + FW.fmtMoney(income) + '</div></div>' +
       '<div class="stat"><div class="label">筛选后支出（净额）</div><div class="value expense">' + FW.fmtMoney(netExpense) + '</div></div>' +
       '<div class="stat"><div class="label">退款收入（冲减支出）</div><div class="value refund">' + FW.fmtMoney(refund) + '</div></div>' +
-      '<div class="stat"><div class="label">退款支出（冲减收入）</div><div class="value refund" title="分类为「退款支出」的支出：退给客户的钱，直接冲减收入，不计入支出费用">' + FW.fmtMoney(refundExp) + '</div></div>' +
+      '<div class="stat"><div class="label">退款支出（冲减收入）</div><div class="value refund" title="类型为「退款支出」的流水：退给客户的钱，直接冲减收入，不计入支出费用">' + FW.fmtMoney(refundExp) + '</div></div>' +
       '<div class="stat"><div class="label">筛选后结余</div><div class="value">' + FW.fmtMoney(income - netExpense - refundExp) + '</div></div>' +
       '<div class="stat"><div class="label">笔数</div><div class="value">' + rows.length + '</div></div>' +
       '<div class="stat"><div class="label">未分摊笔数</div><div class="value' + (unalloc ? ' expense' : '') + '" title="应收项目分摊、但还没填分摊的收支/退款笔数；点上方「仅看未分摊」可列出">' + unalloc + '</div></div>';
@@ -635,8 +631,9 @@
 
   function typeMeta(t) {
     if (t.type === 'income') return { tag: '收入', cls: 'income' };
-    if (t.type === 'expense') return isRefundExpense(t) ? { tag: '退款支出', cls: 'refund' } : { tag: '支出', cls: 'expense' };
+    if (t.type === 'expense') return { tag: '支出', cls: 'expense' };
     if (t.type === 'refund') return { tag: '退款收入', cls: 'refund' };
+    if (t.type === 'refund_out') return { tag: '退款支出', cls: 'refund' };
     if (t.type === 'transfer') return { tag: '账户互转', cls: 'transfer' };
     if (t.type === 'equity') return { tag: (t.equityDir === 'out' ? '股本抽回' : '股本注入'), cls: 'equity' };
     if (t.type === 'dividend') return { tag: '股东分红', cls: 'neutral' };
@@ -656,7 +653,7 @@
       var m = typeMeta(t);
       var fl = (flags && flags[t.id]) || null;
       var qm = fl ? ((fl.dup ? '<span class="tx-flag" title="疑似重复流水：存在同日期/同金额/同对方的记录，建议核对">◆</span>' : '') + (fl.outlier ? '<span class="tx-flag warn" title="' + FW.esc(fl.reason || '金额异常，请核对') + '">⚠️</span>' : '')) : '';
-      var affects = (t.type === 'income' || t.type === 'expense' || t.type === 'refund');
+      var affects = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
       var amtCls = affects ? m.cls : 'neutral';
       var acctTxt = accountOf(t);
       var pcount = (t.photos && t.photos.length) || 0;
@@ -917,13 +914,13 @@
   function groupSum(rows, keyFn) {
     var map = {};
     rows.forEach(function (t) {
-      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund' && t.type !== 'refund_out') return;
       var k = keyFn(t);
       if (!map[k]) map[k] = { income: 0, expense: 0 };
       if (t.type === 'income') map[k].income += Number(t.amount);
-      else if (isRefundExpense(t)) map[k].income -= Number(t.amount);   // 退款支出 → 冲减收入（不计支出）
+      else if (t.type === 'refund_out') map[k].income -= Number(t.amount);   // 退款支出 → 冲减收入
       else if (t.type === 'expense') map[k].expense += Number(t.amount);
-      else if (t.type === 'refund') map[k].expense -= Number(t.amount);
+      else if (t.type === 'refund') map[k].expense -= Number(t.amount);      // 退款收入 → 冲减支出
     });
     return map;
   }
@@ -939,9 +936,8 @@
 
     var totalIncome = rowsIn.reduce(function (a, t) { return a + (t.type === 'income' ? +t.amount : 0); }, 0);
     var totalRefund = rowsIn.reduce(function (a, t) { return a + (t.type === 'refund' ? +t.amount : 0); }, 0);
-    // 退款支出（分类=退款支出）：冲减收入，不计入支出费用
-    var totalRefundExp = rowsIn.reduce(function (a, t) { return a + (isRefundExpense(t) ? +t.amount : 0); }, 0);
-    var totalExpense = rowsIn.reduce(function (a, t) { return a + ((t.type === 'expense' && !isRefundExpense(t) ? +t.amount : 0) - (t.type === 'refund' ? +t.amount : 0)); }, 0);
+    var totalRefundExp = rowsIn.reduce(function (a, t) { return a + (t.type === 'refund_out' ? +t.amount : 0); }, 0);
+    var totalExpense = rowsIn.reduce(function (a, t) { return a + ((t.type === 'expense' ? +t.amount : 0) - (t.type === 'refund' ? +t.amount : 0)); }, 0);
     var curMonth = FW.today().slice(0, 7);
     var prev = monthSum(prevMonth(curMonth));
     function mom(cur, pv) { if (!(pv > 0)) return null; return (cur - pv) / pv * 100; }
@@ -992,7 +988,7 @@
         '<div class="stat"><div class="label">区间收入 ' + rangeTxt + '</div><div class="value income">' + FW.fmtMoney(totalIncome) + '</div></div>' +
         '<div class="stat"><div class="label">区间支出（净额）</div><div class="value expense" title="不含退款支出（退款支出单独冲减收入）">' + FW.fmtMoney(totalExpense) + '</div></div>' +
         '<div class="stat"><div class="label">退款收入（冲减支出）</div><div class="value refund">' + FW.fmtMoney(totalRefund) + '</div></div>' +
-        '<div class="stat"><div class="label">退款支出（冲减收入）</div><div class="value refund" title="分类为「退款支出」的支出：退给客户的钱，直接冲减收入，不计入支出费用">' + FW.fmtMoney(totalRefundExp) + '</div></div>' +
+        '<div class="stat"><div class="label">退款支出（冲减收入）</div><div class="value refund" title="类型为「退款支出」的流水：退给客户的钱，直接冲减收入，不计入支出费用">' + FW.fmtMoney(totalRefundExp) + '</div></div>' +
         '<div class="stat"><div class="label">区间结余（利润）</div><div class="value">' + FW.fmtMoney(totalIncome - totalExpense - totalRefundExp) + '</div></div>' +
         '<div class="stat"><div class="label">收入环比（上月）</div><div class="value ' + (incMom == null ? '' : (incMom >= 0 ? 'income' : 'expense')) + '">' + (incMom == null ? '—' : (incMom >= 0 ? '▲' : '▼') + Math.abs(incMom).toFixed(1) + '%') + '</div></div>' +
         '<div class="stat"><div class="label">支出环比（上月）</div><div class="value ' + (expMom == null ? '' : (expMom >= 0 ? 'income' : 'expense')) + '">' + (expMom == null ? '—' : (expMom >= 0 ? '▲' : '▼') + Math.abs(expMom).toFixed(1) + '%') + '</div></div>' +
@@ -1757,7 +1753,7 @@
           '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select></div>' +
           '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a> <a href="#" id="mgRules" style="font-size:12px;color:var(--primary);align-self:center">匹配规则</a></div>' +
           '<div class="field full"><span id="catHint" class="cat-hint"></span></div>' +
-          (type === 'expense' ? '<div class="field full muted" style="font-size:12px;line-height:1.6">💡 分类选「<b>' + REFUND_CAT + '</b>」＝退给客户的钱：该笔将<b>冲减收入</b>，不计入支出费用（利润不受影响，只是费用里不再混着退款）。</div>' : '') +
+          (type === 'refund_out' ? '<div class="field full muted" style="font-size:12px;line-height:1.6">💡 「退款支出」＝退给客户的钱：该笔将<b>冲减收入</b>，不计入支出费用（利润不受影响，只是费用里不再混着退款）。</div>' : '') +
           '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
           deductField +
         '</div>' +
@@ -1772,7 +1768,7 @@
       if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
       var mgr = document.getElementById('mgRules');
       if (mgr) mgr.onclick = function (e) { e.preventDefault(); openCatMatchManager(); };
-      if (type === 'income' || type === 'expense' || type === 'refund') bindAllocBox();
+      if (type === 'income' || type === 'expense' || type === 'refund' || type === 'refund_out') bindAllocBox();
       if (type === 'income') {
         function updateFeePreview() {
           var amtEl = document.getElementById('f_amount');
@@ -1992,7 +1988,7 @@
         return '<tr' + (dupFlags[i] ? ' class="dup-row"' : '') + '>' +
           '<td><input type="checkbox" class="pc" data-i="' + i + '" ' + (s.chosen[i] ? 'checked' : '') + '></td>' +
           '<td>' + (dupFlags[i] ? '<span class="dup-badge" title="疑似重复：与已导入或本批内同日期/同金额/同对方记录重复">重复</span>' : '') + FW.esc(r.date) + '</td>' +
-          '<td class="' + cls + '">' + (r.type === 'income' ? '收入' : r.type === 'refund' ? '退款收入' : '支出') + '</td>' +
+          '<td class="' + cls + '">' + typeLabel(r) + '</td>' +
           '<td class="num ' + cls + '">' + FW.fmtMoney(r.amount) + '</td>' +
           '<td>' + FW.esc(r.party || '—') + (dupFlags[i] ? ' <span class="tx-flag" title="疑似重复：与已导入或本批内同日期/同金额/同对方记录重复">◆</span>' : '') + '</td>' +
           '<td>' + FW.esc(r.remark || '—') + '</td>' +
@@ -2253,7 +2249,7 @@
   }
   function reconcileBodyHtml(bi, bd) {
     var acct = bi.account;
-    var bookRows = all().filter(function (t) { return t.account === acct && (t.type === 'income' || t.type === 'expense' || t.type === 'refund'); })
+    var bookRows = all().filter(function (t) { return t.account === acct && (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out'); })
       .map(function (t) { return { id: t.id, date: t.date, type: t.type, amount: Number(t.amount), project: t.project, remark: t.remark }; });
     var recon = reconcile(bi.rows, bookRows);
     lastRecon = recon;
@@ -2296,7 +2292,7 @@
     var unrecBook = recon.bookOnly.length ? '<div class="card" style="margin-bottom:14px">' +
       '<h3>内账已记录、银行未记录 <span class="sub">银行未达账项（在途/未到账）</span></h3>' +
       '<table><thead><tr><th>日期</th><th>类型</th><th>项目</th><th class="num">金额</th></tr></thead><tbody>' +
-      recon.bookOnly.map(function (t) { return '<tr><td>' + FW.esc(t.date) + '</td><td>' + (t.type === 'income' ? '收入' : t.type === 'refund' ? '退款收入' : '支出') + '</td><td>' + txProjectLabel(t) + '</td><td class="num ' + (t.type === 'income' ? 'income' : t.type === 'refund' ? 'refund' : 'expense') + '">' + FW.fmtMoney(t.amount) + '</td></tr>'; }).join('') +
+      recon.bookOnly.map(function (t) { var m = typeMeta(t); return '<tr><td>' + FW.esc(t.date) + '</td><td>' + m.tag + '</td><td>' + txProjectLabel(t) + '</td><td class="num ' + m.cls + '">' + FW.fmtMoney(t.amount) + '</td></tr>'; }).join('') +
       '</tbody></table></div>' : '';
 
     var matchedHtml = recon.matched.length ? '<div class="card">' +
@@ -2516,7 +2512,7 @@
     if (t.skipAlloc) badge = '<span class="badge-alloc skip" title="不参与分摊">不参与</span> ';
     else if (isAlloc) badge = '<span class="badge-alloc done" title="已分摊到项目">已分摊 ⊞</span> ';
     else if (proj) badge = '';
-    else if (t.type === 'income' || t.type === 'expense' || t.type === 'refund') badge = '<span class="badge-alloc wait" title="待分摊">待分摊</span> ';
+    else if (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') badge = '<span class="badge-alloc wait" title="待分摊">待分摊</span> ';
     if (isAlloc) {
       var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
       var names = items.map(function (a) { return (a.project || '').trim(); });
@@ -2542,14 +2538,15 @@
       if (exp) map[k].expense += exp;
     }
     (rows || []).forEach(function (t) {
-      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
-      var sign = (t.type === 'refund') ? -1 : 1;
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund' && t.type !== 'refund_out') return;
+      var sign = (t.type === 'refund' || t.type === 'refund_out') ? -1 : 1;
+      var isIncSide = (t.type === 'income' || t.type === 'refund_out');   // refund_out 冲减收入 → 收入侧负数
       var alloc = (FW.projectCostCalc && FW.projectCostCalc.splitAmounts) ? FW.projectCostCalc.splitAmounts(t) : null;
       if (alloc) {
-        if (t.type === 'income') alloc.forEach(function (s) { add(s.project || '未分类项目', s.amount, 0); });
+        if (isIncSide) alloc.forEach(function (s) { add(s.project || '未分类项目', s.amount * sign, 0); });
         else alloc.forEach(function (s) { add(s.project || '未分类项目', 0, s.amount * sign); });
       } else {
-        add(t.project || '未分类项目', (t.type === 'income' ? Number(t.amount) : 0), (t.type === 'income' ? 0 : Number(t.amount) * sign));
+        add(t.project || '未分类项目', (isIncSide ? Number(t.amount) * sign : 0), (isIncSide ? 0 : Number(t.amount) * sign));
       }
     });
     return map;
@@ -2595,6 +2592,7 @@
               '<option value="expense" ' + (v.type === 'expense' ? 'selected' : '') + '>支出</option>' +
               '<option value="income" ' + (v.type === 'income' ? 'selected' : '') + '>收入</option>' +
               '<option value="refund" ' + (v.type === 'refund' ? 'selected' : '') + '>退款收入（冲减支出）</option>' +
+              '<option value="refund_out" ' + (v.type === 'refund_out' ? 'selected' : '') + '>退款支出（冲减收入）</option>' +
               '<option value="transfer" ' + (v.type === 'transfer' ? 'selected' : '') + '>账户互转（不影响收支）</option>' +
               '<option value="equity" ' + (v.type === 'equity' ? 'selected' : '') + '>股本资金（不影响收支）</option>' +
               '<option value="dividend" ' + (v.type === 'dividend' ? 'selected' : '') + '>股东分红（不影响收支）</option>' +
@@ -2666,7 +2664,7 @@
           photos: photos,
           category: '', account: '', fromAccount: '', toAccount: '', equityDir: 'in'
         };
-        if (type === 'income' || type === 'expense' || type === 'refund') {
+        if (type === 'income' || type === 'expense' || type === 'refund' || type === 'refund_out') {
           var c1 = document.getElementById('f_cat1').value;
           var c2 = document.getElementById('f_cat2').value;
           rec.category = c1 ? (c2 ? c1 + ' / ' + c2 : c1) : '';
@@ -2754,7 +2752,7 @@
     var valid = window.CatMatch.filterValid(catRules(), cats().map(function (c) { return c.name; }));
     var n = 0;
     rows.forEach(function (t) {
-      if ((t.type === 'income' || t.type === 'expense' || t.type === 'refund') && !t.category) {
+      if ((t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') && !t.category) {
         var m = window.CatMatch.match(t.remark, valid);
         if (m && m.cat1) {
           t.category = m.cat2 ? (m.cat1 + ' / ' + m.cat2) : m.cat1;
@@ -3040,7 +3038,7 @@
       return '<div class="field"><label>账户</label><select id="bulkAccount">' + accOptsHtml('') + '</select></div>';
     }
     if (field === 'type') {
-      return '<div class="field"><label>类型</label><select id="bulkType"><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="dividend">股东分红</option></select></div>';
+      return '<div class="field"><label>类型</label><select id="bulkType"><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入</option><option value="refund_out">退款支出</option><option value="dividend">股东分红</option></select></div>';
     }
     var idMap = { project: 'bulkProject', party: 'bulkParty', reimburser: 'bulkReimburser' };
     var phMap = { project: '如：XX项目', party: '如：XX公司 / 张三', reimburser: '如：李四' };
@@ -3157,22 +3155,15 @@
     FW.toast('已删除 ' + (ids.length - locked) + ' 条流水' + (locked ? ('，跳过 ' + locked + ' 条已结账锁定') : ''));
   }
 
-  function typeLabel(t) {
-    if (t.type === 'income') return '收入';
-    if (t.type === 'expense') return isRefundExpense(t) ? '退款支出' : '支出';
-    if (t.type === 'refund') return '退款收入';
-    if (t.type === 'transfer') return '账户互转';
-    if (t.type === 'equity') return (t.equityDir === 'out' ? '股本抽回' : '股本注入');
-    if (t.type === 'dividend') return '股东分红';
-    return t.type || '';
-  }
+  var TYPE_NAMES = { income: '收入', expense: '支出', refund: '退款收入', refund_out: '退款支出', transfer: '账户互转', equity: '股本资金', dividend: '股东分红' };
+  function typeLabel(t) { return TYPE_NAMES[t.type] || t.type || ''; }
   function exportTable() {
     var rows = filteredRows();
     if (!rows.length) { FW.toast('没有可导出的流水'); return; }
     var head = ['日期', '类型', '项目', '分类', '账户', '金额', '已扣支出', '实际收入', '备注', '凭证数', '对方单位/个人', '报销人', '是否影响收支'];
     var data = rows.map(function (t) {
       var dv = (t.type === 'income' && t.deduct > 0) ? t.deduct : 0;
-      return [t.date, typeLabel(t), txProjectText(t), t.category || '', accountOf(t), t.amount, dv, dv ? (t.amount + dv) : '', (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'];
+      return [t.date, typeLabel(t), txProjectText(t), t.category || '', accountOf(t), t.amount, dv, dv ? (t.amount + dv) : '', (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '', (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') ? '是' : '否'];
     });
     var csv = '﻿' + [head].concat(data).map(function (r) {
       return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
@@ -3195,7 +3186,7 @@
     var scope = [];
     if (f.account) scope.push('账户：' + f.account);
     if (f.project) scope.push('项目：' + f.project);
-    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本', dividend: '股东分红' }[f.type] || f.type));
+    if (f.type) scope.push('类型：' + (TYPE_NAMES[f.type] || f.type));
     if (f.kw) scope.push('关键词：' + f.kw);
     var inc = 0, exp = 0, n = rows.length;
     rows.forEach(function (t) {
@@ -3577,11 +3568,11 @@
       var dv = (t.type === 'income' && t.deduct > 0) ? t.deduct : 0;
       var amt = Number(t.amount) || 0;
       if (t.type === 'income' || t.type === 'refund' || (t.type === 'equity' && t.equityDir === 'in')) sumInc += amt;
-      else if (t.type === 'expense' || (t.type === 'equity' && t.equityDir === 'out')) sumExp += amt;
+      else if (t.type === 'expense' || t.type === 'refund_out' || (t.type === 'equity' && t.equityDir === 'out')) sumExp += amt;
       var line = [
         t.date, typeLabel(t), txProjectText(t), t.category || '', accountOf(t), amt, dv, dv ? (t.amount + dv) : '',
         (t.remark || '').replace(/[\r\n]+/g, ' '), (t.photos ? t.photos.length : 0), t.party || '', t.reimburser || '',
-        (t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? '是' : '否'
+        (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') ? '是' : '否'
       ];
       if (withPics) line.push('');
       aoa.push(line);
@@ -3627,7 +3618,7 @@
     var BIG_FONT_SZ = 13;
     for (var ri = 1; ri < aoa.length; ri++) {
       var t = rows[ri - 1];   // aoa 第 0 行是表头，数据行与 rows 对齐
-      var incExp = !!(t && (t.type === 'income' || t.type === 'expense' || t.type === 'refund'));
+      var incExp = !!(t && (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out'));
       xlBigCols.forEach(function (ci) {
         var caddr = x.utils.encode_cell({ r: ri, c: ci });
         var cell = ws[caddr];
@@ -3703,7 +3694,7 @@
     var scope = [];
     if (f.account) scope.push('账户：' + f.account);
     if (f.project) scope.push('项目：' + f.project);
-    if (f.type) scope.push('类型：' + ({ income: '收入', expense: '支出', refund: '退款收入', transfer: '账户互转', equity: '股本', dividend: '股东分红' }[f.type] || f.type));
+    if (f.type) scope.push('类型：' + (TYPE_NAMES[f.type] || f.type));
     if (f.kw) scope.push('关键词：' + f.kw);
     var inc = 0, exp = 0;
     rows.forEach(function (t) {
@@ -3783,7 +3774,7 @@
           '</td>';
           var cells = {
             date: '<td class="fp-detail-big">' + FW.esc(t.date) + '</td>',
-            type: '<td class="fp-detail-big' + ((t.type === 'income' || t.type === 'expense' || t.type === 'refund') ? ' fp-type-bold' : '') + '">' + FW.esc(typeLabel(t)) + '</td>',
+            type: '<td class="fp-detail-big' + ((t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') ? ' fp-type-bold' : '') + '">' + FW.esc(typeLabel(t)) + '</td>',
             project: '<td class="fp-detail-big">' + txProjectLabel(t) + '</td>',
             category: '<td class="fp-detail-big">' + FW.esc(t.category || '') + '</td>',
             account: '<td class="fp-detail-big">' + FW.esc(accountOf(t)) + '</td>',
@@ -4035,12 +4026,12 @@
     var dayMap = {};
     all().forEach(function (t) {
       if (!t.date || t.date.slice(0, 7) !== ym) return;
-      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund' && t.type !== 'refund_out') return;
       if (!dayMap[t.date]) dayMap[t.date] = { inc: 0, exp: 0 };
       if (t.type === 'income') dayMap[t.date].inc += +t.amount;
-      else if (t.type === 'refund') dayMap[t.date].exp -= +t.amount;
-      else if (isRefundExpense(t)) dayMap[t.date].inc -= +t.amount;   // 退款支出 → 冲减收入
-      else dayMap[t.date].exp += +t.amount;
+      else if (t.type === 'refund_out') dayMap[t.date].inc -= +t.amount;   // 退款支出 → 冲减收入
+      else if (t.type === 'expense') dayMap[t.date].exp += +t.amount;
+      else if (t.type === 'refund') dayMap[t.date].exp -= +t.amount;       // 退款收入 → 冲减支出
     });
     var weekNames = ['日', '一', '二', '三', '四', '五', '六'];
     var head = '<div class="cal-head"><button class="btn ghost sm" id="calPrev">‹</button><span id="calTitle">' + y + '年 ' + (m + 1) + '月</span><button class="btn ghost sm" id="calNext">›</button><button class="btn ghost sm" id="calToday">今天</button></div>';
@@ -4084,12 +4075,10 @@
     equityNet: equityNet,                    // (from,to) -> 区间股本净
     filterRows: filterRows,                  // (filter) -> 按筛选条件过滤流水（支持二级分类 category2）
     cat2Name: cat2Name,                      // (t) -> 提取二级分类名
-    isRefundExpense: isRefundExpense,        // (t) -> 是否「退款支出」（分类含「退款」的支出）
-    REFUND_CAT: REFUND_CAT                   // 退款支出分类标准名
+    isRefundExpense: isRefundExpense         // (t) -> 是否「退款支出」类型（type='refund_out'）
   };
-  // 全局快捷入口：其他模块（项目核算 / 首页 / 报表中心）统一复用同一判定，避免口径不一致
+  // 全局快捷入口：其他模块统一复用同一判定，避免口径不一致
   FW.isRefundExpense = isRefundExpense;
-  FW.REFUND_CAT = REFUND_CAT;
 
   FW.internalAccMgr = { getAccounts: getAccounts, saveAccounts: saveAccounts, refreshAccts: refreshAccts };
 
