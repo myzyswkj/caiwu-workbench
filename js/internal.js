@@ -1062,7 +1062,9 @@
     });
   }
 
-  // 按账户汇总（与统计 tab 一致：收入/支出/退款；refund 抵减支出；并单列账户互转净）
+  // 按账户汇总（收支维度口径）：收入 / 支出 / 互转净
+  //  - refund（退款收入）抵减支出：expense -= a
+  //  - refund_out（退款支出）计入支出（资金流出视角），但不代表费用；利润口径仍冲减收入
   // 先预置全部账户（含筛选期间无发生额的账户），保证筛选后仍能列出所有账户；发生额按流水叠加。
   function buildAccMap(rows) {
     var map = {};
@@ -1073,6 +1075,7 @@
       if (t.type === 'income') { ensure(t.account || '其他').income += a; }
       else if (t.type === 'expense') { ensure(t.account || '其他').expense += a; }
       else if (t.type === 'refund') { ensure(t.account || '其他').expense -= a; }
+      else if (t.type === 'refund_out') { ensure(t.account || '其他').expense += a; } // 收支维度：退给客户的资金流出，计入支出列
       else if (t.type === 'transfer') {
         if (t.fromAccount) ensure(t.fromAccount).transfer -= a;
         if (t.toAccount) ensure(t.toAccount).transfer += a;
@@ -1147,6 +1150,7 @@
   // 输入：rows = 当前筛选后的流水（filteredRows 口径，含 transfer 互转数据）；f = 当前筛选（用于取开始/期末余额）。
   // 口径：区间期初 = startBalanceMap(f)[账户]（筛选开始前的账户余额，含期初/互转/股本）；
   //       区间期末余额 = balMapAt(f.to || 今天)[账户]（筛选期末的真实账户余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动）。
+  //       本表「支出」列包含退款支出（资金流出视角），仅用于对账；利润口径下退款支出仍冲减收入、不计入费用。
   // 输出：HTML 字符串；无账户或无数据时返回 ''。
   function accSummaryHtml(rows, f) {
     if (!getAccounts().length) return '';
@@ -1189,7 +1193,7 @@
       '</tr>';
     return '<div class="flow-acc-head">按账户（收支维度）</div>' +
       '<table class="flow-acc-tbl"><thead><tr><th>账户</th><th class="num">区间期初</th><th class="num">收入</th><th class="num">支出</th><th class="num">互转</th><th class="num">区间期末余额</th></tr></thead><tbody>' + trs + '</tbody></table>' +
-      '<div class="flow-acc-note">区间期初 = 筛选开始前的账户余额；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的账户余额。互转 = 转入 − 转出（账户互转净头寸，单列不影响收支）。</div>';
+      '<div class="flow-acc-note">区间期初 = 筛选开始前的账户余额；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的账户余额。互转 = 转入 − 转出（账户互转净头寸，单列不影响收支）。<br>注：本表「支出」含退款支出（退给客户的资金流出），仅反映收支维度；利润口径下退款支出仍冲减收入、不计入费用。</div>';
   }
 
   /* ---------- 资金变动明细（账户互转 / 股本，不影响收支） ---------- */
@@ -3248,7 +3252,7 @@
     accRowColors.push(null);
     var subtable = {
       title: '按账户（收支维度）',
-      note: '注：区间期初 = 筛选开始前的账户余额；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的真实账户余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支。',
+      note: '注：区间期初 = 筛选开始前的账户余额；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动，即筛选期末的真实账户余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支。本表「支出」含退款支出（资金流出视角），仅用于对账；利润口径下退款支出仍冲减收入、不计入费用。',
       head: ['账户', '区间期初', '收入', '支出', '互转（转入−转出）', '区间期末余额'],
       rows: accRows,
       rowColors: accRowColors,
@@ -3734,7 +3738,7 @@
         // 按账户收支维度：老板看流水时通常最关心"每个账户赚了/花了多少"
         '<h4 class="fp-h4">按账户（收支维度）</h4>' +
         '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true) + '</div>' +
-        '<div class="fp-note">注：区间期初 / 区间期末余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动。</div>' +
+        '<div class="fp-note">注：区间期初 / 区间期末余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动。本表「支出」含退款支出（资金流出视角），仅用于对账；利润口径下退款支出仍冲减收入、不计入费用。</div>' +
         '<h4 class="fp-h4">流水明细</h4>' +
         (function () {
           // 打印表列 = 界面流水表（去掉「操作」列），顺序 / 标签 / 列宽与界面逐一对齐（用户要求与界面一致）
