@@ -18,6 +18,13 @@
   function rowsAll() { return FW.db.getList(KEY); }
   function inRange(t, from, to) { return (!from || t.date >= from) && (!to || t.date <= to); }
   function num(v) { var n = Number(v); return isNaN(n) ? 0 : n; }
+  // 退款支出：类型=支出、一级分类含「退款」→ 冲减营业收入，不计入成本/费用（与内账、项目核算同口径）
+  function isRefundExpense(t) {
+    if (FW.isRefundExpense) return FW.isRefundExpense(t);
+    if (!t || t.type !== 'expense') return false;
+    var c = ((t.category || '').split(' / ')[0] || '').trim();
+    return !!c && c.indexOf('退款') >= 0;
+  }
 
   /* 支出分类：成本 / 税金 / 费用 / 固定资产购置 */
   function classify(cat) {
@@ -75,6 +82,9 @@
           else if (ik === 'invest') { invest[cat] = (invest[cat] || 0) + dv; investTotal += dv; }
           else { fee[cat] = (fee[cat] || 0) + dv; feeTotal += dv; }
         }
+      } else if (isRefundExpense(t)) {
+        // 退款支出（退给客户）：冲减营业收入，不计入成本 / 税金 / 费用
+        income[cat] = (income[cat] || 0) - a; incomeTotal -= a;
       } else if (t.type === 'expense') {
         var k = classify(cat);
         if (k === 'cost') { cost[cat] = (cost[cat] || 0) + a; costTotal += a; }
@@ -141,7 +151,7 @@
       subRow('固定资产购置小计', d.investTotal) +
       boldRow('二、净利润', d.netProfit, d.netProfit >= 0 ? 'income' : 'expense') +
       '</tbody></table>' +
-      '<div class="muted" style="font-size:12px;margin-top:8px">注：所得税依实际申报填列，本表未自动计提；净利润 = 收入 −（成本+税金+费用+固定资产购置）。</div>';
+      '<div class="muted" style="font-size:12px;margin-top:8px">注：所得税依实际申报填列，本表未自动计提；净利润 = 收入 −（成本+税金+费用+固定资产购置）。<br>「退款支出」分类（退给客户的钱）以负数冲减营业收入，不计入成本与费用。</div>';
     return html;
   }
 
