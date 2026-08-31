@@ -1509,12 +1509,15 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .seg-btn { cursor: pointer; }
 #impPaste { width: 100%; font-family: monospace; font-size: 12px; line-height: 1.5; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
 
-/* ===== 质检标记 v45：重复/异常 ===== */
+/* ===== 质检标记 v45/v59：重复/异常 ===== */
 .tx-flag { display: inline-block; margin-left: 4px; font-size: 12px; vertical-align: middle; }
 .tx-flag.warn { color: #C0392B; cursor: help; }
 .tx-flag:not(.warn) { color: var(--gold); cursor: help; }
-tr.dup-row { background: #FFF7E6; }
-tr.dup-row:hover { background: #FDEFD0; }
+tr.dup-row { background: #FFF0B3 !important; }
+tr.dup-row:hover { background: #FFE58A !important; }
+tr.dup-row td { border-bottom: 1px solid #FFD666; }
+.dup-badge { display: inline-block; font-size: 10px; line-height: 1; padding: 2px 5px; border-radius: 4px; background: #FA8C16; color: #fff; margin-right: 6px; vertical-align: middle; font-weight: 600; letter-spacing: 0.3px; }
+.dup-badge + .tx-flag { color: #FA8C16; font-size: 13px; }
 
 /* ===== 老板月报 驾驶舱（#3 #4） ===== */
 .bb-cockpit { margin-top: 22px; }
