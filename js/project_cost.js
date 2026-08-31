@@ -1579,10 +1579,11 @@
     var h = '<div class="mindmap-box"><div style="min-width:' + chartW + 'px">' +
       FW.groupedBarChart(title, series, labels, { width: chartW, height: 240 }) + '</div></div>';
 
-    // 成本结构拆解
+    // 成本结构拆解（使用 precise 标签，避免 8.9万/2.2万/231/5 这种短写法与精确合计对不上）
     var structParts = [];
     if (data.cats.length) {
-      structParts.push(FW.barChart('流水成本结构（按分类）', data.cats, { height: 210 }));
+      var flowCostTotal = data.cats.reduce(function (s, c) { return s + c.value; }, 0);
+      structParts.push(FW.barChart('流水成本结构（按分类） · 合计 ' + FW.fmtMoney(flowCostTotal), data.cats, { height: 210, precise: true }));
     }
     if (data.laborTypes.length) {
       structParts.push(FW.pieChart('工资成本构成（底薪/奖金/提成）', data.laborTypes));
@@ -1724,8 +1725,9 @@
     }
     h += '<div class="muted" style="font-size:11px;margin-top:8px">收入 − 流水成本 + 应收回款项 − 工资成本 = 利润（应收回款项为预付未用完、从成本中扣除的可收回项）。<b>点上方任一数字可下钻查看该项目的逐笔流水。</b></div></div>';
     var cats = Object.keys(r.byCat).map(function (c) { return { label: c, value: r.byCat[c] }; }).sort(function (a, b) { return b.value - a.value; });
-    h += '<div class="pc-detail-block"><h5>流水成本构成（按分类）</h5>';
-    h += cats.length ? FW.barChart('', cats, { height: 180 }) : '<div class="muted">无</div>';
+    var rFlowCostTotal = cats.reduce(function (s, c) { return s + c.value; }, 0);
+    h += '<div class="pc-detail-block"><h5>流水成本构成（按分类） · 合计 ' + FW.fmtMoney(rFlowCostTotal) + '</h5>';
+    h += cats.length ? FW.barChart('', cats, { height: 180, precise: true }) : '<div class="muted">无</div>';
 
     // 二级分类明细：按一级分组，展示 "一级 → 二级 → 金额"
     var costCatTable = cat2DetailTable(r.byCat2, function (v) { return v >= 0 ? 'amt-expense' : 'amt-recover'; });
