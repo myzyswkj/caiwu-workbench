@@ -1628,3 +1628,24 @@ button.pc-detail-tx { cursor:pointer }
 .al-susp-row span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .al-susp-row .muted { flex:0 0 auto; }
 .al-susp-row .btn { flex:0 0 auto; padding:2px 9px; font-size:11px; }
+
+/* ===== 项目核算 — 未完结 / 已完结 切换按钮（v68） ===== */
+.pc-done-cell { text-align: center; white-space: nowrap; }
+.pc-done-btn {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: background .12s, color .12s, border-color .12s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.pc-done-btn.is-undone { background: #fff4f0; color: #c0392b; border-color: #f0c4b8; }
+.pc-done-btn.is-undone:hover { background: #ffe6dc; }
+.pc-done-btn.is-done { background: #eaf6ec; color: #2e7d32; border-color: #b7dcc0; }
+.pc-done-btn.is-done:hover { background: #d8eedc; }
