@@ -1629,6 +1629,11 @@ button.pc-detail-tx { cursor:pointer }
 .al-susp-row .muted { flex:0 0 auto; }
 .al-susp-row .btn { flex:0 0 auto; padding:2px 9px; font-size:11px; }
 
+/* v70：项目核算「已完结」项目行置灰（配合 sortRows 沉底） */
+.pc-row.is-done { opacity:.58; }
+.pc-row.is-done:hover { opacity:1; background:#f1f5f2; }
+.pc-row.is-done .pc-caret, .pc-row.is-done td { color:#8a94a6; }
+
 /* ===== 项目核算 — 未完结 / 已完结 切换按钮（v68） ===== */
 .pc-done-cell { text-align: center; white-space: nowrap; }
 .pc-done-btn {
