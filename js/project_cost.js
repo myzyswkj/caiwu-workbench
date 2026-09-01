@@ -22,6 +22,7 @@
   var COL_DEFS = [
     { key: 'rank', label: '排名', fixed: true },
     { key: 'project', label: '项目', fixed: true },
+    { key: 'done', label: '状态', fixed: true },
     { key: 'qty', label: '签收单量' },
     { key: 'revenue', label: '收入' },
     { key: 'revUnit', label: '收入单产' },
@@ -454,7 +455,7 @@
   }
 
   var state = {
-    year: 'all', expanded: {}, kw: '', pnl: 'all',
+    year: 'all', expanded: {}, kw: '', pnl: 'all', doneFilter: 'all',
     costType: '', costType2: '', costExcl: false,
     sortKey: 'profit', sortDir: 'desc',
     hiddenCats: {}, showCatPanel: false,
@@ -463,13 +464,16 @@
   };
 
   // 项目筛选（关键词匹配项目名 + 盈亏过滤）；纯函数，便于测试与外部复用
-  function filterRows(rows, kw, pnl) {
+  function filterRows(rows, kw, pnl, done) {
     kw = (kw || '').trim().toLowerCase();
     pnl = pnl || 'all';
+    done = done || 'all';
     return (rows || []).filter(function (r) {
       if (kw && (r.project || '').toLowerCase().indexOf(kw) < 0) return false;
       if (pnl === 'profit' && r.profit < 0) return false;
       if (pnl === 'loss' && r.profit >= 0) return false;
+      if (done === 'done' && !r.done) return false;
+      if (done === 'undone' && r.done) return false;
       return true;
     });
   }
@@ -492,6 +496,28 @@
     if (id) FW.db.upsert(QTY_KEY, { id: id, project: project, qty: qty });
     else FW.db.upsert(QTY_KEY, { id: FW.db.uid('pq_'), project: project, qty: qty });
   }
+  // ===== 项目完结状态（手动标记，按项目维度持久化；与统计年度无关，按账本隔离） =====
+  var DONE_KEY = 'project_done';
+  // 返回 { 项目名: true } —— 仅保存已标记「已完结」的项目
+  function getDoneMap() {
+    var m = {};
+    FW.db.getList(DONE_KEY).forEach(function (it) { if (it && it.project) m[it.project] = true; });
+    return m;
+  }
+  // 切换某个项目的完结状态（done=true 标记已完结；false 则移除记录）
+  function setDone(project, done) {
+    project = (project || '').trim();
+    if (!project) return;
+    var arr = FW.db.getList(DONE_KEY), id = null;
+    arr.forEach(function (it) { if (it.project === project) id = it.id; });
+    if (done) {
+      if (id) FW.db.upsert(DONE_KEY, { id: id, project: project, done: 1 });
+      else FW.db.upsert(DONE_KEY, { id: FW.db.uid('pd_'), project: project, done: 1 });
+    } else if (id) {
+      FW.db.remove(DONE_KEY, id);
+    }
+  }
+
   // 在筛选之后，把单量 / 单产补全到每行（收入单产 = 收入 / 单量；净利润单产 = 利润 / 单量）
   function enrichRows(rows) {
     var m = getQtyMap();
@@ -1219,6 +1245,11 @@
       '<option value="profit"' + (state.pnl === 'profit' ? ' selected' : '') + '>仅盈利</option>' +
       '<option value="loss"' + (state.pnl === 'loss' ? ' selected' : '') + '>仅亏损</option>' +
       '</select>' +
+      '<select id="pcDone" class="pc-year">' +
+      '<option value="all"' + (state.doneFilter === 'all' ? ' selected' : '') + '>全部状态</option>' +
+      '<option value="undone"' + (state.doneFilter === 'undone' ? ' selected' : '') + '>仅未完结</option>' +
+      '<option value="done"' + (state.doneFilter === 'done' ? ' selected' : '') + '>仅已完结</option>' +
+      '</select>' +
       '<span class="pc-costtype-label">成本率口径</span>' +
       '<select id="pcCostType" class="pc-year"><option value="">总成本（默认）</option></select>' +
       '<select id="pcCostType2" class="pc-year" disabled><option value="">全部二级</option></select>' +
@@ -1271,7 +1302,9 @@
   // 计算当前视图数据（含筛选 + 单量/单产补全 + 成本分类剔除）
   function getView() {
     var data = compute(state.year, state.hiddenCats);
-    var rows = enrichRows(filterRows(data.rows, state.kw, state.pnl));
+    var dm = getDoneMap();
+    data.rows.forEach(function (r) { r.done = !!dm[r.project]; });
+    var rows = enrichRows(filterRows(data.rows, state.kw, state.pnl, state.doneFilter));
     return { data: data, rows: rows };
   }
 
@@ -1306,6 +1339,8 @@
     if (searchEl) searchEl.oninput = function () { state.kw = this.value; buildBody(); };
     var pnlEl = document.getElementById('pcPnl');
     if (pnlEl) pnlEl.onchange = function () { state.pnl = this.value; buildBody(); };
+    var doneEl = document.getElementById('pcDone');
+    if (doneEl) doneEl.onchange = function () { state.doneFilter = this.value; buildBody(); };
   var ub = document.getElementById('pcUnclassView');
   if (ub) ub.onclick = openUnclassified;
 
@@ -1433,6 +1468,15 @@
         if (!e.target) return;
         // 签收单量输入框不触发行展开
         if (e.target.tagName === 'INPUT' || (e.target.closest && e.target.closest('.pc-qty-cell'))) return;
+        // 【新增】点击「未完结 / 已完结」按钮 → 切换项目完结状态（不触发行展开）
+        var doneBtn = e.target.closest ? e.target.closest('.pc-done-btn') : null;
+        if (doneBtn) {
+          var dp = doneBtn.getAttribute('data-p');
+          var dcur = doneBtn.getAttribute('data-done') === '1';
+          setDone(dp, !dcur);
+          buildBody();
+          return;
+        }
         // 【新增】点击逐笔明细按钮 → 弹出该项目逐笔流水
         var detailBtn = e.target.closest ? e.target.closest('.pc-detail-tx') : null;
         if (detailBtn) { openProjectDetail(detailBtn.getAttribute('data-p')); return; }
@@ -1788,6 +1832,7 @@
     var cr = costRateOf(r, state.costType, state.costType2, state.costExcl);
     switch (colKey) {
       case 'rank': return '<td class="pc-rank">' + r.rank + '</td>';
+      case 'done': return '<td class="pc-done-cell"><button class="pc-done-btn ' + (r.done ? 'is-done' : 'is-undone') + '" data-p="' + FW.esc(r.project) + '" data-done="' + (r.done ? '1' : '0') + '" title="点击切换：未完结 ⇄ 已完结">' + (r.done ? '✓ 已完结' : '○ 未完结') + '</button></td>';
       case 'project': return '<td><span class="pc-caret">' + (open ? '▾' : '▸') + '</span> ' + FW.esc(r.project) + '</td>';
       case 'qty': return '<td class="num pc-qty-cell"><input class="pc-qty-in" type="number" min="0" step="1" value="' + qtyVal + '" placeholder="填单量" title="签收单量（手动录入，用于核算收入单产与净利润单产）"></td>';
       case 'revenue': return '<td class="num amt-income clickable-amt" title="点击查看收入明细">' + FW.fmtMoney(r.revenue) + '</td>';
@@ -1809,6 +1854,7 @@
     switch (colKey) {
       case 'rank': return '<td></td>';
       case 'project': return '<td>合计</td>';
+      case 'done': return '<td></td>';
       case 'qty': return '<td class="num">' + totalQty + '</td>';
       case 'revenue': return '<td class="num amt-income">' + FW.fmtMoney(data.vTot.revenue) + '</td>';
       case 'revUnit': return '<td class="num">—</td>';
