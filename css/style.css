@@ -1654,3 +1654,43 @@ button.pc-detail-tx { cursor:pointer }
 .pc-done-btn.is-undone:hover { background: #ffe6dc; }
 .pc-done-btn.is-done { background: #eaf6ec; color: #2e7d32; border-color: #b7dcc0; }
 .pc-done-btn.is-done:hover { background: #d8eedc; }
+
+/* ===== 项目核算 — 数据体检弹窗（v71） ===== */
+.pc-health-summary {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fbf6ee;
+  border: 1px solid #f0e2cc;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.pc-health-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow: auto; }
+.pc-health-item {
+  border: 1px solid #eee;
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.pc-health-hd { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+.pc-health-body { font-size: 13px; color: #4a5160; line-height: 1.7; }
+.pc-health-body .btn { margin-top: 8px; }
+.pc-hl-list { margin: 6px 0 4px; padding-left: 18px; }
+.pc-hl-list li { margin: 2px 0; }
+.pc-hl-error { border-left-color: #c0392b; background: #fff7f6; }
+.pc-hl-warn { border-left-color: #e0a100; background: #fffdf5; }
+.pc-hl-info { border-left-color: #4a8eda; background: #f7faff; }
+.pc-health-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #9aa3b2;
+  margin-right: 4px;
+}
+.pc-hl-error .pc-health-badge { background: #c0392b; }
+.pc-hl-warn .pc-health-badge { background: #e0a100; }
+.pc-hl-info .pc-health-badge { background: #4a8eda; }
+.pc-arrow { color: #c0392b; margin: 0 4px; font-weight: 700; }
