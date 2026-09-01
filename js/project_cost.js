@@ -463,6 +463,35 @@
     showColPanel: false
   };
 
+  // ===== 筛选条件刷新后记忆（localStorage，仅存视图偏好，不影响任何数据） =====
+  var PC_PERSIST = 'pc_filter_persist_v1';
+  function loadPersist() {
+    try {
+      var s = JSON.parse(localStorage.getItem(PC_PERSIST) || '{}') || {};
+      if (s.year) state.year = s.year;
+      if (typeof s.kw === 'string') state.kw = s.kw;
+      if (s.pnl === 'all' || s.pnl === 'profit' || s.pnl === 'loss') state.pnl = s.pnl;
+      if (s.doneFilter === 'all' || s.doneFilter === 'undone' || s.doneFilter === 'done') state.doneFilter = s.doneFilter;
+      if (s.sortKey) state.sortKey = s.sortKey;
+      if (s.sortDir === 'asc' || s.sortDir === 'desc') state.sortDir = s.sortDir;
+      if (s.costType) state.costType = s.costType;
+      if (typeof s.costType2 === 'string') state.costType2 = s.costType2;
+      if (typeof s.costExcl === 'boolean') state.costExcl = s.costExcl;
+      if (s.hiddenCats && typeof s.hiddenCats === 'object') state.hiddenCats = s.hiddenCats;
+      if (s.visibleCols && s.visibleCols.length) state.visibleCols = s.visibleCols;
+    } catch (e) {}
+  }
+  function savePersist() {
+    try {
+      localStorage.setItem(PC_PERSIST, JSON.stringify({
+        year: state.year, kw: state.kw, pnl: state.pnl, doneFilter: state.doneFilter,
+        sortKey: state.sortKey, sortDir: state.sortDir, costType: state.costType, costType2: state.costType2,
+        costExcl: state.costExcl, hiddenCats: state.hiddenCats, visibleCols: state.visibleCols
+      }));
+    } catch (e) {}
+  }
+  loadPersist();
+
   // 项目筛选（关键词匹配项目名 + 盈亏过滤）；纯函数，便于测试与外部复用
   function filterRows(rows, kw, pnl, done) {
     kw = (kw || '').trim().toLowerCase();
@@ -555,6 +584,12 @@
       return va < vb ? -dir : dir;
     });
     arr.forEach(function (r, i) { r.rank = i + 1; });
+    // 已完结项目沉底（保持组内由 sortKey 决定的顺序，仅把 done 行移到末尾）
+    if (arr.some(function (r) { return r.done; })) {
+      var nd = arr.filter(function (r) { return !r.done; });
+      var dr = arr.filter(function (r) { return r.done; });
+      return nd.concat(dr);
+    }
     return arr;
   }
 
@@ -1006,6 +1041,21 @@
         txRows.push({ date: r.date || '', type: '预付款', category: '应收回款项', party: (r.party || '—'), amount: b, remark: '未用完余额（预付−已核销）', cls: 'amt-recover' });
       });
       txRows.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    } else if (filter === 'stock') {
+      // 【新增】采购成本溯源：来自库存台账（营期名 = 项目名），逐笔列出入库 / 退货单据
+      (FW.db.getList(STOCK_KEY) || []).forEach(function (t) {
+        if ((t.period || '').trim() !== project) return;
+        if (state.year !== 'all' && String((t.date || '').slice(0, 4)) !== String(state.year)) return;
+        var isRet = isStockReturn(t.type);
+        var amt = num(t.amount) * (isRet ? -1 : 1);
+        txRows.push({
+          date: t.date || '', type: (t.type || '入库'), category: STOCK_CAT,
+          party: (t.party || t.warehouse || '—'), amount: amt,
+          remark: normStockItem(t.item) + (t.unit ? ' · ' + t.unit : '') + ' · 数量 ' + (t.qty || 0),
+          cls: amt < 0 ? 'amt-recover' : 'amt-expense'
+        });
+      });
+      txRows.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
     } else {
       (FW.db.getList('internal') || []).forEach(function (t) {
         var p = (t.project || '').trim();
@@ -1332,6 +1382,7 @@
     html += trendHtml(data);
     html += '</div>';
     var c = document.getElementById('content'); if (c) c.innerHTML = html;
+    savePersist();
 
     // 筛选行控件事件绑定（年度 / 搜索 / 盈亏）
     var yearEl = document.getElementById('pcYear');
@@ -1481,6 +1532,9 @@
         // 【新增】点击逐笔明细按钮 → 弹出该项目逐笔流水
         var detailBtn = e.target.closest ? e.target.closest('.pc-detail-tx') : null;
         if (detailBtn) { openProjectDetail(detailBtn.getAttribute('data-p')); return; }
+        // 【新增】点击「采购成本溯源」按钮 → 弹出该项目库存单据明细
+        var stockBtn = e.target.closest ? e.target.closest('.pc-stock-tx') : null;
+        if (stockBtn) { openProjectDetail(stockBtn.getAttribute('data-p'), 'stock'); return; }
         // 【新增】点击收入金额 → 弹出收入明细
         var incomeCell = e.target.closest ? e.target.closest('td.amt-income.clickable-amt') : null;
         if (incomeCell) {
@@ -1788,6 +1842,10 @@
     if (costCatTable) h += costCatTable;
 
     h += '</div>';
+    // 采购成本溯源入口（来自库存台账）：仅当该项目确有采购成本时显示
+    if (r.byCat && r.byCat[STOCK_CAT] && Math.abs(r.byCat[STOCK_CAT]) >= 0.005) {
+      h += '<div class="pc-detail-foot no-print"><button class="btn sm pc-stock-tx" data-p="' + FW.esc(r.project) + '">📦 采购成本溯源（库存单据）</button><span class="muted" style="margin-left:8px">点此查看本项目（营期）对应的采购入库 / 退货单据明细</span></div>';
+    }
     var lt = [
       { label: '底薪', value: r.laborByType.base },
       { label: '奖金', value: r.laborByType.bonus },
@@ -1888,7 +1946,7 @@
     var totalQty = rows.reduce(function (s, r) { return s + (r.qty || 0); }, 0);
     rows.forEach(function (r) {
       var open = !!state.expanded[r.project];
-      h += '<tr class="pc-row' + (open ? ' open' : '') + '" data-p="' + FW.esc(r.project) + '" data-rev="' + r.revenue + '" data-profit="' + r.profit + '">' +
+      h += '<tr class="pc-row' + (open ? ' open' : '') + (r.done ? ' is-done' : '') + '" data-p="' + FW.esc(r.project) + '" data-rev="' + r.revenue + '" data-profit="' + r.profit + '">' +
         cols.map(function (c) { return colTd(c.key, r); }).join('') +
         '</tr>';
       if (open) h += detailHtml(r);
