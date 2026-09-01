@@ -254,15 +254,25 @@
         '<button class="btn ghost sm" data-r="all">全部</button>' +
         '<div class="field"><input id="repFrom" type="date" value="' + FW.esc(state.from) + '" title="开始日期"></div>' +
         '<div class="field"><input id="repTo" type="date" value="' + FW.esc(state.to) + '" title="结束日期"></div>' +
+        '<span class="exp-menu-wrap" id="repExpWrap">' +
+          '<button class="btn ghost sm" id="repExpBtn">⬇ 导出 ▾</button>' +
+          '<div class="exp-menu no-print" id="repExpMenu" style="display:none">' +
+            '<button data-fmt="xlsx">📊 Excel（.xlsx）</button>' +
+            '<button data-fmt="img">🖼 导出图片（PNG）</button>' +
+            '<button data-fmt="csv">📄 CSV</button>' +
+            '<button data-fmt="print">🖨 打印 / 转 PDF</button>' +
+          '</div>' +
+        '</span>' +
       '</div></div>' +
       (hasData ? '<div id="repBody" class="print-area"></div>'
         : '<div class="empty" style="padding:40px">还没有内账流水，先去「登记内账」记几笔收入支出，报表会自动生成。</div>');
 
     // 顶部操作区：打印 / 导出
     var ta = document.getElementById('topActions');
-    if (ta) ta.innerHTML = '<button class="btn ghost" id="repPrint">🖨 打印</button><button class="btn ghost" id="repCsv">⬇ 导出CSV</button>';
-    if (document.getElementById('repPrint')) document.getElementById('repPrint').onclick = function () { window.print(); };
-    if (document.getElementById('repCsv')) document.getElementById('repCsv').onclick = exportCsv;
+    if (ta) ta.innerHTML = '';
+
+    // 导出下拉菜单（放在报表工具栏，与期间选择并列）
+    bindRepExportMenu();
 
     // 报表二级 tabs（利润表/资金状况/现金流量表）切换
     FW.qa('#repSubTabs [data-rt]').forEach(function (b) {
@@ -297,11 +307,15 @@
       '</div>' + body;
   }
 
-  /* ---------- 导出 CSV ---------- */
-  function exportCsv() {
+  /* ---------- 导出：统一构造当前报表的二维数据 ---------- */
+  function reportTitle() {
+    return state.tab === 'pl' ? '利润表' : (state.tab === 'fund' ? '资金状况表' : '现金流量表');
+  }
+  function reportRangeText() {
+    return (state.from || state.to) ? (state.from + '_' + state.to) : '全部';
+  }
+  function reportRows() {
     var rows = [];
-    var title = state.tab === 'pl' ? '利润表' : (state.tab === 'fund' ? '资金状况表' : '现金流量表');
-    var rngTxt = (state.from || state.to) ? (state.from + '_' + state.to) : '全部';
     if (state.tab === 'pl') {
       var d = agg(state.from, state.to);
       rows.push(['项目', '金额']);
@@ -350,7 +364,14 @@
       rows.push(['筹资活动现金净流量', dc.equityNet - dc.dividend]);
       rows.push(['四、现金净增加额', dc.incomeTotal - dc.costTotal - dc.taxTotal - dc.feeTotal - dc.investTotal + dc.equityNet - dc.dividend]);
     }
-    var csv = '﻿' + [['报表：' + title + ' ' + rngTxt]].concat(rows).map(function (r) {
+    return rows;
+  }
+
+  function exportCsv() {
+    var title = reportTitle();
+    var rngTxt = reportRangeText();
+    var rows = reportRows();
+    var csv = '\uFEFF' + [['报表：' + title + ' ' + rngTxt]].concat(rows).map(function (r) {
       return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(',');
     }).join('\r\n');
     var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -358,7 +379,120 @@
     a.href = URL.createObjectURL(blob);
     a.download = title + '_' + rngTxt + '.csv';
     a.click();
-    FW.toast('已导出 ' + title);
+    FW.toast('已导出 ' + title + ' CSV');
+  }
+
+  function exportXlsx() {
+    if (!window.XLSX) { FW.toast('Excel 组件未加载，请刷新页面'); return; }
+    var title = reportTitle();
+    var rngTxt = reportRangeText();
+    var rows = reportRows();
+    var aoa = [[title + ' ' + rngTxt.replace(/_/g, ' 至 ')], ['由内账流水自动汇总']].concat(rows);
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 40 }, { wch: 18 }];
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, title);
+    XLSX.writeFile(wb, title + '_' + rngTxt + '.xlsx');
+    FW.toast('已导出 ' + title + ' Excel');
+  }
+
+  function exportImage() {
+    var title = reportTitle();
+    var rngTxt = (state.from || state.to) ? ((state.from || '最早') + ' 至 ' + (state.to || '最新')) : '全部期间';
+    var rows = reportRows();
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var pad = 24, rowH = 34, colW = [360, 160], width = colW[0] + colW[1] + pad * 2;
+    var height = pad + 80 + 24 + rows.length * rowH + pad + 24;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    ctx.scale(dpr, dpr);
+
+    // 背景
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+
+    // 标题
+    ctx.fillStyle = '#0B1A2E';
+    ctx.font = '700 22px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(title, pad, pad + 28);
+    ctx.fillStyle = '#5B6A7A';
+    ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(rngTxt + ' · 单位：元（由内账流水自动汇总）', pad, pad + 54);
+
+    // 表头
+    var y0 = pad + 76;
+    ctx.fillStyle = '#0B1A2E';
+    ctx.fillRect(pad, y0, colW[0], rowH);
+    ctx.fillRect(pad + colW[0], y0, colW[1], rowH);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '600 15px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText('项目', pad + 10, y0 + 22);
+    ctx.fillText('金额', pad + colW[0] + 10, y0 + 22);
+
+    // 行
+    rows.forEach(function (r, i) {
+      var y = y0 + rowH + i * rowH;
+      ctx.fillStyle = i % 2 === 0 ? '#F8FAFC' : '#FFFFFF';
+      ctx.fillRect(pad, y, colW[0] + colW[1], rowH);
+      ctx.strokeStyle = '#E8ECF0';
+      ctx.beginPath(); ctx.moveTo(pad, y + rowH); ctx.lineTo(width - pad, y + rowH); ctx.stroke();
+      var isSec = /^[一二三四]、/.test(String(r[0])) || /小计|合计|净利润|净流量|净增加额/.test(String(r[0]));
+      var isBold = /小计|合计|净利润|净流量|净增加额/.test(String(r[0]));
+      ctx.fillStyle = '#1B2733';
+      ctx.font = (isBold ? '600 ' : '') + '14px "PingFang SC","Microsoft YaHei",sans-serif';
+      var label = String(r[0] || '');
+      ctx.fillText(label, pad + 10 + (label.indexOf('　') === 0 ? 12 : 0), y + 22);
+      var val = r[1];
+      if (val !== '' && !isNaN(Number(val))) {
+        ctx.font = '600 14px "PingFang SC","Microsoft YaHei",sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = Number(val) >= 0 ? '#C8102E' : '#1F9D55';
+        ctx.fillText(FW.fmtMoney(val), pad + colW[0] + colW[1] - 10, y + 22);
+        ctx.textAlign = 'left';
+      }
+    });
+
+    // 底部
+    ctx.fillStyle = '#9AA5B1';
+    ctx.font = '12px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText('财务工作台 · 由内账流水自动汇总', pad, height - 10);
+
+    var a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = title + '_' + reportRangeText() + '.png';
+    a.click();
+    FW.toast('已导出 ' + title + ' 图片');
+  }
+
+  function printReport() { window.print(); }
+
+  function bindRepExportMenu() {
+    var btn = document.getElementById('repExpBtn');
+    var menu = document.getElementById('repExpMenu');
+    if (!btn || !menu) return;
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    };
+    menu.querySelectorAll('button[data-fmt]').forEach(function (b) {
+      b.onclick = function (e) {
+        e.stopPropagation();
+        menu.style.display = 'none';
+        var fmt = b.getAttribute('data-fmt');
+        if (fmt === 'xlsx') exportXlsx();
+        else if (fmt === 'img') exportImage();
+        else if (fmt === 'csv') exportCsv();
+        else if (fmt === 'print') printReport();
+      };
+    });
+    if (!state._repMenuBound) {
+      document.addEventListener('click', function () { var m = document.getElementById('repExpMenu'); if (m) m.style.display = 'none'; });
+      state._repMenuBound = true;
+    }
   }
 
   // 暴露核心计算（便于自动化验证与未来复用）
