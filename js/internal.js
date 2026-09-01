@@ -2915,7 +2915,6 @@
         }).join('');
         return '<div class="cat-l1" draggable="true" data-i="' + i + '">' +
           '<div class="cat-l1-head"><span class="drag-h" draggable="false">⇕</span><b>' + FW.esc(c.name) + '</b>' +
-          (c.name === REFUND_CAT ? '<span class="tag" style="font-size:11px;margin-left:6px;color:#0E8C8C;border-color:#0E8C8C" title="该分类下的支出＝退给客户的钱，冲减收入、不计入支出费用">冲减收入</span>' : '') +
           '<span class="cat-ops"><button class="btn ghost sm cat-l2-add" data-i="' + i + '">＋二级</button><button class="btn danger sm cat-l1-del" data-i="' + i + '">删</button></span></div>' +
           (kids || '<div class="muted" style="font-size:12px">（暂无二级分类）</div>') + '</div>';
       }).join('');
