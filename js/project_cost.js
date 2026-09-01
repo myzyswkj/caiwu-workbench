@@ -922,6 +922,7 @@
   function unclassifiedList() {
     return (FW.db.getList('internal') || []).filter(function (t) {
       if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return false;
+      if (t.skipAlloc) return false; // 已标记「不参与分摊」的流水，不算未归类
       var p = (t.project || '').trim();
       return !p || p === '未分配' || p === '—' || p === '-';
     });
