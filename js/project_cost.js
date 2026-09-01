@@ -996,6 +996,127 @@
     });
   }
 
+  // ---------- 数据体检：扫描本地真实数据，列出潜在问题 ----------
+  function dataHealthCheck() {
+    var issues = [];
+    var internal = FW.db.getList('internal') || [];
+    var stock = FW.db.getList(STOCK_KEY) || [];
+
+    // 1) 项目名重名 / 裂项（去空格相同 或 一方包含另一方）
+    var projRaw = {};
+    internal.forEach(function (t) {
+      var p = (t.project || '').trim();
+      if (!p || p === '未分配' || p === '—' || p === '-') return;
+      (projRaw[p] = projRaw[p] || []).push(t);
+    });
+    var normGroups = {};
+    Object.keys(projRaw).forEach(function (p) {
+      var key = p.split(' ').join('');
+      (normGroups[key] = normGroups[key] || []).push(p);
+    });
+    var dupGroups = [];
+    Object.keys(normGroups).forEach(function (k) {
+      if (normGroups[k].length > 1) dupGroups.push(normGroups[k].slice());
+    });
+    var rawList = Object.keys(projRaw);
+    for (var i = 0; i < rawList.length; i++) {
+      for (var j = i + 1; j < rawList.length; j++) {
+        var a = rawList[i].split(' ').join('');
+        var b = rawList[j].split(' ').join('');
+        if (a !== b && (a.indexOf(b) >= 0 || b.indexOf(a) >= 0)) dupGroups.push([rawList[i], rawList[j]]);
+      }
+    }
+    if (dupGroups.length) {
+      var seenG = {}; var finalDup = [];
+      dupGroups.forEach(function (g) {
+        var kk = g.slice().sort().join('|');
+        if (!seenG[kk]) { seenG[kk] = 1; finalDup.push(g); }
+      });
+      var dh = finalDup.slice(0, 30).map(function (g) {
+        return '<li>' + g.map(function (x) { return FW.esc(x) + ' <span class="muted">(' + projRaw[x].length + ' 笔)</span>'; }).join(' <span class="pc-arrow">=</span> ') + '</li>';
+      }).join('');
+      issues.push({ level: 'warn', title: '项目名疑似重复 / 裂项（' + finalDup.length + ' 组）', body: '以下项目名去空格后相同、或一方包含另一方，会被拆成多个项目、利润被劈开：<ul class="pc-hl-list">' + dh + '</ul><div class="muted">建议在内账里统一命名后再核算。</div>' });
+    }
+
+    // 2) 缺项目流水
+    var uncls = unclassifiedList();
+    if (uncls.length) {
+      issues.push({ level: 'warn', title: '未填写「项目」的收支（' + uncls.length + ' 笔）', body: '这些流水不计入任何项目核算，会使相关项目成本偏低、利润虚高。<button class="btn sm" id="pcHealthUnclass">查看并补归类</button>' });
+    }
+
+    // 3) 不参与分摊笔数（信息）
+    var skipN = internal.filter(function (t) { return t.skipAlloc; }).length;
+    if (skipN) {
+      issues.push({ level: 'info', title: '标记「不参与分摊」的流水（' + skipN + ' 笔）', body: '这些是你在内账里主动标记不挂项目的，已从「未归类」提示中排除，属正常口径。' });
+    }
+
+    // 4) 库存结存异常（出库/退货超过入库）
+    var balMap = {};
+    stock.forEach(function (t) {
+      if (!t) return;
+      var period = String(t.period || '未填营期').trim();
+      var k = period + '||' + (normStockItem(t.item) || '—') + '||' + (String(t.unit || '').trim());
+      var g = balMap[k] || (balMap[k] = { period: period, item: normStockItem(t.item) || '—', unit: String(t.unit || '').trim(), bal: 0 });
+      var q = num(t.qty);
+      if (isStockReturn(t.type)) g.bal -= Math.abs(q);
+      else if (stockDir(t.type) === 'in') g.bal += q;
+      else g.bal -= q;
+    });
+    var negBal = Object.keys(balMap).filter(function (k) { return balMap[k].bal < -0.0001; }).map(function (k) { return balMap[k]; });
+    if (negBal.length) {
+      var sh = negBal.slice(0, 40).map(function (g) {
+        return '<li>' + FW.esc(g.period) + ' · ' + FW.esc(g.item) + ' ' + FW.esc(g.unit) + '：结存 <b class="amt-expense">' + FW.fmtMoney(g.bal) + '</b></li>';
+      }).join('');
+      issues.push({ level: 'error', title: '库存结存为负（' + negBal.length + ' 项）', body: '以下产品累计出库/退货大于入库，结存为负，可能是漏记入库或数量填反：<ul class="pc-hl-list">' + sh + '</ul>' });
+    }
+
+    // 5) 成本分类未映射
+    var cats = FW.db.getList('internal_cats') || [];
+    var known = {};
+    cats.forEach(function (c) { if (c && c.name) known[String(c.name).trim()] = 1; });
+    var unknown = {};
+    internal.forEach(function (t) {
+      var c1 = cat1(t);
+      if (c1 && c1 !== '其他' && !known[c1]) (unknown[c1] = (unknown[c1] || 0) + 1);
+    });
+    var unkList = Object.keys(unknown);
+    if (unkList.length && cats.length) {
+      var uh = unkList.slice(0, 30).map(function (c) { return '<li>' + FW.esc(c) + ' <span class="muted">(' + unknown[c] + ' 笔)</span></li>'; }).join('');
+      issues.push({ level: 'info', title: '未登记的成本分类（' + unkList.length + ' 种）', body: '这些一级分类不在「支出类型」设置里，仍会参与核算，但建议补登以便归类管理：<ul class="pc-hl-list">' + uh + '</ul>' });
+    }
+
+    // 6) 疑似重复流水
+    var dmap = {};
+    internal.forEach(function (t) {
+      if (t.type !== 'income' && t.type !== 'expense' && t.type !== 'refund') return;
+      var k = (t.date || '') + '|' + (t.type || '') + '|' + num(t.amount) + '|' + (t.party || '') + '|' + (t.remark || '');
+      (dmap[k] = dmap[k] || []).push(t);
+    });
+    var dups = Object.keys(dmap).filter(function (k) { return dmap[k].length > 1; });
+    if (dups.length) {
+      var totalDup = dups.reduce(function (s, k) { return s + dmap[k].length; }, 0);
+      issues.push({ level: 'warn', title: '疑似重复导入的流水（' + dups.length + ' 组 / ' + totalDup + ' 笔）', body: '以下按「日期+类型+金额+对方+摘要」完全一致的流水可能是重复导入，可在内账流水里核对删除。' });
+    }
+
+    // 渲染
+    var lvlCls = { error: 'pc-hl-error', warn: 'pc-hl-warn', info: 'pc-hl-info' };
+    var lvlTxt = { error: '异常', warn: '注意', info: '提示' };
+    var nErr = issues.filter(function (x) { return x.level === 'error'; }).length;
+    var nWarn = issues.filter(function (x) { return x.level === 'warn'; }).length;
+    var nInfo = issues.filter(function (x) { return x.level === 'info'; }).length;
+    var summary = issues.length
+      ? ('共发现 <b>' + issues.length + '</b> 类问题：' + (nErr ? ' <b class="amt-expense">' + nErr + ' 项异常</b>' : '') + (nWarn ? ' <b>' + nWarn + ' 项需注意</b>' : '') + (nInfo ? ' ' + nInfo + ' 项提示' : ''))
+      : '未检测到明显的数据异常，数据看起来挺干净。';
+    var body = '<div class="pc-health-summary">' + summary + '</div>' +
+      (issues.length ? '<div class="pc-health-list">' + issues.map(function (it) {
+        return '<div class="pc-health-item ' + (lvlCls[it.level] || '') + '"><div class="pc-health-hd"><span class="pc-health-badge">' + (lvlTxt[it.level] || '') + '</span> ' + FW.esc(it.title) + '</div><div class="pc-health-body">' + it.body + '</div></div>';
+      }).join('') + '</div>' : '');
+    openWideModal('数据体检', body, function () {
+      var ub = document.getElementById('pcHealthUnclass');
+      if (ub) ub.onclick = openUnclassified;
+    });
+  }
+
   // 表格类弹窗统一用加宽版（880px），避免多列被挤成一团
   function openWideModal(title, body, onMount) {
     FW.openModal(title, body, function (b) {
@@ -1307,6 +1428,7 @@
       '<label class="pc-excl-label"><input type="checkbox" id="pcCostExcl"' + (state.costExcl ? ' checked' : '') + '> 剔除所选成本类</label>' +
       '<button class="btn ghost" id="pcCatToggle">筛选成本分类 ▼</button>' +
       '<button class="btn ghost" id="pcColToggle">显示列 ▼</button>' +
+      '<button class="btn ghost" id="pcHealth">数据体检</button>' +
       '<span class="pc-sort-label">排序</span>' +
       '<select id="pcSortKey" class="pc-year">' +
       [['profit', '利润'], ['revenue', '收入'], ['flowCost', '流水成本'], ['recoverable', '应收回款项'], ['laborCost', '工资成本'], ['totalCost', '总成本'], ['rate', '利润率'], ['cr', '成本率'], ['roi', '投入产出比'], ['qty', '签收单量'], ['project', '项目']]
@@ -1420,6 +1542,10 @@
       else rows.forEach(function (r) { state.expanded[r.project] = true; });
       buildBody();
     };
+
+    // 数据体检
+    var healthEl = document.getElementById('pcHealth');
+    if (healthEl) healthEl.onclick = dataHealthCheck;
 
     // 成本率口径下拉（一级 + 二级联动）
     var ctSel = document.getElementById('pcCostType');
