@@ -1046,7 +1046,16 @@
         if (project && p !== project) return;
         if (filter === 'income' && t.type !== 'income' && !isRefundExp(t)) return;
         if (filter === 'cost' && isRefundExp(t)) return;   // 退款支出不属于成本/费用
-        if (filter === 'cost' && t.type !== 'expense' && t.type !== 'refund') return;
+        if (filter === 'cost' && t.type !== 'expense' && t.type !== 'refund') {
+          // income 的已扣服务费（deduct）已计入流水成本，需单独列一行，避免下钻合计与成本结构对不上
+          if (t.type === 'income' && num(t.deduct) > 0) {
+            var feeName = t.feeName || '已扣支出';
+            var cf = catFull(t), party = (t.party || '—');
+            txRows.push({ date: t.date || '', type: feeName, category: cf, party: party, amount: num(t.deduct), remark: '已扣服务费（毛收入口径）', srcId: t.id, cls: 'amt-expense' });
+            exp += num(t.deduct);
+          }
+          return;
+        }
         if (filter !== 'all' && filter !== 'income' && filter !== 'cost') return;
         pushInternal(t);
       });
