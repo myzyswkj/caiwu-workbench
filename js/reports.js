@@ -115,6 +115,26 @@
     };
   }
 
+  /* ---------- 余额辅助（用于三表勾稽） ---------- */
+  function prevDay(s) {
+    if (!s) return '';
+    var d = new Date(s + 'T00:00:00');
+    d.setDate(d.getDate() - 1);
+    var p = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  // 截至某日的账户现金余额合计（不含期初余额项 openingsTotal）
+  function cashBalAt(s) {
+    var accts = accountBalances(s);
+    return accts.reduce(function (x, a) { return x + a.bal; }, 0);
+  }
+  // 截至 from 之前一天的累计未分配利润（期初未分配利润）
+  function retainedBefore(s) {
+    if (!s) return 0;
+    var dd = agg('', prevDay(s));
+    return dd.netProfit - dd.dividend;
+  }
+
   /* ---------- 渲染辅助 ---------- */
   function money(x) { return FW.fmtMoney(x); }
   function grpMap(map) {
@@ -131,6 +151,8 @@
   /* ---------- 利润表 ---------- */
   function drawPL(from, to) {
     var d = agg(from, to);
+    var beginRetained = retainedBefore(from);
+    var periodDiv = d.dividend;
     var html =
       '<table class="rep-table"><tbody>' +
       '<tr class="sec"><td>一、营业收入</td><td class="num"></td></tr>' +
@@ -149,8 +171,12 @@
       (grpMap(d.invest) || '<tr><td class="muted">（无）</td><td class="num">0.00</td></tr>') +
       subRow('固定资产购置小计', d.investTotal) +
       boldRow('二、净利润', d.netProfit, d.netProfit >= 0 ? 'income' : 'expense') +
+      '<tr class="sec"><td>三、未分配利润</td><td class="num"></td></tr>' +
+      subRow('加：期初未分配利润', beginRetained) +
+      subRow('减：本期宣告分红', -periodDiv) +
+      boldRow('期末未分配利润', beginRetained + d.netProfit - periodDiv) +
       '</tbody></table>' +
-      '<div class="muted" style="font-size:12px;margin-top:8px">注：所得税依实际申报填列，本表未自动计提；净利润 = 收入 −（成本+税金+费用+固定资产购置）。<br>「退款支出」类型（退给客户的钱）以负数冲减营业收入，不计入成本与费用。</div>';
+      '<div class="muted" style="font-size:12px;margin-top:8px">注：所得税依实际申报填列，本表未自动计提；净利润 = 收入 −（成本+税金+费用+固定资产购置）。<br>「退款支出」类型（退给客户的钱）以负数冲减营业收入，不计入成本与费用。<br>期末未分配利润 = 期初未分配利润 + 本期净利润 − 本期分红，与「资金状况表」未分配利润一致。</div>';
     return html;
   }
 
@@ -194,6 +220,8 @@
   /* ---------- 现金流量表 ---------- */
   function drawCash(from, to) {
     var d = agg(from, to);
+    var beginCash = from ? cashBalAt(prevDay(from)) : 0;
+    var endCash = cashBalAt(to);
     var opIn = d.incomeTotal;
     var opOut = d.costTotal + d.taxTotal + d.feeTotal;
     var invOut = d.investTotal;
@@ -216,8 +244,10 @@
       '<tr><td>　支付股东分红</td><td class="num expense">-' + money(d.dividend) + '</td></tr>' +
       boldRow('　筹资活动现金净流量', finNet, finNet >= 0 ? 'income' : 'expense') +
       boldRow('四、现金及现金等价物净增加额', netInc, netInc >= 0 ? 'income' : 'expense') +
+      subRow('加：期初现金及现金等价物余额', beginCash) +
+      boldRow('期末现金及现金等价物余额', endCash) +
       '</tbody></table>' +
-      '<div class="muted" style="font-size:12px;margin-top:8px">净增加额 = 期末货币资金 − 期初货币资金。与「资金状况表」勾稽一致。</div>';
+      '<div class="muted" style="font-size:12px;margin-top:8px">期末现金余额 ' + money(endCash) + ' = 期初现金 ' + money(beginCash) + ' + 现金净增加额 ' + money(netInc) + '，与「资金状况表」货币资金合计勾稽一致。</div>';
     return html;
   }
 
@@ -330,6 +360,11 @@
       rows.push(['减：购置固定资产', '']); Object.keys(d.invest).forEach(function (k) { rows.push([k, d.invest[k]]); });
       rows.push(['固定资产购置小计', d.investTotal]);
       rows.push(['二、净利润', d.netProfit]);
+      var plBegin = retainedBefore(state.from), plDiv = d.dividend;
+      rows.push(['三、未分配利润', '']);
+      rows.push(['加：期初未分配利润', plBegin]);
+      rows.push(['减：本期宣告分红', -plDiv]);
+      rows.push(['期末未分配利润', plBegin + d.netProfit - plDiv]);
     } else if (state.tab === 'fund') {
       var df = agg('', state.to);
       var accts = accountBalances(state.to);
@@ -363,6 +398,10 @@
       rows.push(['支付股东分红', -dc.dividend]);
       rows.push(['筹资活动现金净流量', dc.equityNet - dc.dividend]);
       rows.push(['四、现金净增加额', dc.incomeTotal - dc.costTotal - dc.taxTotal - dc.feeTotal - dc.investTotal + dc.equityNet - dc.dividend]);
+      var csBegin = state.from ? cashBalAt(prevDay(state.from)) : 0;
+      var csEnd = cashBalAt(state.to);
+      rows.push(['加：期初现金及现金等价物余额', csBegin]);
+      rows.push(['期末现金及现金等价物余额', csEnd]);
     }
     return rows;
   }
@@ -441,7 +480,7 @@
       ctx.strokeStyle = '#E8ECF0';
       ctx.beginPath(); ctx.moveTo(pad, y + rowH); ctx.lineTo(width - pad, y + rowH); ctx.stroke();
       var isSec = /^[一二三四]、/.test(String(r[0])) || /小计|合计|净利润|净流量|净增加额/.test(String(r[0]));
-      var isBold = /小计|合计|净利润|净流量|净增加额/.test(String(r[0]));
+      var isBold = /小计|合计|净利润|净流量|净增加额|未分配利润|余额/.test(String(r[0]));
       ctx.fillStyle = '#1B2733';
       ctx.font = (isBold ? '600 ' : '') + '14px "PingFang SC","Microsoft YaHei",sans-serif';
       var label = String(r[0] || '');
