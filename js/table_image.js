@@ -350,12 +350,13 @@
           var geo = _compute({
             head: config.head, rows: config.rows, colWidths: config.colWidths,
             pics: picsModel, amountCol: config.amountCol, imgCol: config.imgCol,
-            kpis: config.kpis, title: config.title, subtitle: config.subtitle,
+            kpis: config.kpis, eyebrow: config.eyebrow, title: config.title, subtitle: config.subtitle,
             picMaxW: config.picMaxW, picMaxH: config.picMaxH, gap: config.gap, fontScale: fs,
             subtable: config.subtable,
             measureBig: measureBig,
             bigCols: config.bigCols,
-            typeCol: config.typeCol
+            typeCol: config.typeCol,
+            footer: config.footer
           }, measure);
 
           var canvas = document.createElement('canvas');
