@@ -1408,6 +1408,7 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .badge-alloc.done{background:#E1F5EE;color:#0F6E56;}
 .badge-alloc.wait{background:#FAEEDA;color:#854F0B;}
 .badge-alloc.skip{background:#F1EFE8;color:#5F5E5A;}
+.badge-alloc.part{background:#FDE9C8;color:#9A4A00;border:1px solid #F2C77E;}
 .skip-alloc{border:1.5px solid #9CC3E8;background:rgba(31,111,178,0.06);border-radius:8px;padding:10px 12px;margin-top:10px;}
 .skip-alloc .chk-inline{font-size:13px;}
 /* ===== 工资核算 ===== */
