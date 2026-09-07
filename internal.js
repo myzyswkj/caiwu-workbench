@@ -183,16 +183,21 @@
       if (f.kw && ((t.remark || '') + (txProjectText(t)) + (t.category || '')).indexOf(f.kw) < 0) return false;
       if (f.noAlloc) {
         var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
+        if (!allocatable || t.skipAlloc) return false;
+        if (allocLeft(t) > 0) return true; // 部分未分摊也算「未分摊」待补
         var hasAlloc = !!(t.allocations && t.allocations.length);
         var hasProject = !!(t.project && String(t.project).trim());
-        if (!allocatable || hasAlloc || hasProject || t.skipAlloc) return false; // 只保留「连单项目都没挂、又没做分摊、且未标记不参与」的收支/退款
+        if (hasAlloc || hasProject) return false; // 已全部分摊/挂了项目的不算待补
+        return true; // 完全没分、没项目
       }
       if (f.allocStatus) {
         var _alloc = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
+        var _left = allocLeft(t);
         var _has = !!(t.allocations && t.allocations.length) || !!(t.project && String(t.project).trim());
-        if (f.allocStatus === 'done' && !_has) return false;
+        if (f.allocStatus === 'done' && (!_has || _left > 0)) return false; // 已分摊需无剩余
+        if (f.allocStatus === 'part' && _left <= 0) return false;
         if (f.allocStatus === 'skip' && !t.skipAlloc) return false;
-        if (f.allocStatus === 'wait' && (_has || t.skipAlloc || !_alloc)) return false;
+        if (f.allocStatus === 'wait' && (_has || t.skipAlloc || _left > 0 || !_alloc)) return false;
       }
       return true;
     });
@@ -488,7 +493,7 @@
           '<div class="field"><select id="fCat2">' + cat2OptsF + '</select></div>' +
           '<div class="field"><select id="fAcc">' + accOpts + '</select></div>' +
           '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入（冲减支出）</option><option value="refund_out">退款支出（冲减收入）</option><option value="transfer">账户互转</option><option value="equity">股本资金</option><option value="dividend">股东分红</option></select></div>' +
-          '<div class="field"><select id="fAllocStatus"><option value="">分摊状态：全部</option><option value="done">已分摊</option><option value="wait">待分摊</option><option value="skip">不参与</option></select></div>' +
+          '<div class="field"><select id="fAllocStatus"><option value="">分摊状态：全部</option><option value="done">已分摊</option><option value="part">部分未分摊</option><option value="wait">待分摊</option><option value="skip">不参与</option></select></div>' +
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
           '<button class="btn ghost sm" id="fReset">重置</button>' +
@@ -604,9 +609,11 @@
     var netExpense = expense - refund;
     var unalloc = rows.filter(function (t) {
       var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
+      if (!allocatable || t.skipAlloc) return false;
+      if (allocLeft(t) > 0) return true; // 部分未分摊也算未分完
       var hasAlloc = !!(t.allocations && t.allocations.length);
       var hasProject = !!(t.project && String(t.project).trim());
-      return allocatable && !hasAlloc && !hasProject && !t.skipAlloc;
+      return !hasAlloc && !hasProject;
     }).length;
     document.getElementById('txStats').innerHTML =
       '<div class="stat"><div class="label">筛选后收入</div><div class="value income">' + FW.fmtMoney(income) + '</div></div>' +
@@ -2517,12 +2524,22 @@
     inp.focus();
   }
 
+  // 一笔流水「已分摊」后，还剩多少金额没分摊到任何项目（0 表示已全部分完）
+  function allocLeft(t) {
+    if (!t || !t.allocations || !t.allocations.length || t.skipAlloc) return 0;
+    var s = t.allocations.reduce(function (x, a) { return x + (parseFloat(a.amount) || 0); }, 0);
+    var left = (parseFloat(t.amount) || 0) - s;
+    return left > 0.01 ? left : 0;
+  }
+
   // 流水列表 / 打印中的「项目」列：分摊交易显示 ⊞ 标记 + 各项目名（悬停看金额）
   function txProjectLabel(t) {
     var isAlloc = !!(t.allocations && t.allocations.length);
     var proj = (t.project && String(t.project).trim()) ? t.project : '';
     var badge = '';
+    var left = isAlloc ? allocLeft(t) : 0;
     if (t.skipAlloc) badge = '<span class="badge-alloc skip" title="不参与分摊">不参与</span> ';
+    else if (isAlloc && left > 0) badge = '<span class="badge-alloc part" title="部分分摊：已分摊到项目，仍有余额未分摊，可点编辑补分摊">部分分摊 ⊞</span> ';
     else if (isAlloc) badge = '<span class="badge-alloc done" title="已分摊到项目">已分摊 ⊞</span> ';
     else if (proj) badge = '';
     else if (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') badge = '<span class="badge-alloc wait" title="待分摊">待分摊</span> ';
@@ -2532,6 +2549,7 @@
       var shown = names.slice(0, 2).join('/');
       if (names.length > 2) shown += '…(' + names.length + ')';
       var tip = '已分摊：' + items.map(function (a) { return (a.project || '') + ' ' + FW.fmtMoney(Number(a.amount) || 0); }).join('；');
+      if (left > 0) tip += '｜剩余未分摊：' + FW.fmtMoney(left);
       return badge + '<span class="alloc-tag" title="' + FW.esc(tip) + '">' + FW.esc(shown) + '</span>';
     }
     return badge + FW.esc(proj || '—');
@@ -2574,6 +2592,12 @@
       return;
     }
     allocDraft = (edit && edit.allocations && edit.allocations.length) ? edit.allocations.map(function (a) { return { project: (a.project || '').trim(), amount: (a.amount == null ? '' : a.amount) }; }) : [];
+    // 部分未分摊：打开编辑时自动补一行「剩余未分摊」金额，便于直接选下拉补完
+    if (edit && edit.allocations && edit.allocations.length) {
+      var _s = edit.allocations.reduce(function (x, a) { return x + (parseFloat(a.amount) || 0); }, 0);
+      var _left = (parseFloat(edit.amount) || 0) - _s;
+      if (_left > 0.01) allocDraft.push({ project: '', amount: _left });
+    }
     var projList = projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
     var v = { date: FW.today(), type: 'expense', cat1: DEFAULT_CATS[0], cat2: '', account: ACCTS[0], amount: '', remark: '', project: '', party: '', reimburser: '', photos: [],
       fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
