@@ -1595,7 +1595,7 @@
       }).join('');
     }
     function syncInp() { var o = sel.options[sel.selectedIndex]; inp.value = o ? o.textContent : ''; }
-    function open() { build(''); dd.style.display = 'block'; active = -1; }
+    function open() { if (inp.value === '（不选）' || inp.value === '（无二级）') inp.value = ''; build(''); dd.style.display = 'block'; active = -1; }
     function close() { dd.style.display = 'none'; active = -1; syncInp(); }
     function pick(idx) {
       if (idx < 0 || idx >= options.length) return;
@@ -1684,7 +1684,7 @@
       dd.innerHTML = html;
     }
     function syncInp() { var o = sel.options[sel.selectedIndex]; inp.value = o ? o.textContent : ''; }
-    function open() { build(''); dd.style.display = 'block'; active = -1; }
+    function open() { if (inp.value === '（不选）' || inp.value === '（无二级）') inp.value = ''; build(''); dd.style.display = 'block'; active = -1; }
     function close() { dd.style.display = 'none'; active = -1; syncInp(); }
     function pick(i) {
       if (i < 0 || i >= options.length) return;
