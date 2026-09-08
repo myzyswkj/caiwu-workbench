@@ -3392,6 +3392,7 @@
           '</div>' +
         '</div>';
       FW.openModal('导出图片（调整字号 / 宽度 / 备注列宽 / 凭证大小，实时预览）', bodyHtml, function (body) {
+        document.querySelector(".modal").classList.add("modal-wide");
         var range = body.querySelector('#picSizeRange');
         var valEl = body.querySelector('#picSizeVal');
         var width = body.querySelector('#picWidthRange');
@@ -3437,7 +3438,8 @@
           Promise.resolve().then(function () { return window.FWTableImg.render(cfg); }).then(function (canvas) {
             if (!prevWrap) return;
             prevWrap.innerHTML = '';
-            canvas.style.maxWidth = 'none';
+            canvas.style.maxWidth = '100%';
+            canvas.style.height = 'auto';
             prevWrap.appendChild(canvas);
             if (msg) msg.textContent = '';
           }).catch(function (err) {
