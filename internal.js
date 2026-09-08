@@ -3382,6 +3382,7 @@
               '<span id="picScaleVal" class="muted">1.0x</span>' +
             '</label>' +
             '<span class="muted">（仅影响导出图片，不改原始数据）</span>' +
+            '<span class="muted" style="margin-left:8px">构建 v77</span>' +
             '<span class="tx-prev-spacer"></span>' +
           '</div>' +
           '<div class="tx-msg" id="txMsg" style="min-height:18px;margin:2px 0;color:#C8102E;font-size:13px;"></div>' +
@@ -3438,9 +3439,20 @@
           Promise.resolve().then(function () { return window.FWTableImg.render(cfg); }).then(function (canvas) {
             if (!prevWrap) return;
             prevWrap.innerHTML = '';
-            canvas.style.maxWidth = '100%';
-            canvas.style.height = 'auto';
             prevWrap.appendChild(canvas);
+            // 整图等比缩放，完整显示在预览区（不裁切、不滚动），居中
+            var pad = 16;
+            var aw = prevWrap.clientWidth - pad;
+            var ah = prevWrap.clientHeight - pad;
+            canvas.style.maxWidth = 'none';
+            canvas.style.height = 'auto';
+            if (aw > 0 && ah > 0 && canvas.width && canvas.height) {
+              var sc = Math.min(aw / canvas.width, ah / canvas.height, 1);
+              canvas.style.width = Math.round(canvas.width * sc) + 'px';
+              canvas.style.height = Math.round(canvas.height * sc) + 'px';
+            } else {
+              canvas.style.maxWidth = '100%';
+            }
             if (msg) msg.textContent = '';
           }).catch(function (err) {
             console.error('[导出图片] 预览失败：', err);
