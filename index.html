@@ -153,7 +153,19 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('sw.js').catch(function (e) {
+        navigator.serviceWorker.register('sw.js').then(function (reg) {
+          // 检测到新版本自动刷新一次，避免「部署了但页面还在跑旧代码」
+          var reloading = false;
+          navigator.serviceWorker.addEventListener('controllerchange', function () {
+            if (reloading) return;
+            reloading = true;
+            var b = document.createElement('div');
+            b.textContent = '已更新到最新版本，正在刷新…';
+            b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:#C8102E;color:#fff;padding:10px;text-align:center;font-size:13px;z-index:99999;';
+            (document.body || document.documentElement).appendChild(b);
+            setTimeout(function () { location.reload(); }, 700);
+          });
+        }).catch(function (e) {
           console.warn('Service Worker 注册失败：', e);
         });
       });
