@@ -4,7 +4,7 @@
  *  - 静态资源（js/css/png/svg）：network-first，联网即用最新版本（带 ?v= 版本号，保证部署后立即生效）
  *  - 跨域请求（Supabase 等）一律放行，不进缓存
  */
-const CACHE = 'cw-cache-v79';
+const CACHE = 'cw-cache-v80';
 const PRECACHE = [
   './',
   './index.html',
@@ -32,7 +32,12 @@ self.addEventListener('activate', function (e) {
       return Promise.all(keys.filter(function (k) { return k !== CACHE; }).map(function (k) {
         return caches.delete(k);
       }));
-    }).then(function () { return self.clients.claim(); })
+    }).then(function () { return self.clients.claim(); }).then(function () {
+      // 新版本激活后，主动通知当前所有页面（含未刷新过的旧页面）强制刷新一次
+      return self.clients.matchAll({ includeUncontrolled: true }).then(function (cls) {
+        cls.forEach(function (c) { try { c.postMessage({ type: 'SW_UPDATED', v: CACHE }); } catch (e) {} });
+      });
+    })
   );
 });
 
