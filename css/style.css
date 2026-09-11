@@ -1409,6 +1409,11 @@ body.fp-no-select, body.fp-no-select * { user-select: none !important; }
 .badge-alloc.wait{background:#FAEEDA;color:#854F0B;}
 .badge-alloc.skip{background:#F1EFE8;color:#5F5E5A;}
 .badge-alloc.part{background:#FDE9C8;color:#9A4A00;border:1px solid #F2C77E;}
+/* 「待分摊 / 不参与」徽章可点击，一键切换是否需要分摊 */
+.badge-alloc.alloc-toggle{cursor:pointer;user-select:none;transition:filter .12s,box-shadow .12s;box-shadow:0 0 0 1px rgba(133,79,11,.20) inset;}
+.badge-alloc.alloc-toggle:hover{filter:brightness(.95);box-shadow:0 1px 4px rgba(0,0,0,.18);}
+.badge-alloc.alloc-toggle:active{transform:translateY(1px);}
+.badge-alloc.skip.alloc-toggle{box-shadow:0 0 0 1px rgba(95,94,90,.24) inset;}
 .skip-alloc{border:1.5px solid #9CC3E8;background:rgba(31,111,178,0.06);border-radius:8px;padding:10px 12px;margin-top:10px;}
 .skip-alloc .chk-inline{font-size:13px;}
 /* ===== 工资核算 ===== */
