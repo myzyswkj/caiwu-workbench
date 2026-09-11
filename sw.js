@@ -4,7 +4,7 @@
  *  - 静态资源（js/css/png/svg）：network-first，联网即用最新版本（带 ?v= 版本号，保证部署后立即生效）
  *  - 跨域请求（Supabase 等）一律放行，不进缓存
  */
-const CACHE = 'cw-cache-v80';
+const CACHE = 'cw-cache-v81';
 const PRECACHE = [
   './',
   './index.html',
@@ -47,10 +47,10 @@ self.addEventListener('fetch', function (e) {
   var url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // 不拦截跨域（云同步等）
 
-  // 导航：network-first，失败回退缓存首页
+  // 导航：network-first，失败回退缓存首页（cache:'reload' 强制绕过 HTTP 缓存，保证拿到最新 index.html）
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req).then(function (r) {
+      fetch(req, { cache: 'reload' }).then(function (r) {
         var cp = r.clone();
         caches.open(CACHE).then(function (c) { c.put(req, cp); });
         return r;
@@ -64,8 +64,9 @@ self.addEventListener('fetch', function (e) {
   }
 
   // 静态资源：network-first，联网即用最新版本（带 ?v= 版本号，部署后立即生效），断网回退缓存
+  // cache:'reload' 强制绕过浏览器 HTTP 缓存，避免 stale-while-revalidate 时期遗留的旧 internal.js 被反复喂给页面
   e.respondWith(
-    fetch(req).then(function (r) {
+    fetch(req, { cache: 'reload' }).then(function (r) {
       if (r && r.status === 200) {
         var cp = r.clone();
         caches.open(CACHE).then(function (c) { c.put(req, cp); });
