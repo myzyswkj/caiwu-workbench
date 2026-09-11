@@ -1,7 +1,7 @@
 /* 财务工作台 Service Worker —— 让站点可离线打开、像 App 一样稳定
  * 策略：
  *  - 导航请求（打开页面）：network-first，联网即用最新页面，断网回退缓存首页
- *  - 静态资源（js/css/png/svg）：stale-while-revalidate，先秒开再后台更新
+ *  - 静态资源（js/css/png/svg）：network-first，联网即用最新版本（带 ?v= 版本号，保证部署后立即生效）
  *  - 跨域请求（Supabase 等）一律放行，不进缓存
  */
 const CACHE = 'cw-cache-v79';
@@ -58,17 +58,16 @@ self.addEventListener('fetch', function (e) {
     return;
   }
 
-  // 静态资源：stale-while-revalidate
+  // 静态资源：network-first，联网即用最新版本（带 ?v= 版本号，部署后立即生效），断网回退缓存
   e.respondWith(
-    caches.match(req).then(function (cached) {
-      var network = fetch(req).then(function (r) {
-        if (r && r.status === 200) {
-          var cp = r.clone();
-          caches.open(CACHE).then(function (c) { c.put(req, cp); });
-        }
-        return r;
-      }).catch(function () { return cached; });
-      return cached || network;
+    fetch(req).then(function (r) {
+      if (r && r.status === 200) {
+        var cp = r.clone();
+        caches.open(CACHE).then(function (c) { c.put(req, cp); });
+      }
+      return r;
+    }).catch(function () {
+      return caches.match(req).then(function (r) { return r || caches.match('./index.html'); });
     })
   );
 });
