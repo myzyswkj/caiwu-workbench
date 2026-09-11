@@ -55,6 +55,7 @@ body {
 }
 .brand-title { color: #fff; font-weight: 700; font-size: 16px; }
 .brand-sub { font-size: 11px; color: #9FB4C8; margin-top: 2px; }
+.ver-badge { display: inline-block; font-size: 10px; font-weight: 700; line-height: 1; padding: 3px 6px; border-radius: 999px; background: rgba(200,16,46,0.18); color: #FFC9D3; border: 1px solid rgba(200,16,46,0.5); vertical-align: middle; margin-left: 4px; }
 
 .nav { display: flex; flex-direction: column; gap: 4px; margin-bottom: 18px; }
 .nav-item {
