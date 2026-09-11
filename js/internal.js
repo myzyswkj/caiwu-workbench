@@ -183,16 +183,21 @@
       if (f.kw && ((t.remark || '') + (txProjectText(t)) + (t.category || '')).indexOf(f.kw) < 0) return false;
       if (f.noAlloc) {
         var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
+        if (!allocatable || t.skipAlloc) return false;
+        if (allocLeft(t) > 0) return true; // 部分未分摊也算「未分摊」待补
         var hasAlloc = !!(t.allocations && t.allocations.length);
         var hasProject = !!(t.project && String(t.project).trim());
-        if (!allocatable || hasAlloc || hasProject || t.skipAlloc) return false; // 只保留「连单项目都没挂、又没做分摊、且未标记不参与」的收支/退款
+        if (hasAlloc || hasProject) return false; // 已全部分摊/挂了项目的不算待补
+        return true; // 完全没分、没项目
       }
       if (f.allocStatus) {
         var _alloc = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
+        var _left = allocLeft(t);
         var _has = !!(t.allocations && t.allocations.length) || !!(t.project && String(t.project).trim());
-        if (f.allocStatus === 'done' && !_has) return false;
+        if (f.allocStatus === 'done' && (!_has || _left > 0)) return false; // 已分摊需无剩余
+        if (f.allocStatus === 'part' && _left <= 0) return false;
         if (f.allocStatus === 'skip' && !t.skipAlloc) return false;
-        if (f.allocStatus === 'wait' && (_has || t.skipAlloc || !_alloc)) return false;
+        if (f.allocStatus === 'wait' && (_has || t.skipAlloc || _left > 0 || !_alloc)) return false;
       }
       return true;
     });
@@ -488,7 +493,7 @@
           '<div class="field"><select id="fCat2">' + cat2OptsF + '</select></div>' +
           '<div class="field"><select id="fAcc">' + accOpts + '</select></div>' +
           '<div class="field"><select id="fType"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="refund">退款收入（冲减支出）</option><option value="refund_out">退款支出（冲减收入）</option><option value="transfer">账户互转</option><option value="equity">股本资金</option><option value="dividend">股东分红</option></select></div>' +
-          '<div class="field"><select id="fAllocStatus"><option value="">分摊状态：全部</option><option value="done">已分摊</option><option value="wait">待分摊</option><option value="skip">不参与</option></select></div>' +
+          '<div class="field"><select id="fAllocStatus"><option value="">分摊状态：全部</option><option value="done">已分摊</option><option value="part">部分未分摊</option><option value="wait">待分摊</option><option value="skip">不参与</option></select></div>' +
           '<div class="field"><input id="fFrom" type="date" title="起始日期"></div>' +
           '<div class="field"><input id="fTo" type="date" title="结束日期"></div>' +
           '<button class="btn ghost sm" id="fReset">重置</button>' +
@@ -604,9 +609,11 @@
     var netExpense = expense - refund;
     var unalloc = rows.filter(function (t) {
       var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
+      if (!allocatable || t.skipAlloc) return false;
+      if (allocLeft(t) > 0) return true; // 部分未分摊也算未分完
       var hasAlloc = !!(t.allocations && t.allocations.length);
       var hasProject = !!(t.project && String(t.project).trim());
-      return allocatable && !hasAlloc && !hasProject && !t.skipAlloc;
+      return !hasAlloc && !hasProject;
     }).length;
     document.getElementById('txStats').innerHTML =
       '<div class="stat"><div class="label">筛选后收入</div><div class="value income">' + FW.fmtMoney(income) + '</div></div>' +
@@ -622,6 +629,13 @@
     if (accEl) accEl.innerHTML = accSummaryHtml(rows, state.filter);
     FW.qa('#txTable .row-edit').forEach(function (b) { b.onclick = function () { openForm(b.dataset.id); }; });
     FW.qa('#txTable .row-del').forEach(function (b) { b.onclick = function () { delTx(b.dataset.id); }; });
+    // 「待分摊 / 不参与」徽章：点一下即切换是否需要分摊，无需打开编辑弹窗
+    FW.qa('#txTable .alloc-toggle').forEach(function (b) {
+      b.onclick = function (e) { e.stopPropagation(); toggleSkipAlloc(b.dataset.allocToggle); };
+      b.onkeydown = function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); toggleSkipAlloc(b.dataset.allocToggle); }
+      };
+    });
     FW.qa('#txTable .photo-cell img').forEach(function (img) { img.onclick = function () { previewPhoto(img.dataset.pid); }; });
     loadThumbs();
     applyColWidths();
@@ -668,7 +682,7 @@
       return '<tr>' + selTd +
         '<td class="nowrap tx-detail">' + FW.esc(t.date) + '</td>' +
         '<td class="tx-detail">' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
-        '<td class="tx-detail">' + txProjectLabel(t) + '</td>' +
+        '<td class="tx-detail">' + txProjectLabel(t, true) + '</td>' +
         '<td class="tx-detail">' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td class="col-tight-r tx-detail" style="color:' + accColor(acctTxt) + '"><b>' + FW.esc(acctTxt) + '</b></td>' +
         '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + qm + '</td>' +
@@ -1588,7 +1602,7 @@
       }).join('');
     }
     function syncInp() { var o = sel.options[sel.selectedIndex]; inp.value = o ? o.textContent : ''; }
-    function open() { build(''); dd.style.display = 'block'; active = -1; }
+    function open() { if (inp.value === '（不选）' || inp.value === '（无二级）') inp.value = ''; build(''); dd.style.display = 'block'; active = -1; }
     function close() { dd.style.display = 'none'; active = -1; syncInp(); }
     function pick(idx) {
       if (idx < 0 || idx >= options.length) return;
@@ -1677,7 +1691,7 @@
       dd.innerHTML = html;
     }
     function syncInp() { var o = sel.options[sel.selectedIndex]; inp.value = o ? o.textContent : ''; }
-    function open() { build(''); dd.style.display = 'block'; active = -1; }
+    function open() { if (inp.value === '（不选）' || inp.value === '（无二级）') inp.value = ''; build(''); dd.style.display = 'block'; active = -1; }
     function close() { dd.style.display = 'none'; active = -1; syncInp(); }
     function pick(i) {
       if (i < 0 || i >= options.length) return;
@@ -2435,7 +2449,7 @@
     var rows = allocDraft.map(allocRowHtml).join('');
     return '<div class="alloc-box">' +
       '<div class="alloc-head">⊞ 项目分摊（一笔收支需归属多个项目时填写）</div>' +
-      '<div class="muted" style="font-size:12px;margin:2px 0 6px">填写后，上方「项目」将被忽略，本笔金额按下列各项目分配；各项目金额合计须等于本笔金额。项目可直接从下拉选，或选「＋ 新建项目…」输入新项目名。</div>' +
+      '<div class="muted" style="font-size:12px;margin:2px 0 6px">填写后，上方「项目」将被忽略。已选项目的金额合计<b>不应超过</b>本笔金额；剩余部分不计入任何项目核算（可点「不纳入分摊」整笔忽略）。项目可直接下拉选，或选「＋ 新建项目…」输入新项目名。</div>' +
       '<div id="allocRows">' + rows + '</div>' +
       '<button type="button" class="btn ghost sm alloc-add" id="allocAdd">＋ 添加分摊行</button>' +
       '<div class="alloc-total" id="allocTotal"></div>' +
@@ -2454,11 +2468,20 @@
     if (!totEl) return;
     var amtEl = document.getElementById('f_amount');
     var total = parseFloat(amtEl ? amtEl.value : '') || 0;
-    var sum = allocDraft.reduce(function (s, a) { return s + (parseFloat(a.amount) || 0); }, 0);
-    var diff = sum - total;
+    // 只统计「已选项目」的金额；空项目/（不选）行视为未分摊，不计入合计
+    var sum = allocDraft.reduce(function (s, a) {
+      return s + ((a.project || '').trim() ? (parseFloat(a.amount) || 0) : 0);
+    }, 0);
+    var diff = total - sum; // 剩余未分摊金额
+    var over = sum - total;
     var okEq = Math.abs(diff) < 0.01;
-    totEl.innerHTML = '本笔金额 <b>' + FW.fmtMoney(total) + '</b> ｜ 已分摊合计 <b>' + FW.fmtMoney(sum) + '</b> ' +
-      (allocDraft.length ? (okEq ? '<span class="alloc-ok">✓ 已平衡</span>' : '<span class="alloc-warn">差额 ' + FW.fmtMoney(diff) + '</span>') : '');
+    var tail = '';
+    if (allocDraft.length) {
+      if (okEq) tail = '<span class="alloc-ok">✓ 已平衡</span>';
+      else if (over > 0.01) tail = '<span class="alloc-warn">超出 ' + FW.fmtMoney(over) + '（已超本笔金额）</span>';
+      else tail = '<span class="alloc-warn" style="color:#b76e00">剩余未分摊 ' + FW.fmtMoney(diff) + '</span>';
+    }
+    totEl.innerHTML = '本笔金额 <b>' + FW.fmtMoney(total) + '</b> ｜ 已归属项目合计 <b>' + FW.fmtMoney(sum) + '</b> ' + tail;
   }
 
   function bindAllocBox() {
@@ -2508,21 +2531,44 @@
     inp.focus();
   }
 
+  // 一笔流水「已分摊」后，还剩多少金额没分摊到任何项目（0 表示已全部分完）
+  function allocLeft(t) {
+    if (!t || !t.allocations || !t.allocations.length || t.skipAlloc) return 0;
+    var s = t.allocations.reduce(function (x, a) { return x + (parseFloat(a.amount) || 0); }, 0);
+    var left = (parseFloat(t.amount) || 0) - s;
+    return left > 0.01 ? left : 0;
+  }
+
   // 流水列表 / 打印中的「项目」列：分摊交易显示 ⊞ 标记 + 各项目名（悬停看金额）
-  function txProjectLabel(t) {
+  function txProjectLabel(t, clickable) {
     var isAlloc = !!(t.allocations && t.allocations.length);
     var proj = (t.project && String(t.project).trim()) ? t.project : '';
     var badge = '';
-    if (t.skipAlloc) badge = '<span class="badge-alloc skip" title="不参与分摊">不参与</span> ';
-    else if (isAlloc) badge = '<span class="badge-alloc done" title="已分摊到项目">已分摊 ⊞</span> ';
-    else if (proj) badge = '';
-    else if (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') badge = '<span class="badge-alloc wait" title="待分摊">待分摊</span> ';
+    var left = isAlloc ? allocLeft(t) : 0;
+    // clickable=true（仅列表视图）：待分摊/不参与 徽章可点，一键切换是否需要分摊
+    var btnAttrs = clickable ? ' alloc-toggle" data-alloc-toggle="' + FW.esc(t.id) + '" role="button" tabindex="0' : '';
+    if (t.skipAlloc) {
+      badge = clickable
+        ? '<span class="badge-alloc skip' + btnAttrs + '" title="点击恢复为「待分摊」">不参与</span> '
+        : '<span class="badge-alloc skip" title="不参与分摊">不参与</span> ';
+    } else if (isAlloc && left > 0) {
+      badge = '<span class="badge-alloc part" title="部分分摊：已分摊到项目，仍有余额未分摊，可点编辑补分摊">部分分摊 ⊞</span> ';
+    } else if (isAlloc) {
+      badge = '<span class="badge-alloc done" title="已分摊到项目">已分摊 ⊞</span> ';
+    } else if (proj) {
+      badge = '';
+    } else if (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') {
+      badge = clickable
+        ? '<span class="badge-alloc wait' + btnAttrs + '" title="点击标记为「不需要分摊」">待分摊</span> '
+        : '<span class="badge-alloc wait" title="待分摊">待分摊</span> ';
+    }
     if (isAlloc) {
       var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
       var names = items.map(function (a) { return (a.project || '').trim(); });
       var shown = names.slice(0, 2).join('/');
       if (names.length > 2) shown += '…(' + names.length + ')';
       var tip = '已分摊：' + items.map(function (a) { return (a.project || '') + ' ' + FW.fmtMoney(Number(a.amount) || 0); }).join('；');
+      if (left > 0) tip += '｜剩余未分摊：' + FW.fmtMoney(left);
       return badge + '<span class="alloc-tag" title="' + FW.esc(tip) + '">' + FW.esc(shown) + '</span>';
     }
     return badge + FW.esc(proj || '—');
@@ -2565,6 +2611,12 @@
       return;
     }
     allocDraft = (edit && edit.allocations && edit.allocations.length) ? edit.allocations.map(function (a) { return { project: (a.project || '').trim(), amount: (a.amount == null ? '' : a.amount) }; }) : [];
+    // 部分未分摊：打开编辑时自动补一行「剩余未分摊」金额，便于直接选下拉补完
+    if (edit && edit.allocations && edit.allocations.length) {
+      var _s = edit.allocations.reduce(function (x, a) { return x + (parseFloat(a.amount) || 0); }, 0);
+      var _left = (parseFloat(edit.amount) || 0) - _s;
+      if (_left > 0.01) allocDraft.push({ project: '', amount: _left });
+    }
     var projList = projects().map(function (p) { return '<option>' + FW.esc(p) + '</option>'; }).join('');
     var v = { date: FW.today(), type: 'expense', cat1: DEFAULT_CATS[0], cat2: '', account: ACCTS[0], amount: '', remark: '', project: '', party: '', reimburser: '', photos: [],
       fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
@@ -2701,7 +2753,7 @@
           var valid = allocDraft.filter(function (a) { return (a.project || '').trim() && (parseFloat(a.amount) || 0) > 0; });
           if (valid.length) {
             var validSum = valid.reduce(function (s, a) { return s + parseFloat(a.amount); }, 0);
-            if (Math.abs(validSum - amount) > 0.01) { FW.toast('分摊金额合计(' + FW.fmtMoney(validSum) + ')需等于本笔金额(' + FW.fmtMoney(amount) + ')'); return; }
+            if (validSum - amount > 0.01) { FW.toast('已归属项目金额(' + FW.fmtMoney(validSum) + ')不能超过本笔金额(' + FW.fmtMoney(amount) + ')'); return; }
             rec.project = '';
             rec.allocations = valid.map(function (a) { return { project: (a.project || '').trim(), amount: parseFloat(a.amount) }; });
           }
@@ -2711,7 +2763,15 @@
         FW.db.upsert(KEY, rec);
         if (FW.convenience) FW.convenience.clearDraft();
         var _msg = '已保存';
-        if (!rec.project && (rec.type === 'income' || rec.type === 'expense' || rec.type === 'refund')) _msg = '已保存（未填项目，不计入项目核算）';
+        if (rec.type === 'income' || rec.type === 'expense' || rec.type === 'refund') {
+          if (rec.allocations && rec.allocations.length) {
+            var allocSum = rec.allocations.reduce(function (s, a) { return s + (parseFloat(a.amount) || 0); }, 0);
+            if (amount - allocSum > 0.01) _msg = '已保存（未分摊余额 ' + FW.fmtMoney(amount - allocSum) + ' 不计入项目核算）';
+            else _msg = '已保存（已按项目分摊）';
+          } else if (!rec.project) {
+            _msg = '已保存（未填项目，不计入项目核算）';
+          }
+        }
         FW.closeModal(); render(); FW.toast(_msg);
       };
     });
@@ -2989,6 +3049,16 @@
     FW.db.remove(KEY, id);
     if (rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
     render(); FW.toast('已删除');
+  }
+  // 列表「待分摊 / 不参与」徽章一键切换：待分摊 ⇄ 不需要分摊（不参与），无需打开编辑弹窗
+  function toggleSkipAlloc(id) {
+    var list = all(); var rec = null;
+    list.forEach(function (t) { if (t.id === id) rec = t; });
+    if (!rec) return;
+    rec.skipAlloc = !rec.skipAlloc;
+    FW.db.saveList(KEY, list);
+    render();
+    FW.toast(rec.skipAlloc ? '已标记「不需要分摊」（不参与分摊）' : '已恢复「待分摊」');
   }
   /* ---------- 批量修改 ---------- */
   function bulkBarHtml() {
@@ -3341,6 +3411,7 @@
               '<span id="picScaleVal" class="muted">1.0x</span>' +
             '</label>' +
             '<span class="muted">（仅影响导出图片，不改原始数据）</span>' +
+            '<span class="muted" style="margin-left:8px">构建 v77</span>' +
             '<span class="tx-prev-spacer"></span>' +
           '</div>' +
           '<div class="tx-msg" id="txMsg" style="min-height:18px;margin:2px 0;color:#C8102E;font-size:13px;"></div>' +
@@ -3351,6 +3422,7 @@
           '</div>' +
         '</div>';
       FW.openModal('导出图片（调整字号 / 宽度 / 备注列宽 / 凭证大小，实时预览）', bodyHtml, function (body) {
+        document.querySelector(".modal").classList.add("modal-wide");
         var range = body.querySelector('#picSizeRange');
         var valEl = body.querySelector('#picSizeVal');
         var width = body.querySelector('#picWidthRange');
@@ -3396,8 +3468,20 @@
           Promise.resolve().then(function () { return window.FWTableImg.render(cfg); }).then(function (canvas) {
             if (!prevWrap) return;
             prevWrap.innerHTML = '';
-            canvas.style.maxWidth = 'none';
             prevWrap.appendChild(canvas);
+            // 整图等比缩放，完整显示在预览区（不裁切、不滚动），居中
+            var pad = 16;
+            var aw = prevWrap.clientWidth - pad;
+            var ah = prevWrap.clientHeight - pad;
+            canvas.style.maxWidth = 'none';
+            canvas.style.height = 'auto';
+            if (aw > 0 && ah > 0 && canvas.width && canvas.height) {
+              var sc = Math.min(aw / canvas.width, ah / canvas.height, 1);
+              canvas.style.width = Math.round(canvas.width * sc) + 'px';
+              canvas.style.height = Math.round(canvas.height * sc) + 'px';
+            } else {
+              canvas.style.maxWidth = '100%';
+            }
             if (msg) msg.textContent = '';
           }).catch(function (err) {
             console.error('[导出图片] 预览失败：', err);
