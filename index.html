@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>财务工作台</title>
-  <link rel="stylesheet" href="css/style.css?v=78" />
+  <link rel="stylesheet" href="css/style.css?v=80" />
   <!-- PWA：可添加到手机/桌面主屏，像 App 一样使用 -->
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
@@ -23,7 +23,7 @@
       <div class="brand">
         <div class="brand-logo">财</div>
         <div class="brand-text">
-          <div class="brand-title">财务工作台</div>
+          <div class="brand-title">财务工作台 <span class="ver-badge">v80</span></div>
           <div class="brand-sub" id="brandDate"></div>
         </div>
       </div>
@@ -156,7 +156,7 @@
         navigator.serviceWorker.register('sw.js').then(function (reg) {
           // 检测到新版本自动刷新一次，避免「部署了但页面还在跑旧代码」
           var reloading = false;
-          navigator.serviceWorker.addEventListener('controllerchange', function () {
+          function doReload() {
             if (reloading) return;
             reloading = true;
             var b = document.createElement('div');
@@ -164,6 +164,11 @@
             b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:#C8102E;color:#fff;padding:10px;text-align:center;font-size:13px;z-index:99999;';
             (document.body || document.documentElement).appendChild(b);
             setTimeout(function () { location.reload(); }, 700);
+          }
+          navigator.serviceWorker.addEventListener('controllerchange', doReload);
+          // 新版本 SW 激活后主动推送消息，强制当前页面（含未手动刷新的旧页面）刷新
+          navigator.serviceWorker.addEventListener('message', function (e) {
+            if (e.data && e.data.type === 'SW_UPDATED') doReload();
           });
         }).catch(function (e) {
           console.warn('Service Worker 注册失败：', e);
