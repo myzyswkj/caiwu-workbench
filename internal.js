@@ -629,6 +629,13 @@
     if (accEl) accEl.innerHTML = accSummaryHtml(rows, state.filter);
     FW.qa('#txTable .row-edit').forEach(function (b) { b.onclick = function () { openForm(b.dataset.id); }; });
     FW.qa('#txTable .row-del').forEach(function (b) { b.onclick = function () { delTx(b.dataset.id); }; });
+    // 「待分摊 / 不参与」徽章：点一下即切换是否需要分摊，无需打开编辑弹窗
+    FW.qa('#txTable .alloc-toggle').forEach(function (b) {
+      b.onclick = function (e) { e.stopPropagation(); toggleSkipAlloc(b.dataset.allocToggle); };
+      b.onkeydown = function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); toggleSkipAlloc(b.dataset.allocToggle); }
+      };
+    });
     FW.qa('#txTable .photo-cell img').forEach(function (img) { img.onclick = function () { previewPhoto(img.dataset.pid); }; });
     loadThumbs();
     applyColWidths();
@@ -675,7 +682,7 @@
       return '<tr>' + selTd +
         '<td class="nowrap tx-detail">' + FW.esc(t.date) + '</td>' +
         '<td class="tx-detail">' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
-        '<td class="tx-detail">' + txProjectLabel(t) + '</td>' +
+        '<td class="tx-detail">' + txProjectLabel(t, true) + '</td>' +
         '<td class="tx-detail">' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
         '<td class="col-tight-r tx-detail" style="color:' + accColor(acctTxt) + '"><b>' + FW.esc(acctTxt) + '</b></td>' +
         '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + qm + '</td>' +
@@ -2533,16 +2540,28 @@
   }
 
   // 流水列表 / 打印中的「项目」列：分摊交易显示 ⊞ 标记 + 各项目名（悬停看金额）
-  function txProjectLabel(t) {
+  function txProjectLabel(t, clickable) {
     var isAlloc = !!(t.allocations && t.allocations.length);
     var proj = (t.project && String(t.project).trim()) ? t.project : '';
     var badge = '';
     var left = isAlloc ? allocLeft(t) : 0;
-    if (t.skipAlloc) badge = '<span class="badge-alloc skip" title="不参与分摊">不参与</span> ';
-    else if (isAlloc && left > 0) badge = '<span class="badge-alloc part" title="部分分摊：已分摊到项目，仍有余额未分摊，可点编辑补分摊">部分分摊 ⊞</span> ';
-    else if (isAlloc) badge = '<span class="badge-alloc done" title="已分摊到项目">已分摊 ⊞</span> ';
-    else if (proj) badge = '';
-    else if (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') badge = '<span class="badge-alloc wait" title="待分摊">待分摊</span> ';
+    // clickable=true（仅列表视图）：待分摊/不参与 徽章可点，一键切换是否需要分摊
+    var btnAttrs = clickable ? ' alloc-toggle" data-alloc-toggle="' + FW.esc(t.id) + '" role="button" tabindex="0' : '';
+    if (t.skipAlloc) {
+      badge = clickable
+        ? '<span class="badge-alloc skip' + btnAttrs + '" title="点击恢复为「待分摊」">不参与</span> '
+        : '<span class="badge-alloc skip" title="不参与分摊">不参与</span> ';
+    } else if (isAlloc && left > 0) {
+      badge = '<span class="badge-alloc part" title="部分分摊：已分摊到项目，仍有余额未分摊，可点编辑补分摊">部分分摊 ⊞</span> ';
+    } else if (isAlloc) {
+      badge = '<span class="badge-alloc done" title="已分摊到项目">已分摊 ⊞</span> ';
+    } else if (proj) {
+      badge = '';
+    } else if (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') {
+      badge = clickable
+        ? '<span class="badge-alloc wait' + btnAttrs + '" title="点击标记为「不需要分摊」">待分摊</span> '
+        : '<span class="badge-alloc wait" title="待分摊">待分摊</span> ';
+    }
     if (isAlloc) {
       var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
       var names = items.map(function (a) { return (a.project || '').trim(); });
@@ -3030,6 +3049,16 @@
     FW.db.remove(KEY, id);
     if (rec.photos && rec.photos.length) FW.db.deletePhotos(rec.photos);
     render(); FW.toast('已删除');
+  }
+  // 列表「待分摊 / 不参与」徽章一键切换：待分摊 ⇄ 不需要分摊（不参与），无需打开编辑弹窗
+  function toggleSkipAlloc(id) {
+    var list = all(); var rec = null;
+    list.forEach(function (t) { if (t.id === id) rec = t; });
+    if (!rec) return;
+    rec.skipAlloc = !rec.skipAlloc;
+    FW.db.saveList(KEY, list);
+    render();
+    FW.toast(rec.skipAlloc ? '已标记「不需要分摊」（不参与分摊）' : '已恢复「待分摊」');
   }
   /* ---------- 批量修改 ---------- */
   function bulkBarHtml() {
