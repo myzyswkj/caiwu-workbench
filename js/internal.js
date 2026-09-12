@@ -2621,9 +2621,16 @@
     var v = { date: FW.today(), type: 'expense', cat1: DEFAULT_CATS[0], cat2: '', account: ACCTS[0], amount: '', remark: '', project: '', party: '', reimburser: '', photos: [],
       fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
     if (edit) {
+      // 服务费：优先用记录里的费率；老数据若只有 deduct 没有 feePermille，则由 服务费=金额×r/(1−r) 反推 r
+      var _feeP = (edit.feePermille != null && edit.feePermille !== '') ? edit.feePermille : '';
+      if (_feeP === '' && parseFloat(edit.deduct) > 0 && parseFloat(edit.amount) > 0) {
+        var _d = parseFloat(edit.deduct), _a = parseFloat(edit.amount);
+        _feeP = +((_d / (_a + _d)) * 1000).toFixed(3);
+      }
       v = { date: edit.date || FW.today(), type: edit.type || 'expense', cat1: '', cat2: '', account: edit.account || ACCTS[0],
         amount: edit.amount, remark: edit.remark || '', project: edit.project || '', party: edit.party || '', reimburser: edit.reimburser || '', photos: edit.photos || [],
-        fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in' };
+        fromAccount: ACCTS[0], toAccount: ACCTS[1] || ACCTS[0], equityDir: 'in',
+        feePermille: _feeP, feeName: edit.feeName || '', skipAlloc: !!edit.skipAlloc };
       if (edit.category) { var parts = edit.category.split(' / '); v.cat1 = parts[0]; v.cat2 = parts[1] || ''; }
       if (edit.type === 'transfer') { v.fromAccount = edit.fromAccount || ACCTS[0]; v.toAccount = edit.toAccount || (ACCTS[1] || ACCTS[0]); }
       if (edit.type === 'equity') { v.equityDir = edit.equityDir || 'in'; }
@@ -2636,6 +2643,9 @@
       v.party = prefill.party || ''; v.reimburser = prefill.reimburser || '';
       v.fromAccount = prefill.fromAccount || v.fromAccount; v.toAccount = prefill.toAccount || v.toAccount;
       v.equityDir = prefill.equityDir || 'in';
+      if (prefill.feePermille != null) v.feePermille = prefill.feePermille;
+      if (prefill.feeName) v.feeName = prefill.feeName;
+      if (prefill.skipAlloc != null) v.skipAlloc = !!prefill.skipAlloc;
     }
     var photos = (edit && edit.photos) ? edit.photos.slice() : [];
     var body =
