@@ -101,8 +101,10 @@
 
   // 把一笔「合计收支（收入 / 支出 / 退款）」按 allocations 拆成各项目应承担额（纯函数，便于测试与外部复用）。
   // 返回 [{project, amount}] 或 null（无有效分摊 → 走单项目逻辑）。
-  // 规则：仅保留「有项目名且金额>0」的有效行；有效行金额合计 <= 本笔金额时，余差（含无效行金额）归到最后一项；
-  //       合计 > 本笔金额时，按比例缩放回本笔金额（避免超额分摊）。保证全部分摊完，总额 = 本笔金额。
+  // 规则：仅保留「有项目名且金额>0」的有效行，每行按自己填写的金额认账；
+  //       有效行合计 < 本笔金额时，差额是「暂不分摊余额」→ 不并入任何项目、不计入任何项目成本
+  //       （与保存时的提示「未分摊余额不计入项目核算」保持一致）；
+  //       有效行合计 > 本笔金额时，按比例缩放回本笔金额（避免超额分摊）。
   function splitAmounts(t) {
     var alloc = t && t.allocations;
     if (!alloc || !alloc.length) return null;
@@ -116,15 +118,23 @@
     });
     if (!valid.length) return null;
     var sum = valid.reduce(function (s, x) { return s + x.amount; }, 0);
-    var eff;
-    if (sum <= total) {
-      eff = valid.map(function (x) { return x.amount; });
-      eff[eff.length - 1] += (total - sum);                 // 余差（含无效行金额）归末项
-      if (eff[eff.length - 1] < 0) eff[eff.length - 1] = 0;  // 极端超额截断
-    } else {
-      eff = valid.map(function (x) { return total * x.amount / sum; }); // 超分：按比例缩放
+    if (sum <= total + 0.005) {
+      // 未分摊余额不再归末项：留在「暂不分摊」，不进任何项目的成本 / 收入
+      return valid.map(function (x) { return { project: x.project, amount: x.amount }; });
     }
-    return valid.map(function (x, i) { return { project: x.project, amount: eff[i] }; });
+    // 超分：按比例缩放回本笔金额
+    return valid.map(function (x) { return { project: x.project, amount: total * x.amount / sum }; });
+  }
+
+  // 本笔「暂不分摊余额」= 本笔金额 − 各项目已分摊额合计（已分满或超分时为 0）
+  function allocRemainder(t) {
+    var total = num(t && t.amount);
+    if (total <= 0) return 0;
+    var split = splitAmounts(t);
+    if (!split) return 0;
+    var sum = split.reduce(function (s, x) { return s + x.amount; }, 0);
+    var rem = total - sum;
+    return rem > 0.005 ? rem : 0;
   }
 
   // 把一条工资记录拆成 {project, type, amount} 明细（type: base/bonus/commission；兼容新旧数据）
@@ -174,6 +184,7 @@
     var unRefundCount = 0, unRefundAmt = 0;   // 无项目的「退款支出」（冲减收入，不计入未归类支出）
     var unLaborAmt = 0, laborUnallocRecs = {};
     var preUnallocCount = 0, preUnallocAmt = 0;
+    var partCount = 0, partAmt = 0;           // 部分分摊：暂不分摊余额（不计入任何项目）
 
     // 流水：收入 / 支出（仅统计带项目的流水；不带项目的进入未分配）
     txs.forEach(function (t) {
@@ -191,9 +202,10 @@
               dd.revByCat[rn1] = (dd.revByCat[rn1] || 0) + s.amount;
               dd.revByCat2[rn2] = (dd.revByCat2[rn2] || 0) + s.amount;
             });
-            // 已扣支出(dv)按各项目分摊额占比计入对应项目流水成本（总额守恒、不再漏计）
+            // 已扣支出(dv)按「各项目分摊额占本笔合计额的比例」计入对应项目流水成本
+            // （分母用本笔合计额，未分摊余额对应的那部分服务费同样不摊给项目）
             if (dv > 0) {
-              var sumAmt = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
+              var sumAmt = num(t.amount) || split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
               // 服务费类扣除：按自定义名称归为独立成本分类（如「快递代收服务费」）；否则归入收入原分类
               var dn1 = t.feeName ? t.feeName : cat1(t);
               var dn2 = t.feeName ? (t.feeName + ' / ' + t.feeName) : catFull(t);
@@ -228,6 +240,9 @@
               });
             }
           }
+          // 暂不分摊余额：只统计、不摊给任何项目（避免「未分摊的也算进成本」）
+          var _rem = allocRemainder(t);
+          if (_rem > 0) { partCount++; partAmt += _rem; }
           return; // 已按分摊分发，不再走单项目分支（也不计未分配）
         }
       }
@@ -435,7 +450,8 @@
       flowCount: unFlowCount, flowAmt: unFlowAmt,
       refundCount: unRefundCount, refundAmt: unRefundAmt,
       laborCount: Object.keys(laborUnallocRecs).length, laborAmt: unLaborAmt,
-      prepayCount: preUnallocCount, prepayAmt: preUnallocAmt
+      prepayCount: preUnallocCount, prepayAmt: preUnallocAmt,
+      partCount: partCount, partAmt: partAmt
     };
 
     var allCatKeys = Object.keys(allCats).sort();
@@ -656,6 +672,8 @@
         // 分摊收入：只取目标项目的份额，并按占比补上应摊的已扣支出
         var dvTotal = num(t.deduct);
         var splitSum = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
+        // 已扣支出按「本项目分摊额占本笔合计额的比例」摊入；未分摊余额对应的服务费不摊给项目
+        var baseTot = num(t.amount) || splitSum;
         split.forEach(function (s) {
           if (s.project !== projectName) return;
           if (isRefundExp(t)) {
@@ -668,7 +686,7 @@
             return;
           }
           if (s.project === projectName) {
-            var dShare = dvTotal > 0 ? dvTotal * s.amount / splitSum : 0;
+            var dShare = dvTotal > 0 ? dvTotal * s.amount / baseTot : 0;
             items.push({
               date: t.date || '',
               party: t.party || '',
@@ -1185,15 +1203,19 @@
           // 有 allocations 分摊：按目标项目拆分，与 compute() 口径一致
           var dvTotal = num(t.deduct);
           var splitSum = split.reduce(function (s2, x) { return s2 + x.amount; }, 0) || 1;
+          // 占比分母用「本笔合计额」，这样部分分摊时显示的是本笔被分摊掉的百分比
+          var baseTot = num(t.amount) || splitSum;
+          var remAmt = allocRemainder(t);
+          var remNote = remAmt > 0 ? '；暂不分摊余额 ' + FW.fmtMoney(remAmt) + ' 不计入成本' : '';
           var srcId = t.id;
           var srcBase = '分摊自 #' + (t.id || '?') + '（总额 ' + FW.fmtMoney(Number(t.amount)) + '，占 ';
           split.forEach(function (s) {
             if (s.project !== project) return;
             var a = s.amount;
-            var pct = a / splitSum * 100;
-            var dShare = (t.type === 'income' && dvTotal > 0) ? dvTotal * a / splitSum : 0;
+            var pct = a / baseTot * 100;
+            var dShare = (t.type === 'income' && dvTotal > 0) ? dvTotal * a / baseTot : 0;
             var cf = catFull(t), party = (t.party || '—');
-            var srcNote = srcBase + pct.toFixed(1) + '%）';
+            var srcNote = srcBase + pct.toFixed(1) + '%）' + remNote;
             if (filter === 'income' && t.type === 'income') {
               txRows.push({ date: t.date || '', type: '收入', category: cf, party: party, amount: a, remark: srcNote, srcId: srcId, cls: 'amt-income' });
               inc += a;
@@ -1782,9 +1804,10 @@
   // 未分配资金提醒
   function unallocHtml(data) {
     var u = data.unalloc;
-    if (!u.flowCount && !u.laborCount && !u.prepayCount && !u.refundCount) return '';
+    if (!u.flowCount && !u.laborCount && !u.prepayCount && !u.refundCount && !u.partCount) return '';
     var parts = [];
     if (u.flowCount) parts.push('流水 <b>' + u.flowCount + '</b> 笔、合计 <b>' + FW.fmtMoney(u.flowAmt) + '</b> 未填写项目');
+    if (u.partCount) parts.push('流水 <b>' + u.partCount + '</b> 笔「暂不分摊余额」合计 <b>' + FW.fmtMoney(u.partAmt) + '</b> 未分摊到项目');
     if (u.refundCount) parts.push('退款支出 <b>' + u.refundCount + '</b> 笔、合计 <b>' + FW.fmtMoney(u.refundAmt) + '</b> 未填写项目（无法冲减到具体项目收入）');
     if (u.laborCount) parts.push('工资 <b>' + u.laborCount + '</b> 条、合计 <b>' + FW.fmtMoney(u.laborAmt) + '</b> 未分类项目');
     if (u.prepayCount) parts.push('预付款 <b>' + u.prepayCount + '</b> 笔、余额合计 <b>' + FW.fmtMoney(u.prepayAmt) + '</b> 未关联项目');
@@ -1792,6 +1815,7 @@
       '<span class="pc-unalloc-ico">⚠</span>' +
       '<div class="pc-unalloc-body"><b>有 ' + parts.join('；') + '</b>，未纳入项目核算。' +
       (u.flowCount || u.laborCount ? '补全流水「项目」或工资「按项目分类」后，会自动进入对应项目的成本 / 利润。' : '') +
+      (u.partCount ? '这些余额按「暂不分摊」处理，不计入任何项目的成本；以后要摊到某个营期，在流水编辑弹窗的「项目分摊」里补完即可。' : '') +
       (u.prepayCount ? '在「往来账」给预付款登记「关联项目」后，其未用完余额会自动进入对应项目的「应收回款项」。' : '') +
       '</div>' +
       '</div>';
@@ -2221,7 +2245,7 @@
     });
   }
 
-  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct, splitAmounts: splitAmounts, openProjectDetail: openProjectDetail, openIncomeDetail: openIncomeDetail };
+  FW.projectCostCalc = { compute: compute, salaryItems: salaryItems, salaryComps: salaryComps, getYears: getYears, openDeductCorrector: openDeductCorrector, filterRows: filterRows, enrichRows: enrichRows, getQtyMap: getQtyMap, setQty: setQty, costRateOf: costRateOf, costRateLabel: costRateLabel, costBasisTot: costBasisTot, totalCostRatePct: totalCostRatePct, splitAmounts: splitAmounts, allocRemainder: allocRemainder, openProjectDetail: openProjectDetail, openIncomeDetail: openIncomeDetail };
 
   FW.modules = FW.modules || {};
   FW.modules.projectCost = { title: '项目核算', render: render };
