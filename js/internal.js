@@ -1163,7 +1163,7 @@
     if (showTotal) {
       // 合计行：金底加粗，内联样式不依赖样式表（打印/PDF 容器已强制 print-color-adjust:exact，底色可保留）；
       // 收入/支出列沿用 class 自带的收支配色，故内联只设底色/加粗/上边框，不覆盖 color。
-      var S = 'background:var(--gold-soft);font-weight:700;border-top:2px solid var(--gold)';
+      var S = 'background:#F4C84A;color:#1F2D3D;font-weight:800;border-top:3px solid #C8951A';
       var tcs = '<td style="' + S + '">合计（' + keys.length + ' ' + fmtKey + '）</td>';
       if (balMaps) tcs += '<td class="num" style="' + S + '">' + FW.fmtMoney(sumStart) + '</td>';
       tcs += '<td class="num income" style="' + S + '">' + FW.fmtMoney(sumInc) + '</td>';
