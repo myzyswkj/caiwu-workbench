@@ -4,7 +4,7 @@
  *  - 静态资源（js/css/png/svg）：network-first，联网即用最新版本（带 ?v= 版本号，保证部署后立即生效）
  *  - 跨域请求（Supabase 等）一律放行，不进缓存
  */
-const CACHE = 'cw-cache-v83';
+const CACHE = 'cw-cache-v84';
 const PRECACHE = [
   './',
   './index.html',
