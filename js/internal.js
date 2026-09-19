@@ -1128,7 +1128,8 @@
     getOpenings().forEach(function (o) { if (o.account) m[o.account] = (m[o.account] || 0) + (Number(o.amount) || 0); });
     return m;
   }
-  function statTableRows(map, fmtKey, balMaps, showTransfer) {
+  // showTotal：末尾追加「合计」行（打印/PDF 账户维度用；Excel 与图片导出另有各自合计行）。
+  function statTableRows(map, fmtKey, balMaps, showTransfer, showTotal) {
     var keys = Object.keys(map).sort(function (a, b) {
       return (map[b].income + map[b].expense + Math.abs(map[b].transfer || 0)) - (map[a].income + map[a].expense + Math.abs(map[a].transfer || 0));
     });
@@ -1139,6 +1140,7 @@
     if (showTransfer) head += '<th class="num">互转</th>';
     head += '<th class="num">区间收支合计</th>';
     if (balMaps) head += '<th class="num">区间期末余额</th>';
+    var sumInc = 0, sumExp = 0, sumTr = 0, sumStart = 0, sumEnd = 0;
     var trs = keys.map(function (k) {
       var v = map[k];
       // 账户分类：账户名用专属颜色区分（导出/打印/统计页一致）
@@ -1146,17 +1148,31 @@
         ? '<td><span style="color:' + accColor(k) + ';font-weight:600">' + FW.esc(k) + '</span></td>'
         : '<td>' + FW.esc(k) + '</td>';
       var cells = nameCell;
-      if (balMaps) cells += '<td class="num">' + FW.fmtMoney(balMaps.start[k] || 0) + '</td>';
+      sumInc += v.income; sumExp += v.expense;
+      if (balMaps) { var st = balMaps.start[k] || 0; sumStart += st; cells += '<td class="num">' + FW.fmtMoney(st) + '</td>'; }
       cells += '<td class="num income">' + FW.fmtMoney(v.income) + '</td><td class="num expense">' + FW.fmtMoney(v.expense) + '</td>';
       if (showTransfer) {
-        var tr = v.transfer || 0;
+        var tr = v.transfer || 0; sumTr += tr;
         var trCls = tr > 0 ? 'income' : (tr < 0 ? 'expense' : '');
         cells += '<td class="num ' + trCls + '">' + FW.fmtMoney(tr) + '</td>';
       }
       cells += '<td class="num"><b>' + FW.fmtMoney(v.income - v.expense) + '</b></td>';
-      if (balMaps) cells += '<td class="num"><b>' + FW.fmtMoney(balMaps.end[k] || 0) + '</b></td>';
+      if (balMaps) { var en = balMaps.end[k] || 0; sumEnd += en; cells += '<td class="num"><b>' + FW.fmtMoney(en) + '</b></td>'; }
       return '<tr>' + cells + '</tr>';
     }).join('');
+    if (showTotal) {
+      // 合计行：金底加粗，内联样式不依赖样式表（打印/PDF 容器已强制 print-color-adjust:exact，底色可保留）；
+      // 收入/支出列沿用 class 自带的收支配色，故内联只设底色/加粗/上边框，不覆盖 color。
+      var S = 'background:var(--gold-soft);font-weight:700;border-top:2px solid var(--gold)';
+      var tcs = '<td style="' + S + '">合计（' + keys.length + ' ' + fmtKey + '）</td>';
+      if (balMaps) tcs += '<td class="num" style="' + S + '">' + FW.fmtMoney(sumStart) + '</td>';
+      tcs += '<td class="num income" style="' + S + '">' + FW.fmtMoney(sumInc) + '</td>';
+      tcs += '<td class="num expense" style="' + S + '">' + FW.fmtMoney(sumExp) + '</td>';
+      if (showTransfer) tcs += '<td class="num" style="' + S + '">' + FW.fmtMoney(sumTr) + '</td>';
+      tcs += '<td class="num" style="' + S + '"><b>' + FW.fmtMoney(sumInc - sumExp) + '</b></td>';
+      if (balMaps) tcs += '<td class="num" style="' + S + '"><b>' + FW.fmtMoney(sumEnd) + '</b></td>';
+      trs += '<tr class="acc-sum-row">' + tcs + '</tr>';
+    }
     return '<table><thead><tr>' + head + '</tr></thead><tbody>' + trs + '</tbody></table>';
   }
   function drawStatTable(s, byProj, byMonth, byDay, byCat, byAcc) {
@@ -3843,7 +3859,7 @@
         '<div class="fp-title" id="fpTitle">' + titleBlock + '</div>' +
         // 按账户收支维度：老板看流水时通常最关心"每个账户赚了/花了多少"
         '<h4 class="fp-h4">按账户（收支维度）</h4>' +
-        '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true) + '</div>' +
+        '<div class="flow-acc-table">' + statTableRows(buildAccMap(rows), '账户', { start: startBalanceMap(f), end: balMapAt(f.to || FW.today()) }, true, true) + '</div>' +
         '<div class="fp-note">注：区间期初 / 区间期末余额为各账户资金余额（含期初、账户互转与股本变动）。互转 = 转入 − 转出（账户互转净头寸），单列不影响收支；区间期末余额 = 区间期初 + 收入 − 支出 + 互转 + 股本净变动。本表「支出」含退款支出（资金流出视角），仅用于对账；利润口径下退款支出仍冲减收入、不计入费用。</div>' +
         '<h4 class="fp-h4">流水明细</h4>' +
         (function () {
