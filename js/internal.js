@@ -78,6 +78,18 @@
     for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
     return ACC_COLORS[h % ACC_COLORS.length];
   }
+  // 账户单元格内容（界面表格 / 打印-PDF / 导出共用，保证口径一致）：
+  // 普通流水 = 账户名加粗 + 专属色；账户互转 = 「转出→转入」两侧各用各自账户专属色，避免整串取到无关颜色。
+  function acctCellHtml(t) {
+    if (t && t.type === 'transfer') {
+      var fa = t.fromAccount || '', ta = t.toAccount || '';
+      return '<b style="color:' + accColor(fa) + '">' + FW.esc(fa) + '</b>' +
+        '<span style="color:var(--muted)"> → </span>' +
+        '<b style="color:' + accColor(ta) + '">' + FW.esc(ta) + '</b>';
+    }
+    var n = accountOf(t);
+    return '<b style="color:' + accColor(n) + '">' + FW.esc(n) + '</b>';
+  }
   function refreshAccts() { ACCTS = getAccounts(); ACC_COLOR_MAP = null; }
 
   var CATKEY_ = CATKEY;
@@ -669,7 +681,6 @@
       var qm = fl ? ((fl.dup ? '<span class="tx-flag" title="疑似重复流水：存在同日期/同金额/同对方的记录，建议核对">◆</span>' : '') + (fl.outlier ? '<span class="tx-flag warn" title="' + FW.esc(fl.reason || '金额异常，请核对') + '">⚠️</span>' : '')) : '';
       var affects = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
       var amtCls = affects ? m.cls : 'neutral';
-      var acctTxt = accountOf(t);
       var pcount = (t.photos && t.photos.length) || 0;
       var selTd = state.selMode ? '<td><input type="checkbox" class="sel-cb" data-id="' + t.id + '"' + (state.selIds[t.id] ? ' checked' : '') + '></td>' : '';
       // 凭证图片直接落在本行的「凭证」列内（与打印视图口径一致，不另起子行）
@@ -684,7 +695,7 @@
         '<td class="tx-detail">' + (affects ? '<span class="tag ' + m.cls + '">' + m.tag + '</span>' : '<span class="tag ' + m.cls + '">' + m.tag + '</span><div class="muted" style="font-size:11px">不影响收支</div>') + '</td>' +
         '<td class="tx-detail">' + txProjectLabel(t, true) + '</td>' +
         '<td class="tx-detail">' + FW.esc(t.category || (affects ? '—' : '—')) + '</td>' +
-        '<td class="col-tight-r tx-detail" style="color:' + accColor(acctTxt) + '"><b>' + FW.esc(acctTxt) + '</b></td>' +
+        '<td class="col-tight-r tx-detail">' + acctCellHtml(t) + '</td>' +
         '<td class="num ' + amtCls + ' col-tight-l">' + FW.fmtMoney(t.amount) + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">实际收入 ' + FW.fmtMoney(t.amount + t.deduct) + '</div>' : '') + qm + '</td>' +
         '<td class="remark col-loose-l">' + FW.esc(t.remark || '') + (t.type === 'income' && t.deduct > 0 ? '<div class="muted" style="font-size:11px">已扣' + FW.esc(t.feeName || '支出') + ' ' + FW.fmtMoney(t.deduct) + '（计入项目成本）</div>' : '') + '</td>' +
         '<td class="photo-cell">' + vcell + '</td>' +
@@ -3827,6 +3838,8 @@
     var baseW = [], totalW = 0;
     var html =
       '<div class="flow-print print-area vsz-m">' +
+        // 强制打印 / 导出 PDF 时保留单元格与文字颜色（账户专属色、收支配色等），避免被浏览器「省墨」模式抹掉
+        '<style>.flow-print *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }</style>' +
         '<div class="fp-title" id="fpTitle">' + titleBlock + '</div>' +
         // 按账户收支维度：老板看流水时通常最关心"每个账户赚了/花了多少"
         '<h4 class="fp-h4">按账户（收支维度）</h4>' +
@@ -3874,7 +3887,7 @@
             type: '<td class="fp-detail-big' + ((t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out') ? ' fp-type-bold' : '') + '">' + FW.esc(typeLabel(t)) + '</td>',
             project: '<td class="fp-detail-big">' + txProjectLabel(t) + '</td>',
             category: '<td class="fp-detail-big">' + FW.esc(t.category || '') + '</td>',
-            account: '<td class="fp-detail-big">' + FW.esc(accountOf(t)) + '</td>',
+            account: '<td class="fp-detail-big">' + acctCellHtml(t) + '</td>',
             amount: amtCell(t),
             remark: '<td>' + FW.esc((t.remark || '').replace(/[\r\n]+/g, ' ')) + '</td>',
             voucher: vcell,
