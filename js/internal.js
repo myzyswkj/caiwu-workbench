@@ -2566,7 +2566,15 @@
     return left > 0.01 ? left : 0;
   }
 
-  // 流水列表 / 打印中的「项目」列：分摊交易显示 ⊞ 标记 + 各项目名（悬停看金额）
+  // 项目色点：同一项目名恒定取色，多项目分摊时一眼区分是哪个项目（与账户着色思路一致）
+  var PROJ_DOT_COLORS = ['#1F6FB2', '#0E8C8C', '#B45309', '#7C3AED', '#C8102E', '#1F9D55', '#A16207', '#BE185D'];
+  function projDotColor(name) {
+    var str = String(name || ''), h = 0;
+    for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+    return PROJ_DOT_COLORS[h % PROJ_DOT_COLORS.length];
+  }
+
+  // 流水列表 / 打印中的「项目」列：分摊交易显示 ⊞ 标记 + 各项目名与分摊金额（逐条列出，一眼看清各分了多少）
   function txProjectLabel(t, clickable) {
     var isAlloc = !!(t.allocations && t.allocations.length);
     var proj = (t.project && String(t.project).trim()) ? t.project : '';
@@ -2591,12 +2599,26 @@
     }
     if (isAlloc) {
       var items = (t.allocations || []).filter(function (a) { return (a.project || '').trim(); });
-      var names = items.map(function (a) { return (a.project || '').trim(); });
-      var shown = names.slice(0, 2).join('/');
-      if (names.length > 2) shown += '…(' + names.length + ')';
+      if (!items.length) return badge + FW.esc(proj || '—');
       var tip = '已分摊：' + items.map(function (a) { return (a.project || '') + ' ' + FW.fmtMoney(Number(a.amount) || 0); }).join('；');
       if (left > 0) tip += '｜剩余未分摊：' + FW.fmtMoney(left);
-      return badge + '<span class="alloc-tag" title="' + FW.esc(tip) + '">' + FW.esc(shown) + '</span>';
+      // 逐条列出「项目名 + 分摊金额」：项目前带恒定色点，金额右对齐加粗，界面里一眼看清各项目各分了多少
+      var rowsHtml = items.map(function (a) {
+        var nm = (a.project || '').trim();
+        return '<span style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:1px 0">' +
+          '<span style="color:#1F2D3D;min-width:0;word-break:break-word">' +
+            '<i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + projDotColor(nm) + ';margin-right:5px;vertical-align:middle"></i>' + FW.esc(nm) +
+          '</span>' +
+          '<b style="color:#B45309;font-weight:700;white-space:nowrap;flex:0 0 auto">' + FW.fmtMoney(Number(a.amount) || 0) + '</b>' +
+        '</span>';
+      }).join('');
+      if (left > 0) {
+        rowsHtml += '<span style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:1px 0">' +
+          '<span style="color:#9A4A00">未分摊</span>' +
+          '<b style="color:#9A4A00;font-weight:700;white-space:nowrap;flex:0 0 auto">' + FW.fmtMoney(left) + '</b>' +
+        '</span>';
+      }
+      return badge + '<span class="alloc-break" title="' + FW.esc(tip) + '" style="display:block;max-width:100%;margin-top:3px;padding-left:6px;border-left:2px solid #B8D4EC;font-size:12px;line-height:1.6">' + rowsHtml + '</span>';
     }
     return badge + FW.esc(proj || '—');
   }
