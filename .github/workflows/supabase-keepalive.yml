@@ -1,0 +1,48 @@
+# Supabase 免费版保活（Keep-Alive）
+#
+# 背景：Supabase 免费版项目若连续 7 天没有任何 API 请求，会被自动「暂停」。
+# 暂停后项目域名会停止解析（NXDOMAIN），应用端表现就是：
+#   登录/同步一直转圈，最后报「当前网络到云端不稳定（已等待超时）」
+# 这不是账号密码问题，也不是应用代码问题，恢复方法是在控制台点 Restore project。
+#
+# 本工作流每 3 天向项目 REST 端点发一次极轻量请求，让项目保持活跃、不进入暂停。
+# 提示：GitHub 的定时任务在仓库连续 60 天无提交后会被自动停用，
+#       如需更稳的保活，可另外用 UptimeRobot 之类的免费监控每 5 分钟探一次同样的地址。
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # 每 3 天 03:17 UTC（避开整点高峰，GitHub 定时任务本身有排队延迟）
+    - cron: '17 3 */3 * *'
+  workflow_dispatch: # 支持在 Actions 页面手动跑一次（可用来快速验证项目是否已恢复）
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 探测 Supabase 项目是否在线
+        env:
+          SUPABASE_URL: https://uuvgvocusrpfakjevbnt.supabase.co
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dmd2b2N1c3JwZmFramV2Ym50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUwNjUwNDMsImV4cCI6MjEwMDY0MTA0M30.vSNISAYune22X8Bh-t5CUmvEBg4rdDZ54I2h1Djxd0o
+        run: |
+          set -u
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 40 \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/" || echo "000")
+          echo "HTTP $code"
+          head -c 400 /tmp/body 2>/dev/null || true
+          echo ""
+
+          if [ "$code" = "000" ]; then
+            echo "::error::无法连接 $SUPABASE_URL（DNS 不解析/连接失败）—— 项目极可能已被暂停，请到 https://supabase.com/dashboard/project/uuvgvocusrpfakjevbnt 点 Restore project 恢复"
+            exit 1
+          fi
+          if [ "$code" -ge 500 ]; then
+            echo "::warning::Supabase 返回 HTTP $code，项目可能异常或正在恢复中"
+            exit 1
+          fi
+          echo "项目在线，保活成功（HTTP $code）"
