@@ -1821,8 +1821,10 @@
       el.innerHTML =
         '<div class="tx-title">核算维度</div>' +
         '<div class="form-grid">' +
-          '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select></div>' +
-          '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a> <a href="#" id="mgRules" style="font-size:12px;color:var(--primary);align-self:center">匹配规则</a></div>' +
+          '<div class="field"><label>分类（一级）</label><select id="f_cat1">' + cat1Opts(c1) + '</select> <button type="button" id="addCat1Btn" class="btn sm ghost" style="align-self:center">＋一级</button></div>' +
+          '<div class="field full" id="addCat1Row" style="display:none"><span class="muted" style="font-size:12px;margin-right:6px">新一级类目：</span><input id="addCat1Input" placeholder="如：通讯费" class="ss-input" style="display:inline-block;width:auto;min-width:160px"> <button type="button" id="addCat1Ok" class="btn sm">确定</button> <button type="button" id="addCat1Cancel" class="btn sm ghost">取消</button></div>' +
+          '<div class="field"><label>分类（二级）</label><select id="f_cat2">' + cat2Opts(c1, c2) + '</select> <a href="#" id="mgCats" style="font-size:12px;color:var(--primary);align-self:center">管理分类</a> <a href="#" id="mgRules" style="font-size:12px;color:var(--primary);align-self:center">匹配规则</a> <button type="button" id="addCat2Btn" class="btn sm ghost" style="align-self:center">＋二级</button></div>' +
+          '<div class="field full" id="addCat2Row" style="display:none"><span class="muted" style="font-size:12px;margin-right:6px">新二级类目（归入上方所选一级）：</span><input id="addCat2Input" placeholder="如：快递费" class="ss-input" style="display:inline-block;width:auto;min-width:160px"> <button type="button" id="addCat2Ok" class="btn sm">确定</button> <button type="button" id="addCat2Cancel" class="btn sm ghost">取消</button></div>' +
           '<div class="field full"><span id="catHint" class="cat-hint"></span></div>' +
           (type === 'refund_out' ? '<div class="field full muted" style="font-size:12px;line-height:1.6">💡 「退款支出」＝退给客户的钱：该笔将<b>冲减收入</b>，不计入支出费用（利润不受影响，只是费用里不再混着退款）。</div>' : '') +
           '<div class="field"><label>账户</label><select id="f_account">' + accOpts(v.account) + '</select></div>' +
@@ -1835,6 +1837,60 @@
       if (c2sel) c2sel.onchange = function () { catAutoTouched = true; clearCatHint(); };
       makeCat1Search('f_cat1', 'f_cat2');
       makeSearchableSelect('f_cat2');
+      // —— 在新增/编辑表单内直接新增一/二级分类，无需跳转到「管理分类」——
+      var addCat1Btn = document.getElementById('addCat1Btn');
+      if (addCat1Btn) addCat1Btn.onclick = function () {
+        var row = document.getElementById('addCat1Row'); row.style.display = 'block';
+        var inp = document.getElementById('addCat1Input'); inp.value = ''; inp.focus();
+        inp.onkeydown = function (e) { if (e.key === 'Enter') { document.getElementById('addCat1Ok').click(); } };
+      };
+      var addCat1Cancel = document.getElementById('addCat1Cancel');
+      if (addCat1Cancel) addCat1Cancel.onclick = function () { document.getElementById('addCat1Row').style.display = 'none'; };
+      var addCat1Ok = document.getElementById('addCat1Ok');
+      if (addCat1Ok) addCat1Ok.onclick = function () {
+        var name = (document.getElementById('addCat1Input').value || '').trim();
+        if (!name) { FW.toast('请输入一级类目名称'); return; }
+        var list = FW.db.getList(CATKEY);
+        if (list.some(function (x) { return x.name === name; })) { FW.toast('已存在该一级分类'); return; }
+        list.push({ name: name, children: [] });
+        FW.db.saveList(CATKEY, list);
+        var c1s = document.getElementById('f_cat1');
+        c1s.innerHTML = cat1Opts(name);
+        c1s.value = name;
+        makeCat1Search('f_cat1', 'f_cat2');
+        catAutoTouched = true; clearCatHint();
+        document.getElementById('addCat1Row').style.display = 'none';
+        FW.toast('已新增一级分类：' + name);
+      };
+      var addCat2Btn = document.getElementById('addCat2Btn');
+      if (addCat2Btn) addCat2Btn.onclick = function () {
+        var row = document.getElementById('addCat2Row'); row.style.display = 'block';
+        var inp = document.getElementById('addCat2Input'); inp.value = ''; inp.focus();
+        inp.onkeydown = function (e) { if (e.key === 'Enter') { document.getElementById('addCat2Ok').click(); } };
+      };
+      var addCat2Cancel = document.getElementById('addCat2Cancel');
+      if (addCat2Cancel) addCat2Cancel.onclick = function () { document.getElementById('addCat2Row').style.display = 'none'; };
+      var addCat2Ok = document.getElementById('addCat2Ok');
+      if (addCat2Ok) addCat2Ok.onclick = function () {
+        var c1 = document.getElementById('f_cat1').value;
+        if (!c1) { FW.toast('请先选择「一级分类」再新增二级'); return; }
+        var name = (document.getElementById('addCat2Input').value || '').trim();
+        if (!name) { FW.toast('请输入二级类目名称'); return; }
+        var list = FW.db.getList(CATKEY);
+        var node = null; list.forEach(function (x) { if (x.name === c1) node = x; });
+        if (!node) { node = { name: c1, children: [] }; list.push(node); }
+        node.children = node.children || [];
+        if (node.children.indexOf(name) >= 0) { FW.toast('该一级下已存在该二级分类'); return; }
+        node.children.push(name);
+        FW.db.saveList(CATKEY, list);
+        var c2 = document.getElementById('f_cat2');
+        c2.innerHTML = cat2Opts(c1, name);
+        c2.value = name;
+        makeSearchableSelect('f_cat2');
+        catAutoTouched = true; clearCatHint();
+        document.getElementById('addCat2Row').style.display = 'none';
+        FW.toast('已新增二级分类：' + c1 + ' / ' + name);
+      };
       var mg = document.getElementById('mgCats');
       if (mg) mg.onclick = function (e) { e.preventDefault(); openCatManager(); };
       var mgr = document.getElementById('mgRules');
