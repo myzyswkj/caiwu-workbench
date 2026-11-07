@@ -144,7 +144,7 @@
   function prevMonth(ym) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7); m--; if (m === 0) { m = 12; y--; } return y + '-' + (m < 10 ? '0' + m : m); }
   function shiftMonth(ym, delta) { var y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1 + delta; y += Math.floor(m / 12); m = (m % 12 + 12) % 12; return y + '-' + (m + 1 < 10 ? '0' + (m + 1) : m + 1); }
 
-  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '', noAlloc: false }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '', showVoucher: true, selMode: false, selIds: {} };
+  var state = { tab: 'list', filter: { project: '', category: '', category2: '', account: '', type: '', kw: '', amt: '', from: '', to: '', noAlloc: false }, statFrom: '', statTo: '', calMonth: '', calSel: '', fundType: '', bankAcct: '', showVoucher: true, selMode: false, selIds: {} };
 
   function all() { return FW.db.getList(KEY).sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); }); }
   function projects() {
@@ -174,6 +174,28 @@
     if (fa.indexOf(SEP) >= 0) return fa === ta;
     return acct1(fa) === acct1(ta);
   }
+  // 金额筛选：支持 精确(500) / 区间(500-1000 或 500~1000) / 不小于(≥500、>=500) / 不大于(≤500、<=500) / 大于(>500) / 小于(<500)
+  function matchAmount(expr, val) {
+    var s = String(expr == null ? '' : expr).trim();
+    if (!s) return true;
+    var range = s.match(/^(\d+(?:\.\d+)?)\s*[-~]\s*(\d+(?:\.\d+)?)$/);
+    if (range) {
+      var a = parseFloat(range[1]), b = parseFloat(range[2]);
+      var lo = Math.min(a, b), hi = Math.max(a, b);
+      return val >= lo - 1e-9 && val <= hi + 1e-9;
+    }
+    var cmp = s.match(/^(>=|≥|<=|≤|>|<)\s*(\d+(?:\.\d+)?)$/);
+    if (cmp) {
+      var op = cmp[1], n = parseFloat(cmp[2]);
+      if (op === '>=' || op === '≥') return val >= n - 1e-9;
+      if (op === '<=' || op === '≤') return val <= n + 1e-9;
+      if (op === '>') return val > n + 1e-9;
+      if (op === '<') return val < n - 1e-9;
+    }
+    var num = parseFloat(s);
+    if (isNaN(num)) return true; // 非法/半成品输入不过滤，避免打字中途清空列表
+    return Math.abs(val - num) < 0.005;
+  }
   function filterRows(f) {
     return all().filter(function (t) {
       if (f.project) {
@@ -193,6 +215,7 @@
       if (f.from && t.date < f.from) return false;
       if (f.to && t.date > f.to) return false;
       if (f.kw && ((t.remark || '') + (txProjectText(t)) + (t.category || '')).indexOf(f.kw) < 0) return false;
+      if (f.amt && !matchAmount(f.amt, Math.abs(Number(t.amount) || 0))) return false;
       if (f.noAlloc) {
         var allocatable = (t.type === 'income' || t.type === 'expense' || t.type === 'refund' || t.type === 'refund_out');
         if (!allocatable || t.skipAlloc) return false;
@@ -500,6 +523,7 @@
       '<div class="card">' +
       '<div class="toolbar filter-bar">' +
         '<div class="field"><input id="fKw" placeholder="搜索备注/项目" value="' + FW.esc(f.kw) + '"></div>' +
+        '<div class="field"><input id="fAmt" placeholder="金额 例:500 / ≥500 / ≤500 / 500-1000" style="width:210px" value="' + FW.esc(f.amt || '') + '"></div>' +
           '<div class="field"><select id="fProj">' + projOpts + '</select></div>' +
           '<div class="field"><select id="fCat">' + catOpts + '</select></div>' +
           '<div class="field"><select id="fCat2">' + cat2OptsF + '</select></div>' +
@@ -524,6 +548,7 @@
     document.getElementById('fAllocStatus').value = f.allocStatus || '';
     document.getElementById('fFrom').value = f.from;
     document.getElementById('fTo').value = f.to;
+    var fAmtEl = document.getElementById('fAmt'); if (fAmtEl) fAmtEl.value = f.amt || '';
     bindFilter();
     drawTable();
     if (state.selMode) bindBulkBar();
@@ -534,6 +559,7 @@
   function bindFilter() {
     var g = function (id) { return document.getElementById(id); };
     g('fKw').oninput = function () { state.filter.kw = this.value.trim(); drawTable(); };
+    g('fAmt').oninput = function () { state.filter.amt = this.value.trim(); drawTable(); };
     g('fProj').onchange = function () { state.filter.project = this.value; drawTable(); };
     g('fCat').onchange = function () {
       state.filter.category = this.value;
@@ -548,7 +574,7 @@
     g('fAllocStatus').onchange = function () { state.filter.allocStatus = this.value; drawTable(); };
     g('fFrom').onchange = function () { state.filter.from = this.value; drawTable(); };
     g('fTo').onchange = function () { state.filter.to = this.value; drawTable(); };
-    g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', from: '', to: '', noAlloc: false, allocStatus: '' }; drawList(); };
+    g('fReset').onclick = function () { state.filter = { project: '', category: '', category2: '', account: '', type: '', kw: '', amt: '', from: '', to: '', noAlloc: false, allocStatus: '' }; drawList(); };
     g('fNoAlloc').onchange = function () { state.filter.noAlloc = this.checked; drawTable(); };
     g('fVoucher').onchange = function () { state.showVoucher = this.checked; drawTable(); };
     g('fResetColW').onclick = resetColWidths;
